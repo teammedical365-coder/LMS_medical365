@@ -75,9 +75,15 @@ async function startServerWithFallback(server, desiredPort, maxRetries = 5) {
 }
 
 async function bootstrap() {
-  // 1. Validate environment configuration
+  // 1. Validate environment configuration (Fail-fast in production per SEC-03)
   const validation = validateConfig();
-  if (!validation.isValid) {
+  if (validation.errors && validation.errors.length > 0) {
+    validation.errors.forEach((err) => logger.error(`[SEC-03] Fatal Configuration Error: ${err}`));
+    logger.error('CRITICAL: Server startup aborted due to unsafe production configuration.');
+    process.exit(1);
+  }
+
+  if (validation.warnings && validation.warnings.length > 0) {
     validation.warnings.forEach((warning) => logger.warn(`Configuration Notice: ${warning}`));
   }
 

@@ -12,23 +12,38 @@
 
 import ApiResponse from '../utils/apiResponse.js';
 import { HTTP_STATUS } from '../config/constants.js';
+import config from '../config/env.js';
 
-class RateLimiter {
-  constructor(windowMs = 15 * 60 * 1000, maxRequests = 20) {
+export class RateLimiter {
+  constructor(windowMs = 15 * 60 * 1000, defaultMaxRequests = null) {
     this.windowMs = windowMs;
-    this.maxRequests = maxRequests;
+    this.defaultMaxRequests = defaultMaxRequests;
     this.requests = new Map(); // key -> Array of timestamps
+  }
+
+  /**
+   * Determine effective request threshold based on environment
+   */
+  getMaxRequests() {
+    if (process.env.NODE_ENV === 'production' || config.isProduction) {
+      return 15;
+    }
+    if (this.defaultMaxRequests !== null) {
+      return this.defaultMaxRequests;
+    }
+    return process.env.NODE_ENV === 'test' ? 15 : 200;
   }
 
   /**
    * Clean expired timestamps and check limit
    */
-  isRateLimited(key) {
+  isRateLimited(key, customLimit = null) {
+    const limit = customLimit !== null ? customLimit : this.getMaxRequests();
     const now = Date.now();
     const timestamps = this.requests.get(key) || [];
     const validTimestamps = timestamps.filter((t) => now - t < this.windowMs);
 
-    if (validTimestamps.length >= this.maxRequests) {
+    if (validTimestamps.length >= limit) {
       this.requests.set(key, validTimestamps);
       const oldest = validTimestamps[0];
       const retryAfterSec = Math.ceil((oldest + this.windowMs - now) / 1000);
@@ -45,13 +60,14 @@ class RateLimiter {
   }
 }
 
-// Global instance for auth endpoints: 15 minutes, 15 attempts in production, 200 in development
-const maxAttempts = process.env.NODE_ENV === 'production' ? 15 : 200;
-const authLimiter = new RateLimiter(15 * 60 * 1000, maxAttempts);
+// Global instance for auth endpoints
+export const authLimiter = new RateLimiter(15 * 60 * 1000);
 
 export const authRateLimiter = (req, res, next) => {
-  // Allow test suites to bypass rate limiting
-  if (req.headers['x-bypass-rate-limit'] === 'test-bypass' || process.env.NODE_ENV === 'test') {
+  // Allow automated test suites to bypass rate limiting strictly when running in test environment
+  // In development and production, the bypass header is strictly ignored
+  const isTestEnvironment = process.env.NODE_ENV === 'test' && !config.isProduction;
+  if (isTestEnvironment && req.headers['x-bypass-rate-limit'] === 'test-bypass') {
     return next();
   }
 

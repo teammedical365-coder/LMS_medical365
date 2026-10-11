@@ -12,7 +12,7 @@
  */
 
 import jwt from 'jsonwebtoken';
-import config from '../config/env.js';
+import config, { validateSecret } from '../config/env.js';
 import { ACCOUNT_TYPE } from '../config/constants.js';
 
 export class TokenVerificationError extends Error {
@@ -31,9 +31,10 @@ class TokenService {
     this.audience = config.jwt?.audience || 'lms-api';
     this.expiresIn = config.jwt?.expiresIn || '15m';
 
-    if (!this.secret || this.secret.length < 32) {
-      if (config.isProduction) {
-        throw new Error('FATAL: JWT_SECRET must be at least 32 characters in production');
+    if (config.isProduction) {
+      const check = validateSecret('JWT_SECRET', this.secret, 32);
+      if (!check.isValid) {
+        throw new Error(`FATAL: ${check.error}`);
       }
     }
   }

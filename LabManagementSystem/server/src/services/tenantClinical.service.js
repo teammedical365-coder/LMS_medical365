@@ -19,6 +19,7 @@ import auditLogService from './auditLog.service.js';
 import ReportVerificationModel from '../models/reportVerification.model.js';
 import { resolveSpecimenContainer, generateBarcodeSvg, generate50x25Label } from '../utils/barcode128.js';
 import logger from '../utils/logger.js';
+import { HTTP_STATUS } from '../config/constants.js';
 
 export class ClinicalServiceError extends Error {
   constructor(message, code = 'CLINICAL_ERROR', statusCode = 400) {
@@ -27,6 +28,41 @@ export class ClinicalServiceError extends Error {
     this.code = code;
     this.statusCode = statusCode;
   }
+}
+
+export const MAX_SEARCH_LENGTH = 100;
+
+/**
+ * Escapes regex metacharacters in user-supplied strings for safe MongoDB regex queries.
+ * Converts characters [.*+?^${}()|[\]\\] into literal escaped characters.
+ */
+export function escapeRegex(string) {
+  if (typeof string !== 'string') return '';
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Sanitizes and validates a search query parameter for clinical search operations.
+ * - Handles empty / whitespace-only input by returning ''
+ * - Enforces maximum character length of 100 characters
+ * - Escapes regex metacharacters for literal matching
+ */
+export function sanitizeSearchQuery(input, maxLength = MAX_SEARCH_LENGTH) {
+  if (input === null || input === undefined) return '';
+  if (typeof input !== 'string') return '';
+
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return '';
+
+  if (trimmed.length > maxLength) {
+    throw new ClinicalServiceError(
+      `Search query must not exceed ${maxLength} characters`,
+      'SEARCH_QUERY_TOO_LONG',
+      HTTP_STATUS.BAD_REQUEST
+    );
+  }
+
+  return escapeRegex(trimmed);
 }
 
 export function isValidIanaTimezone(tz) {
@@ -215,15 +251,16 @@ class TenantClinicalService {
     await tenantUserService.assertTenantReady(tenantId);
     const { search, limit = 50 } = query;
     const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
+    const sanitizedSearch = sanitizeSearchQuery(search);
 
     if (PatientModel) {
       const filter = { tenantId };
-      if (search) {
+      if (sanitizedSearch) {
         filter.$or = [
-          { firstName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
-          { mrn: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } },
+          { firstName: { $regex: sanitizedSearch, $options: 'i' } },
+          { lastName: { $regex: sanitizedSearch, $options: 'i' } },
+          { mrn: { $regex: sanitizedSearch, $options: 'i' } },
+          { phone: { $regex: sanitizedSearch, $options: 'i' } },
         ];
       }
       const list = await PatientModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
@@ -233,13 +270,14 @@ class TenantClinicalService {
     // In-memory fallback
     const tenantMap = this.memoryPatients.get(tenantId) || new Map();
     let list = Array.from(tenantMap.values());
-    if (search) {
-      const s = search.toLowerCase();
+    if (sanitizedSearch) {
+      const s = search.trim().toLowerCase();
       list = list.filter(
         (p) =>
           p.firstName?.toLowerCase().includes(s) ||
           p.lastName?.toLowerCase().includes(s) ||
-          p.mrn?.toLowerCase().includes(s)
+          p.mrn?.toLowerCase().includes(s) ||
+          p.phone?.toLowerCase().includes(s)
       );
     }
     return list;
@@ -334,16 +372,17 @@ class TenantClinicalService {
     await tenantUserService.assertTenantReady(tenantId);
     const { status, priority, search, limit = 50 } = query;
     const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const sanitizedSearch = sanitizeSearchQuery(search);
 
     if (OrderModel) {
       const filter = { tenantId };
       if (status) filter.orderStatus = status;
       if (priority) filter.priority = priority;
-      if (search) {
+      if (sanitizedSearch) {
         filter.$or = [
-          { orderNumber: { $regex: search, $options: 'i' } },
-          { patientName: { $regex: search, $options: 'i' } },
-          { patientMrn: { $regex: search, $options: 'i' } },
+          { orderNumber: { $regex: sanitizedSearch, $options: 'i' } },
+          { patientName: { $regex: sanitizedSearch, $options: 'i' } },
+          { patientMrn: { $regex: sanitizedSearch, $options: 'i' } },
         ];
       }
       const list = await OrderModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
@@ -355,6 +394,15 @@ class TenantClinicalService {
     let list = Array.from(tenantMap.values());
     if (status) list = list.filter((o) => o.orderStatus === status);
     if (priority) list = list.filter((o) => o.priority === priority);
+    if (sanitizedSearch) {
+      const s = search.trim().toLowerCase();
+      list = list.filter(
+        (o) =>
+          o.orderNumber?.toLowerCase().includes(s) ||
+          o.patientName?.toLowerCase().includes(s) ||
+          o.patientMrn?.toLowerCase().includes(s)
+      );
+    }
     return list;
   }
 
