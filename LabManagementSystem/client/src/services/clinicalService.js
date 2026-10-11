@@ -1,0 +1,76 @@
+/**
+ * Lab Management System (LMS) - Tenant Clinical Service
+ * 
+ * Provides unified API client methods for all tenant clinical modules:
+ * - Patients Accessioning
+ * - Requisition Orders
+ * - Specimen Sample Tracking
+ * - Test Catalog Management
+ * - Diagnostic Pathology Reports
+ * - Billing Ledger & Invoices
+ * - Dashboard Analytics
+ */
+
+import api from './api';
+
+export const clinicalService = {
+  // Patients
+  getPatients: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/patients`, { params }).then((res) => res.data),
+
+  createPatient: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/patients`, data).then((res) => res.data),
+
+  // Orders
+  getOrders: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/orders`, { params }).then((res) => res.data),
+
+  createOrder: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/orders`, data).then((res) => res.data),
+
+  recordOrderItemResult: (tenantId, orderId, itemId, data) =>
+    api.patch(`/tenants/${tenantId}/orders/${orderId}/items/${itemId}/result`, data).then((res) => res.data),
+
+  // Samples
+  getSamples: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/samples`, { params }).then((res) => res.data),
+
+  updateSampleStatus: (tenantId, sampleId, updates) =>
+    api.patch(`/tenants/${tenantId}/samples/${sampleId}/status`, updates).then((res) => res.data),
+
+  // Test Catalog
+  getTestCatalog: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/tests`, { params }).then((res) => res.data),
+
+  createTest: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/tests`, data).then((res) => res.data),
+
+  // Reports
+  getReports: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/reports`, { params }).then((res) => res.data),
+
+  createReport: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/reports`, data).then((res) => res.data),
+
+  approveReport: (tenantId, reportId) =>
+    api.post(`/tenants/${tenantId}/reports/${reportId}/approve`).then((res) => res.data),
+
+  releaseReport: (tenantId, reportId) =>
+    api.post(`/tenants/${tenantId}/reports/${reportId}/release`).then((res) => res.data),
+
+  // Billing
+  getInvoices: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/billing/invoices`, { params }).then((res) => res.data),
+
+  recordPayment: (tenantId, invoiceId, data) =>
+    api.post(`/tenants/${tenantId}/billing/invoices/${invoiceId}/payments`, data).then((res) => res.data),
+
+  getBillingSummary: (tenantId) =>
+    api.get(`/tenants/${tenantId}/billing/summary`).then((res) => res.data),
+
+  // Dashboard Metrics
+  getDashboardSummary: (tenantId) =>
+    api.get(`/tenants/${tenantId}/dashboard-summary`).then((res) => res.data),
+};
+
+export default clinicalService;

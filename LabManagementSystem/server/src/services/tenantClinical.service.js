@@ -220,18 +220,36 @@ class TenantClinicalService {
 
     const orderId = this.generateId('ord');
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
-    const totalAmount = orderItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
 
-    const formattedItems = orderItems.map((it, idx) => ({
-      itemId: `item_${idx + 1}`,
-      testCode: it.testCode || `TEST-${idx + 1}`,
-      testName: it.testName || it.name || 'Diagnostic Panel',
-      price: Number(it.price) || 0,
-      status: 'ordered',
-      resultValue: null,
-      referenceRange: it.referenceRange || 'Normal',
-      isAbnormal: false,
-    }));
+    // Fetch test catalog to resolve server-side prices when omitted
+    const catalogList = await this.listTestCatalog(tenantId);
+    const catalogMap = new Map();
+    for (const c of catalogList) {
+      if (c.code) catalogMap.set(c.code.toUpperCase(), c);
+    }
+
+    const formattedItems = orderItems.map((it, idx) => {
+      const codeKey = (it.testCode || it.code || '').trim().toUpperCase();
+      const catalogMatch = catalogMap.get(codeKey);
+      const resolvedPrice = (it.price !== undefined && it.price !== null && !isNaN(Number(it.price)))
+        ? Number(it.price)
+        : (catalogMatch ? Number(catalogMatch.price) || 0 : 0);
+      const resolvedName = it.testName || it.name || (catalogMatch ? catalogMatch.name : 'Diagnostic Panel');
+      const resolvedRef = it.referenceRange || (catalogMatch ? catalogMatch.referenceRange : 'Normal');
+
+      return {
+        itemId: `item_${idx + 1}`,
+        testCode: codeKey || `TEST-${idx + 1}`,
+        testName: resolvedName,
+        price: resolvedPrice,
+        status: 'ordered',
+        resultValue: null,
+        referenceRange: resolvedRef,
+        isAbnormal: false,
+      };
+    });
+
+    const totalAmount = formattedItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
 
     const orderingPhysician = data.orderingPhysician || data.physicianName || 'Attending Physician';
     const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
@@ -366,18 +384,25 @@ class TenantClinicalService {
       const sample = await SampleModel.findOne({ tenantId, $or: [{ sampleId }, { barcode: sampleId }] });
       if (!sample) throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
 
+      if (processingStatus) {
+        if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
+          throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
+        }
+        if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected') {
+          throw new ClinicalServiceError('Cannot alter status of a rejected specimen', 'INVALID_STATUS_TRANSITION', 400);
+        }
+        sample.processingStatus = processingStatus;
+        if (processingStatus === 'completed') {
+          sample.verifiedAt = new Date();
+          sample.verifiedBy = actor.email || 'Lab Technician';
+        }
+      }
+
       if (collectionStatus) {
         sample.collectionStatus = collectionStatus;
         if (collectionStatus === 'collected') {
           sample.collectedAt = new Date();
           sample.collectedBy = actor.email || 'Phlebotomist';
-        }
-      }
-      if (processingStatus) {
-        sample.processingStatus = processingStatus;
-        if (processingStatus === 'completed') {
-          sample.verifiedAt = new Date();
-          sample.verifiedBy = actor.email || 'Lab Technician';
         }
       }
       if (rejectionReason) sample.rejectionReason = rejectionReason;
@@ -390,8 +415,16 @@ class TenantClinicalService {
     const sample = tenantMap?.get(sampleId);
     if (!sample) throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
 
+    if (processingStatus) {
+      if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
+        throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
+      }
+      if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected') {
+        throw new ClinicalServiceError('Cannot alter status of a rejected specimen', 'INVALID_STATUS_TRANSITION', 400);
+      }
+      sample.processingStatus = processingStatus;
+    }
     if (collectionStatus) sample.collectionStatus = collectionStatus;
-    if (processingStatus) sample.processingStatus = processingStatus;
     if (rejectionReason) sample.rejectionReason = rejectionReason;
     return sample;
   }
@@ -516,6 +549,54 @@ class TenantClinicalService {
       }
     }
     return null;
+  }
+
+  async recordOrderItemResult(tenantId, orderId, itemId, data, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const { resultValue, referenceRange, isAbnormal = false } = data;
+
+    if (resultValue === undefined || resultValue === null || String(resultValue).trim() === '') {
+      throw new ClinicalServiceError('Test result value must be provided and cannot be empty', 'VALIDATION_ERROR', 400);
+    }
+
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    if (OrderModel) {
+      const order = await OrderModel.findOne({ tenantId, $or: [{ orderId }, { orderNumber: orderId }] });
+      if (!order) throw new ClinicalServiceError('Order not found', 'ORDER_NOT_FOUND', 404);
+
+      const targetItem = order.items.find((it) => it.itemId === itemId || it.testCode === itemId);
+      if (!targetItem) throw new ClinicalServiceError(`Test item '${itemId}' not found in order`, 'ITEM_NOT_FOUND', 404);
+
+      targetItem.resultValue = String(resultValue).trim();
+      targetItem.status = 'completed';
+      targetItem.isAbnormal = Boolean(isAbnormal);
+      if (referenceRange) targetItem.referenceRange = String(referenceRange).trim();
+
+      const allDone = order.items.every((it) => it.status === 'completed' && it.resultValue);
+      order.orderStatus = allDone ? 'completed' : 'in_analysis';
+
+      await order.save();
+      return order.toSafeJSON();
+    }
+
+    // In-memory fallback
+    const tenantMap = this.memoryOrders.get(tenantId);
+    let order = tenantMap?.get(orderId);
+    if (!order && tenantMap) {
+      for (const o of tenantMap.values()) {
+        if (o.orderNumber === orderId) { order = o; break; }
+      }
+    }
+    if (!order) throw new ClinicalServiceError('Order not found', 'ORDER_NOT_FOUND', 404);
+    const targetItem = order.items.find((it) => it.itemId === itemId || it.testCode === itemId);
+    if (!targetItem) throw new ClinicalServiceError(`Test item '${itemId}' not found in order`, 'ITEM_NOT_FOUND', 404);
+    targetItem.resultValue = String(resultValue).trim();
+    targetItem.status = 'completed';
+    targetItem.isAbnormal = Boolean(isAbnormal);
+    if (referenceRange) targetItem.referenceRange = String(referenceRange).trim();
+    const allDone = order.items.every((it) => it.status === 'completed' && it.resultValue);
+    order.orderStatus = allDone ? 'completed' : 'in_analysis';
+    return order;
   }
 
   // -------------------------------------------------------------------------
@@ -789,6 +870,16 @@ class TenantClinicalService {
       const invoice = await InvoiceModel.findOne({ tenantId, invoiceId });
       if (!invoice) throw new ClinicalServiceError('Invoice not found', 'INVOICE_NOT_FOUND', 404);
 
+      if (invoice.status === 'paid' || invoice.balance <= 0) {
+        throw new ClinicalServiceError('Invoice is already fully settled', 'INVOICE_ALREADY_PAID', 400);
+      }
+      if (numAmount > invoice.balance) {
+        throw new ClinicalServiceError(`Payment amount ($${numAmount}) exceeds outstanding invoice balance ($${invoice.balance})`, 'PAYMENT_EXCEEDS_BALANCE', 400);
+      }
+      if (reference && invoice.payments.some((p) => p.reference === reference)) {
+        throw new ClinicalServiceError(`A payment with reference '${reference}' has already been processed`, 'DUPLICATE_PAYMENT', 409);
+      }
+
       const paymentId = this.generateId('pay');
       invoice.paidAmount += numAmount;
       invoice.balance = Math.max(0, invoice.totalAmount - invoice.paidAmount);
@@ -832,6 +923,16 @@ class TenantClinicalService {
     const tenantMap = this.memoryInvoices.get(tenantId);
     const invoice = tenantMap?.get(invoiceId);
     if (!invoice) throw new ClinicalServiceError('Invoice not found', 'INVOICE_NOT_FOUND', 404);
+
+    if (invoice.status === 'paid' || invoice.balance <= 0) {
+      throw new ClinicalServiceError('Invoice is already fully settled', 'INVOICE_ALREADY_PAID', 400);
+    }
+    if (numAmount > invoice.balance) {
+      throw new ClinicalServiceError(`Payment amount ($${numAmount}) exceeds outstanding invoice balance ($${invoice.balance})`, 'PAYMENT_EXCEEDS_BALANCE', 400);
+    }
+    if (reference && invoice.payments.some((p) => p.reference === reference)) {
+      throw new ClinicalServiceError(`A payment with reference '${reference}' has already been processed`, 'DUPLICATE_PAYMENT', 409);
+    }
 
     const paymentId = this.generateId('pay');
     invoice.paidAmount += numAmount;

@@ -1,93 +1,112 @@
 /**
- * Lab Management System (LMS) - Specimen & Samples Page (Phase 1 UI Shell)
+ * Lab Management System (LMS) - Specimen & Samples Page (Phase 6 Real Tracking)
  */
 
-import React, { useState } from 'react';
-import { FlaskConical, QrCode, Search, CheckCircle, Clock, AlertTriangle, Archive } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { FlaskConical, QrCode, Search, CheckCircle, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import clinicalService from '../../services/clinicalService';
 import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 
 export function SamplesPage() {
+  const { user, tenant } = useAuth();
+  const tenantId = tenant?.tenantId || user?.tenantId;
+
+  const [samples, setSamples] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedSample, setSelectedSample] = useState(null);
-  const [isAccessionOpen, setIsAccessionOpen] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const mockSamples = [
-    {
-      barcode: 'SMP-88019-EDTA',
-      patient: 'Eleanor Vance',
-      mrn: 'MRN-9021',
-      type: 'Whole Blood',
-      container: 'Lavender Top (EDTA)',
-      collectedAt: '2026-10-10 18:05',
-      storage: 'Rack B-04 (Room Temp)',
-      status: 'in_analysis',
-      volume: '3.0 mL',
-    },
-    {
-      barcode: 'SMP-88020-SST',
-      patient: 'Arthur Pendelton',
-      mrn: 'MRN-8842',
-      type: 'Serum',
-      container: 'Gold Top (SST Gel)',
-      collectedAt: '2026-10-10 17:40',
-      storage: 'Centrifuge Unit 2',
-      status: 'centrifuged',
-      volume: '4.5 mL',
-    },
-    {
-      barcode: 'SMP-88021-URN',
-      patient: 'Clara Oswald',
-      mrn: 'MRN-4429',
-      type: 'Urine',
-      container: 'Sterile Urine Cup',
-      collectedAt: '2026-10-10 14:00',
-      storage: 'Refrigerator #3 (4°C)',
-      status: 'archived',
-      volume: '50.0 mL',
-    },
-    {
-      barcode: 'SMP-88022-CIT',
-      patient: 'David K. Miller',
-      mrn: 'MRN-6512',
-      type: 'Plasma',
-      container: 'Light Blue Top (Citrate)',
-      collectedAt: '2026-10-10 15:30',
-      storage: 'Accessioning Station 1',
-      status: 'pending_accession',
-      volume: '2.5 mL',
-    },
-  ];
+  const fetchSamples = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const res = await clinicalService.getSamples(tenantId);
+      if (res.success && Array.isArray(res.data)) {
+        setSamples(res.data);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to retrieve specimen records');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [tenantId]);
 
-  const getStatusBadge = (status) => {
+  useEffect(() => {
+    fetchSamples();
+  }, [fetchSamples]);
+
+  const handleUpdateStatus = async (sampleId, updates) => {
+    try {
+      setActionLoading(true);
+      setError(null);
+      const res = await clinicalService.updateSampleStatus(tenantId, sampleId, updates);
+      if (res.success) {
+        setSuccessMsg(`Sample ${res.data.barcode} status updated successfully`);
+        fetchSamples();
+        if (selectedSample && selectedSample.sampleId === sampleId) {
+          setSelectedSample(res.data);
+        }
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to transition sample status');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const filteredSamples = samples.filter((s) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      (s.barcode || '').toLowerCase().includes(term) ||
+      (s.patientName || '').toLowerCase().includes(term) ||
+      (s.orderNumber || '').toLowerCase().includes(term)
+    );
+  });
+
+  const getProcessingBadge = (status) => {
     switch (status) {
+      case 'completed': return <Badge variant="success">Completed</Badge>;
       case 'in_analysis': return <Badge variant="purple">In Analysis</Badge>;
-      case 'centrifuged': return <Badge variant="teal">Centrifuged</Badge>;
-      case 'archived': return <Badge variant="slate">Archived</Badge>;
-      case 'pending_accession': return <Badge variant="warning">Pending Accession</Badge>;
-      default: return <Badge variant="slate">{status}</Badge>;
+      case 'rejected': return <Badge variant="danger">Rejected</Badge>;
+      default: return <Badge variant="warning">Pending Analysis</Badge>;
+    }
+  };
+
+  const getCollectionBadge = (status) => {
+    switch (status) {
+      case 'collected': return <Badge variant="teal">Collected</Badge>;
+      case 'rejected': return <Badge variant="danger">Rejected</Badge>;
+      default: return <Badge variant="slate">Pending Collection</Badge>;
     }
   };
 
   return (
     <>
       <PageHeader
-        title="Specimen Accessioning & Samples"
-        description="Barcoded biological specimen logging, pre-analytical processing, and laboratory storage management."
-        actions={
-          <button className="btn btn-primary" onClick={() => setIsAccessionOpen(true)}>
-            <QrCode size={16} />
-            <span>Accession Specimen (UI Demo)</span>
-          </button>
-        }
+        title="Specimen Accessioning & Sample Tracking"
+        description="Barcoded biological specimen logging, pre-analytical processing, and laboratory bench routing."
       />
 
-      <StatusBanner
-        type="info"
-        badgeText="UI Shell Demonstration"
-        message="Specimen tracking data and barcode identifiers shown below are simulated mock entries. Barcode scanner device driver integration will be added in Phase 2."
-      />
+      {successMsg && (
+        <div style={{ marginBottom: '1rem' }}>
+          <StatusBanner type="success" badgeText="Success" message={successMsg} />
+        </div>
+      )}
+
+      {error && (
+        <div style={{ marginBottom: '1rem' }}>
+          <StatusBanner type="danger" badgeText="Error" message={error} />
+        </div>
+      )}
 
       {/* Barcode Search Card */}
       <div className="card" style={{ padding: '0.75rem 1rem' }}>
@@ -95,112 +114,111 @@ export function SamplesPage() {
           <Search size={16} style={{ color: 'var(--slate-400)' }} />
           <input
             type="text"
-            placeholder="Scan or enter specimen barcode (e.g. SMP-88019-EDTA)..."
+            placeholder="Scan or enter specimen barcode (e.g. SMP-...), Patient name, or Order #..."
             className="form-input"
             style={{ border: 'none', padding: '0.35rem 0' }}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>
 
       {/* Samples Table */}
       <div className="card">
-        <div className="table-container">
-          <table className="lms-table">
-            <thead>
-              <tr>
-                <th>Barcode / Tube ID</th>
-                <th>Patient / MRN</th>
-                <th>Specimen Type</th>
-                <th>Container / Tube</th>
-                <th>Volume</th>
-                <th>Collection Timestamp</th>
-                <th>Storage / Location</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mockSamples.map((s) => (
-                <tr key={s.barcode}>
-                  <td>
-                    <strong style={{ fontFamily: 'monospace', color: 'var(--primary-700)' }}>{s.barcode}</strong>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 600 }}>{s.patient}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{s.mrn}</span>
-                    </div>
-                  </td>
-                  <td>{s.type}</td>
-                  <td>{s.container}</td>
-                  <td>{s.volume}</td>
-                  <td style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{s.collectedAt}</td>
-                  <td>{s.storage}</td>
-                  <td>{getStatusBadge(s.status)}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setSelectedSample(s)}
-                    >
-                      Inspect
-                    </button>
-                  </td>
+        {isLoading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--slate-500)' }}>
+            <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto 0.75rem', color: 'var(--primary-blue)' }} />
+            <p>Loading specimen accession list...</p>
+          </div>
+        ) : filteredSamples.length === 0 ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--slate-500)' }}>
+            <FlaskConical size={36} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+            <p style={{ fontWeight: 600, color: 'var(--slate-700)' }}>No specimens recorded yet</p>
+            <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+              Specimens are created automatically when diagnostic requisitions are submitted.
+            </p>
+          </div>
+        ) : (
+          <div className="table-container">
+            <table className="lms-table">
+              <thead>
+                <tr>
+                  <th>Barcode</th>
+                  <th>Order #</th>
+                  <th>Patient Name</th>
+                  <th>Specimen Type</th>
+                  <th>Collection</th>
+                  <th>Processing Status</th>
+                  <th>Accessioned</th>
+                  <th style={{ textAlign: 'right' }}>Bench Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredSamples.map((s) => (
+                  <tr key={s.sampleId || s._id}>
+                    <td>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary-blue)' }}>
+                        {s.barcode}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontFamily: 'monospace' }}>{s.orderNumber || 'ORD-GEN'}</span>
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{s.patientName}</td>
+                    <td>{s.sampleType || 'Whole Blood (EDTA)'}</td>
+                    <td>{getCollectionBadge(s.collectionStatus)}</td>
+                    <td>{getProcessingBadge(s.processingStatus)}</td>
+                    <td style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
+                      {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : 'Today'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'inline-flex', gap: '6px' }}>
+                        {s.collectionStatus !== 'collected' && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'collected' })}
+                            disabled={actionLoading}
+                            title="Mark specimen as collected"
+                          >
+                            Collect
+                          </button>
+                        )}
+                        {s.collectionStatus === 'collected' && s.processingStatus === 'pending' && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleUpdateStatus(s.sampleId, { processingStatus: 'in_analysis' })}
+                            disabled={actionLoading}
+                            title="Send to analyzer"
+                          >
+                            Analyze
+                          </button>
+                        )}
+                        {s.processingStatus === 'in_analysis' && (
+                          <button
+                            className="btn btn-success btn-sm"
+                            style={{ background: 'var(--teal-600)', color: 'white', border: 'none' }}
+                            onClick={() => handleUpdateStatus(s.sampleId, { processingStatus: 'completed' })}
+                            disabled={actionLoading}
+                            title="Complete processing"
+                          >
+                            Complete
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setSelectedSample(s)}
+                        >
+                          Details
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-
-      {/* Accession Modal (Demo) */}
-      <Modal
-        isOpen={isAccessionOpen}
-        onClose={() => setIsAccessionOpen(false)}
-        title="Accession Incoming Specimen (UI Demo)"
-        footer={
-          <>
-            <button className="btn btn-secondary" onClick={() => setIsAccessionOpen(false)}>
-              Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                alert('UI Demo Notice: Specimen accessioning workflow will be integrated in Phase 2.');
-                setIsAccessionOpen(false);
-              }}
-            >
-              Confirm Accession (Demo)
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <StatusBanner
-            type="warning"
-            badgeText="Preparation Mode"
-            message="Specimen intake pre-analytical checklist."
-          />
-          <div className="form-group">
-            <label className="form-label">Specimen Barcode Tag</label>
-            <input type="text" className="form-input" placeholder="SMP-XXXXXXXX" defaultValue="SMP-99201-NEW" />
-          </div>
-          <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">Tube Integrity Check</label>
-              <select className="form-select">
-                <option>Acceptable (No hemolysis/clots)</option>
-                <option>Hemolyzed (Slight)</option>
-                <option>Icteric</option>
-                <option>Lipemic</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Storage Allocation</label>
-              <input type="text" className="form-input" placeholder="e.g. Rack A-01" defaultValue="Rack A-01" />
-            </div>
-          </div>
-        </div>
-      </Modal>
 
       {/* Sample Detail Modal */}
       <Modal
@@ -214,25 +232,47 @@ export function SamplesPage() {
         }
       >
         {selectedSample && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.875rem' }}>
-            <div className="grid-2">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Barcode</p>
+                <p style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--primary-blue)' }}>
+                  {selectedSample.barcode}
+                </p>
+              </div>
+              <div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Requisition Order</p>
+                <p style={{ fontWeight: 600, fontFamily: 'monospace' }}>{selectedSample.orderNumber}</p>
+              </div>
               <div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Patient</p>
-                <p style={{ fontWeight: 600 }}>{selectedSample.patient} ({selectedSample.mrn})</p>
+                <p style={{ fontWeight: 600 }}>{selectedSample.patientName}</p>
               </div>
               <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Tube Type</p>
-                <p>{selectedSample.container}</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Container Tube</p>
+                <p>{selectedSample.container || 'Standard Lavender Top'}</p>
               </div>
               <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Volume</p>
-                <p>{selectedSample.volume}</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Collection Status</p>
+                <div>{getCollectionBadge(selectedSample.collectionStatus)}</div>
               </div>
               <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Current Location</p>
-                <p>{selectedSample.storage}</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Processing Bench Status</p>
+                <div>{getProcessingBadge(selectedSample.processingStatus)}</div>
               </div>
             </div>
+            {selectedSample.collectedBy && (
+              <p style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+                Collected By: <strong>{selectedSample.collectedBy}</strong> on{' '}
+                {new Date(selectedSample.collectedAt).toLocaleString()}
+              </p>
+            )}
+            {selectedSample.verifiedBy && (
+              <p style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+                Verified By: <strong>{selectedSample.verifiedBy}</strong> on{' '}
+                {new Date(selectedSample.verifiedAt).toLocaleString()}
+              </p>
+            )}
           </div>
         )}
       </Modal>

@@ -32,6 +32,7 @@ tenantClinicalRouter.post('/patients', requirePermission('patients:create'), ten
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/orders', requirePermission('orders:view'), tenantClinicalController.listOrders);
 tenantClinicalRouter.post('/orders', requirePermission('orders:create'), tenantClinicalController.createOrder);
+tenantClinicalRouter.patch('/orders/:orderId/items/:itemId/result', requirePermission('samples:process'), tenantClinicalController.recordOrderItemResult);
 
 // ---------------------------------------------------------------------------
 // SPECIMEN & SAMPLE TRACKING

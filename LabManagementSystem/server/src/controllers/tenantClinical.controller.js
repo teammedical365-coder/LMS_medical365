@@ -70,6 +70,19 @@ export class TenantClinicalController {
     }
   }
 
+  static async recordOrderItemResult(req, res, next) {
+    try {
+      const { tenantId, orderId, itemId } = req.params;
+      const order = await tenantClinicalService.recordOrderItemResult(tenantId, orderId, itemId, req.body, req.user);
+      return ApiResponse.success(res, order, 'Test result recorded successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // SAMPLES / SPECIMENS
   // -------------------------------------------------------------------------
