@@ -1,0 +1,57 @@
+# ==========================================
+# Root Git Ignore - Laboratory Medical365 LMS
+# ==========================================
+
+# Dependencies
+node_modules/
+*/node_modules/
+*/*/node_modules/
+.pnp
+.pnp.js
+
+# Production & Build Outputs
+dist/
+*/dist/
+*/*/dist/
+build/
+*/build/
+*/*/build/
+dist-ssr/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+!*.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor, IDE & System Files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# Temporary & Cache Files
+.temp/
+.tmp/
+tmp/
+*.tmp
+*.bak
+*.orig
+.cache/
+.eslintcache

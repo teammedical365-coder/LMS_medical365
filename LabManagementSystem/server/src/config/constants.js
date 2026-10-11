@@ -1,0 +1,104 @@
+/**
+ * Lab Management System (LMS) - System Constants & State Machine Rules
+ */
+
+export const APP_NAME = 'LabManagementSystem';
+export const API_VERSION = 'v1';
+
+export const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  ACCEPTED: 202,
+  NO_CONTENT: 204,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  UNPROCESSABLE_ENTITY: 422,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL_ERROR: 500,
+  SERVICE_UNAVAILABLE: 503,
+};
+
+export const ACCOUNT_TYPE = {
+  PLATFORM_SUPER_ADMIN: 'PLATFORM_SUPER_ADMIN',
+  TENANT_USER: 'TENANT_USER',
+};
+
+export const USER_ROLES = {
+  LAB_ADMIN: 'lab_admin',
+  LAB_DIRECTOR: 'lab_director',
+  PATHOLOGIST: 'pathologist',
+  LAB_TECHNICIAN: 'lab_technician',
+  PHLEBOTOMIST: 'phlebotomist',
+  RECEPTIONIST: 'receptionist',
+  BILLING_CLERK: 'billing_clerk',
+};
+
+export const DB_CONNECTION_STATES = {
+  0: 'disconnected',
+  1: 'connected',
+  2: 'connecting',
+  3: 'disconnecting',
+};
+
+export const LAB_STATUS = {
+  PENDING: 'PENDING',
+  ACTIVE: 'ACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  INACTIVE: 'INACTIVE',
+};
+
+export const PROVISIONING_STATUS = {
+  NOT_STARTED: 'NOT_STARTED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  READY: 'READY',
+  FAILED: 'FAILED',
+};
+
+export const AUDIT_ACTIONS = {
+  LAB_REGISTERED: 'LAB_REGISTERED',
+  LAB_UPDATED: 'LAB_UPDATED',
+  LAB_ACTIVATED: 'LAB_ACTIVATED',
+  LAB_SUSPENDED: 'LAB_SUSPENDED',
+  LAB_DEACTIVATED: 'LAB_DEACTIVATED',
+  LAB_REACTIVATED: 'LAB_REACTIVATED',
+  PROVISIONING_STARTED: 'PROVISIONING_STARTED',
+  PROVISIONING_SUCCEEDED: 'PROVISIONING_SUCCEEDED',
+  PROVISIONING_FAILED: 'PROVISIONING_FAILED',
+  PROVISIONING_RETRY: 'PROVISIONING_RETRY',
+  // Authentication & User Actions
+  ADMIN_LOGIN_SUCCESS: 'ADMIN_LOGIN_SUCCESS',
+  ADMIN_LOGIN_FAILED: 'ADMIN_LOGIN_FAILED',
+  TENANT_USER_LOGIN_SUCCESS: 'TENANT_USER_LOGIN_SUCCESS',
+  TENANT_USER_LOGIN_FAILED: 'TENANT_USER_LOGIN_FAILED',
+  USER_CREATED: 'USER_CREATED',
+  USER_STATUS_UPDATED: 'USER_STATUS_UPDATED',
+  BOOTSTRAP_SUPER_ADMIN: 'BOOTSTRAP_SUPER_ADMIN',
+  AUTH_LOGIN_SUCCESS: 'ADMIN_LOGIN_SUCCESS',
+  AUTH_LOGIN_FAILURE: 'ADMIN_LOGIN_FAILED',
+  TENANT_USER_CREATE: 'USER_CREATED',
+  TENANT_USER_ACTIVATE: 'USER_STATUS_UPDATED',
+  TENANT_USER_DEACTIVATE: 'USER_STATUS_UPDATED',
+};
+
+/**
+ * Valid lifecycle transitions for laboratories.
+ * Key: current status, Value: array of allowed target statuses
+ */
+export const ALLOWED_STATUS_TRANSITIONS = {
+  [LAB_STATUS.PENDING]: [LAB_STATUS.ACTIVE, LAB_STATUS.INACTIVE],
+  [LAB_STATUS.ACTIVE]: [LAB_STATUS.SUSPENDED, LAB_STATUS.INACTIVE],
+  [LAB_STATUS.SUSPENDED]: [LAB_STATUS.ACTIVE, LAB_STATUS.INACTIVE],
+  [LAB_STATUS.INACTIVE]: [LAB_STATUS.PENDING, LAB_STATUS.ACTIVE],
+};
+
+/**
+ * Validate if a status transition is permitted
+ */
+export function isValidStatusTransition(currentStatus, targetStatus) {
+  if (currentStatus === targetStatus) return true;
+  const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus] || [];
+  return allowed.includes(targetStatus);
+}
