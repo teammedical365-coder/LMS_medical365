@@ -1,43 +1,31 @@
 /**
- * Lab Management System (LMS) - Real Authentication Login Page
+ * Lab Management System (LMS) - Platform Super Admin Login Page
  * 
- * Supports genuine authentication for:
- * 1. Laboratory Personnel (Organization Code + Email + Password)
- * 2. Platform Super Administrators (Email + Password)
- * 
- * Follows Medical365 visual design system with clear loading, error,
- * and service unavailable feedback.
+ * Exclusively authenticates Platform Super Administrators against the Master Database.
+ * Laboratory staff & administrators access their facility via dedicated white-label URLs.
  */
 
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  FlaskConical,
+  Shield,
   Lock,
   Mail,
-  Building,
   ArrowRight,
   ShieldCheck,
   ShieldAlert,
   Loader2,
-  CheckCircle2,
-  Server,
   AlertTriangle,
+  Building2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useTenant } from '../../context/TenantContext';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { loginLabUser, loginSuperAdmin, isLoading: authLoading } = useAuth();
-  const { tenant, branding } = useTenant();
-
-  // Mode: 'laboratory' | 'superAdmin'
-  const [loginMode, setLoginMode] = useState('laboratory');
+  const { loginSuperAdmin, isLoading: authLoading } = useAuth();
 
   // Form fields
-  const [organizationCode, setOrganizationCode] = useState(tenant?.code || 'central-diag');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -46,21 +34,7 @@ export function LoginPage() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [errorStatus, setErrorStatus] = useState(null);
 
-  const from = location.state?.from?.pathname || (loginMode === 'superAdmin' ? '/super-admin' : '/dashboard');
-
-  const handleSwitchMode = (mode) => {
-    setLoginMode(mode);
-    setErrorMessage(null);
-    setErrorStatus(null);
-    if (mode === 'superAdmin') {
-      setEmail('');
-      setPassword('');
-    } else {
-      setOrganizationCode(tenant?.code || 'central-diag');
-      setEmail('');
-      setPassword('');
-    }
-  };
+  const from = location.state?.from?.pathname || '/super-admin';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,12 +43,7 @@ export function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      let result;
-      if (loginMode === 'superAdmin') {
-        result = await loginSuperAdmin({ email, password });
-      } else {
-        result = await loginLabUser({ organizationCode, email, password });
-      }
+      const result = await loginSuperAdmin({ email, password });
 
       if (result.success) {
         navigate(from, { replace: true });
@@ -89,92 +58,44 @@ export function LoginPage() {
     }
   };
 
-  const brandTitle = loginMode === 'superAdmin'
-    ? 'LMS Platform Portal'
-    : (branding?.displayName || tenant?.name || 'LabMS Portal');
-
   return (
     <div className="auth-card" style={{ maxWidth: '440px' }}>
       {/* Brand Header */}
       <div className="auth-brand-head">
-        {branding?.logoUrl && loginMode === 'laboratory' ? (
-          <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'center' }}>
-            <img
-              src={branding.logoUrl}
-              alt="Brand Logo"
-              style={{ maxHeight: '48px', maxWidth: '160px', objectFit: 'contain' }}
-            />
-          </div>
-        ) : (
-          <div className="auth-logo-box">
-            <FlaskConical size={28} />
-          </div>
-        )}
-        <h1 className="auth-title">{brandTitle}</h1>
+        <div
+          className="auth-logo-box"
+          style={{
+            background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #0d9488 100%)',
+            boxShadow: '0 4px 14px rgba(30, 64, 175, 0.35)',
+          }}
+        >
+          <Shield size={28} />
+        </div>
+        <h1 className="auth-title">Super Admin Portal</h1>
         <p className="auth-subtitle">
-          {branding?.loginBannerText || 'Healthcare Diagnostic Laboratory Platform'}
+          Master Multi-Tenant Administration & Facility Governance
         </p>
       </div>
 
-      {/* Role Switcher Tabs */}
+      {/* Security Architecture Notice */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '4px',
-          background: 'var(--slate-100)',
-          padding: '4px',
+          background: 'var(--mint-bg)',
+          border: '1px solid var(--mint-200)',
           borderRadius: 'var(--radius-md)',
+          padding: '0.625rem 0.75rem',
           marginBottom: '1.25rem',
+          fontSize: '0.75rem',
+          color: 'var(--mint-text)',
+          display: 'flex',
+          gap: '8px',
+          alignItems: 'center',
         }}
       >
-        <button
-          type="button"
-          onClick={() => handleSwitchMode('laboratory')}
-          style={{
-            padding: '8px 12px',
-            fontSize: '0.8125rem',
-            fontWeight: 600,
-            borderRadius: 'var(--radius-sm)',
-            border: 'none',
-            background: loginMode === 'laboratory' ? 'white' : 'transparent',
-            color: loginMode === 'laboratory' ? 'var(--primary-blue)' : 'var(--slate-600)',
-            boxShadow: loginMode === 'laboratory' ? 'var(--shadow-sm)' : 'none',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-          }}
-        >
-          <Building size={14} />
-          <span>Lab Staff</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleSwitchMode('superAdmin')}
-          style={{
-            padding: '8px 12px',
-            fontSize: '0.8125rem',
-            fontWeight: 600,
-            borderRadius: 'var(--radius-sm)',
-            border: 'none',
-            background: loginMode === 'superAdmin' ? 'white' : 'transparent',
-            color: loginMode === 'superAdmin' ? 'var(--primary-blue)' : 'var(--slate-600)',
-            boxShadow: loginMode === 'superAdmin' ? 'var(--shadow-sm)' : 'none',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-          }}
-        >
-          <Server size={14} />
-          <span>Super Admin</span>
-        </button>
+        <ShieldCheck size={16} style={{ flexShrink: 0 }} />
+        <span>
+          Platform Governance: Authenticates against Master Database with secure session tokens.
+        </span>
       </div>
 
       {/* Error Alert Banner */}
@@ -205,66 +126,11 @@ export function LoginPage() {
         </div>
       )}
 
-      {/* Security Architecture Notice */}
-      <div
-        style={{
-          background: 'var(--mint-bg)',
-          border: '1px solid var(--mint-200)',
-          borderRadius: 'var(--radius-md)',
-          padding: '0.625rem 0.75rem',
-          marginBottom: '1.25rem',
-          fontSize: '0.75rem',
-          color: 'var(--mint-text)',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center',
-        }}
-      >
-        <ShieldCheck size={16} style={{ flexShrink: 0 }} />
-        <span>
-          {loginMode === 'superAdmin'
-            ? 'Super Admin: Authenticates against Master Database with short-lived JWT.'
-            : 'Multi-Tenant Auth: Scoped strictly to the selected laboratory database.'}
-        </span>
-      </div>
-
       <form onSubmit={handleSubmit}>
-        {/* Organization Code (Only in Laboratory Mode) */}
-        {loginMode === 'laboratory' && (
-          <div className="form-group">
-            <label className="form-label" htmlFor="org-code">
-              Laboratory Organization Code
-            </label>
-            <div style={{ position: 'relative' }}>
-              <Building
-                size={16}
-                style={{
-                  position: 'absolute',
-                  left: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--slate-400)',
-                }}
-              />
-              <input
-                id="org-code"
-                type="text"
-                className="form-input"
-                style={{ paddingLeft: '2rem' }}
-                value={organizationCode}
-                onChange={(e) => setOrganizationCode(e.target.value)}
-                placeholder="e.g. central-diag"
-                required
-                autoComplete="organization"
-              />
-            </div>
-          </div>
-        )}
-
         {/* Email Address */}
         <div className="form-group">
-          <label className="form-label" htmlFor="email">
-            {loginMode === 'superAdmin' ? 'Platform Administrator Email' : 'Staff Email Address'}
+          <label className="form-label" htmlFor="admin-email">
+            Platform Administrator Email
           </label>
           <div style={{ position: 'relative' }}>
             <Mail
@@ -278,13 +144,13 @@ export function LoginPage() {
               }}
             />
             <input
-              id="email"
+              id="admin-email"
               type="email"
               className="form-input"
               style={{ paddingLeft: '2rem' }}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder={loginMode === 'superAdmin' ? 'superadmin@test.com' : 'user@laboratory.org'}
+              placeholder="admin@platform.local"
               required
               autoComplete="username"
             />
@@ -293,7 +159,7 @@ export function LoginPage() {
 
         {/* Password */}
         <div className="form-group">
-          <label className="form-label" htmlFor="password">
+          <label className="form-label" htmlFor="admin-password">
             Password
           </label>
           <div style={{ position: 'relative' }}>
@@ -308,13 +174,13 @@ export function LoginPage() {
               }}
             />
             <input
-              id="password"
+              id="admin-password"
               type="password"
               className="form-input"
               style={{ paddingLeft: '2rem' }}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder="Enter your administrator password"
               required
               autoComplete="current-password"
             />
@@ -331,19 +197,44 @@ export function LoginPage() {
           {isSubmitting ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              <span>Authenticating Session...</span>
+              <span>Verifying Super Admin Credentials...</span>
             </>
           ) : (
             <>
-              <span>{loginMode === 'superAdmin' ? 'Sign In as Super Admin' : 'Sign In to Laboratory'}</span>
+              <span>Sign In as Platform Super Admin</span>
               <ArrowRight size={16} />
             </>
           )}
         </button>
       </form>
 
-      <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--slate-400)' }}>
-        <span>LMS Version 1.0.0 • Phase 3 Cryptographic Authentication</span>
+      {/* Helpful Guidance Callout for Lab Staff */}
+      <div
+        style={{
+          marginTop: '1.5rem',
+          padding: '0.875rem',
+          background: 'var(--slate-50)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)',
+          textAlign: 'center',
+          fontSize: '0.78rem',
+          color: 'var(--slate-600)',
+          lineHeight: 1.45,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 600, color: 'var(--slate-700)', marginBottom: '3px' }}>
+          <Building2 size={13} style={{ color: 'var(--primary-600)' }} />
+          <span>Laboratory Staff & Administrators</span>
+        </div>
+        Please sign in through your laboratory's dedicated white-label portal URL (e.g.{' '}
+        <code style={{ color: 'var(--primary-700)', background: 'var(--primary-50)', padding: '1px 5px', borderRadius: '3px' }}>
+          /lab/your-lab-code
+        </code>
+        ) provided by your platform administrator.
+      </div>
+
+      <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.72rem', color: 'var(--slate-400)' }}>
+        <span>Medical365 LMS • Platform Governance & Security Engine</span>
       </div>
     </div>
   );

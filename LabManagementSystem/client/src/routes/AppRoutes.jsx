@@ -17,6 +17,7 @@ import ProtectedRoute from '../components/common/ProtectedRoute';
 
 // Pages
 import LoginPage from '../pages/auth/LoginPage';
+import LaboratoryLoginPage from '../pages/auth/LaboratoryLoginPage';
 import DashboardPage from '../pages/dashboard/DashboardPage';
 import PatientsPage from '../pages/patients/PatientsPage';
 import OrdersPage from '../pages/orders/OrdersPage';
@@ -47,7 +48,14 @@ export function AppRoutes() {
 
       {/* Authentication routes */}
       <Route element={<AuthLayout />}>
+        {/* Platform Super Admin Login (Root / Master) */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin/login" element={<LoginPage />} />
+
+        {/* Dedicated Laboratory Whitelabel Login Portals */}
+        <Route path="/lab/:labId" element={<LaboratoryLoginPage />} />
+        <Route path="/lab/:labId/login" element={<LaboratoryLoginPage />} />
+        <Route path="/portal/:labId" element={<LaboratoryLoginPage />} />
       </Route>
 
       {/* Main LMS Application Shell routes (Protected) */}

@@ -21,6 +21,8 @@ import {
   UserCheck,
   Palette,
   Lock,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
@@ -28,6 +30,7 @@ import superAdminService from '../../services/superAdminService';
 
 export function RegisterLaboratoryPage() {
   const navigate = useNavigate();
+  const [copiedPortal, setCopiedPortal] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -226,11 +229,70 @@ export function RegisterLaboratoryPage() {
                 <code style={{ fontWeight: 600, color: '#059669' }}>{formData.adminEmail}</code>
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
               <span style={{ color: 'var(--slate-500)' }}>Provisioning Status:</span>
               <span className="badge badge-teal">
                 {success.database?.provisioningStatus || 'READY'}
               </span>
+            </div>
+
+            {/* Generated Whitelabel Portal URL */}
+            <div
+              style={{
+                marginTop: '0.75rem',
+                paddingTop: '0.75rem',
+                borderTop: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', marginBottom: '6px' }}>
+                Dedicated Whitelabel Portal URL (Staff & Admin):
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={`${window.location.origin}/lab/${(success.code || success.tenantId).toLowerCase()}`}
+                  className="form-input"
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.8125rem',
+                    background: 'white',
+                    color: 'var(--primary-800)',
+                    fontWeight: 600,
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(`${window.location.origin}/lab/${(success.code || success.tenantId).toLowerCase()}`);
+                    }
+                    setCopiedPortal(true);
+                    setTimeout(() => setCopiedPortal(false), 2000);
+                  }}
+                  title="Copy URL"
+                >
+                  {copiedPortal ? (
+                    <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
+                  ) : (
+                    <>
+                      <Copy size={13} />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+                <a
+                  href={`/lab/${(success.code || success.tenantId).toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm"
+                  title="Open in new tab"
+                >
+                  <span>Open</span>
+                  <ExternalLink size={13} />
+                </a>
+              </div>
             </div>
           </div>
 

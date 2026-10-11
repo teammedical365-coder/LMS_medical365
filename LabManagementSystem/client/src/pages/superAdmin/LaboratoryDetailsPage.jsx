@@ -25,6 +25,7 @@ import {
   History,
   XCircle,
   Server,
+  Copy,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
@@ -44,6 +45,15 @@ export function LaboratoryDetailsPage() {
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState(null);
+  const [copiedPortal, setCopiedPortal] = useState(false);
+
+  const copyPortalUrl = (url) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url);
+    }
+    setCopiedPortal(true);
+    setTimeout(() => setCopiedPortal(false), 2000);
+  };
 
   // Status Modal State
   const [statusModalOpen, setStatusModalOpen] = useState(false);
@@ -253,6 +263,88 @@ export function LaboratoryDetailsPage() {
             badgeText="Super Admin Action"
             message={actionFeedback.message}
           />
+        </div>
+      )}
+
+      {/* Dedicated Whitelabel Portal & Staff Sign-In Card */}
+      {lab && (
+        <div
+          className="card"
+          style={{
+            marginBottom: '1.25rem',
+            background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #eff6ff 100%)',
+            border: '1px solid #bae6fd',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'linear-gradient(135deg, var(--primary-blue), #0284c7)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)',
+                }}
+              >
+                <Globe size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#0369a1' }}>
+                  Dedicated Whitelabel Portal URL
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: '#0c4a6e' }}>
+                  Laboratory Administrators, pathologists, technicians, and accessioners sign in directly through this isolated URL.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                readOnly
+                value={`${window.location.origin}/lab/${(lab.code || lab.tenantId).toLowerCase()}`}
+                className="form-input"
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.8125rem',
+                  minWidth: '290px',
+                  background: 'white',
+                  fontWeight: 600,
+                  color: 'var(--primary-800)',
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => copyPortalUrl(`${window.location.origin}/lab/${(lab.code || lab.tenantId).toLowerCase()}`)}
+                title="Copy Portal URL to Clipboard"
+              >
+                {copiedPortal ? (
+                  <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
+                ) : (
+                  <>
+                    <Copy size={14} />
+                    <span>Copy URL</span>
+                  </>
+                )}
+              </button>
+              <a
+                href={`/lab/${(lab.code || lab.tenantId).toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-primary"
+                title="Open Whitelabel Portal in a new tab"
+              >
+                <span>Launch Portal</span>
+                <Globe size={14} />
+              </a>
+            </div>
+          </div>
         </div>
       )}
 

@@ -122,7 +122,14 @@ export function TenantProvider({ children }) {
       try {
         const hostname = window.location.hostname;
         const urlParams = new URLSearchParams(window.location.search);
-        const labCode = urlParams.get('lab') || urlParams.get('tenant') || urlParams.get('org');
+        const pathname = window.location.pathname || '';
+        let pathLab = null;
+        if (pathname.startsWith('/lab/')) {
+          pathLab = pathname.split('/')[2];
+        } else if (pathname.startsWith('/portal/')) {
+          pathLab = pathname.split('/')[2];
+        }
+        const labCode = pathLab || urlParams.get('lab') || urlParams.get('tenant') || urlParams.get('org');
 
         // On localhost/127.0.0.1 without a specific lab parameter, use default branding immediately
         if ((!hostname || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') && !labCode) {

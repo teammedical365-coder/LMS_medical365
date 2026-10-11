@@ -18,6 +18,9 @@ import {
   XCircle,
   Server,
   Layers,
+  Copy,
+  Sparkles,
+  Globe,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
@@ -32,12 +35,21 @@ export function LaboratoriesPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [provFilter, setProvFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const copyPortalUrl = (url, labId) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url);
+    }
+    setCopiedId(labId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const fetchLabs = async () => {
     setLoading(true);
@@ -118,6 +130,25 @@ export function LaboratoriesPage() {
           </div>
         }
       />
+
+      {/* Multi-Tenant Whitelabel Portal Architecture Banner */}
+      <div
+        style={{
+          background: '#f0f9ff',
+          border: '1px solid #bae6fd',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.875rem 1.25rem',
+          marginBottom: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}
+      >
+        <Sparkles size={20} style={{ color: '#0284c7', flexShrink: 0 }} />
+        <div style={{ fontSize: '0.8125rem', color: '#0369a1', lineHeight: 1.45 }}>
+          <strong>Multi-Tenant Whitelabel Architecture:</strong> Root login (<code>/login</code>) is exclusively for Platform Super Admins. Each laboratory below has a dedicated, generated whitelabel URL. Share that URL with the Lab Administrator and staff for direct, isolated sign-in.
+        </div>
+      </div>
 
       {/* Filter and Search Bar */}
       <div className="card" style={{ marginBottom: '1.25rem', padding: '1rem' }}>
@@ -210,6 +241,7 @@ export function LaboratoriesPage() {
                 <tr>
                   <th>Laboratory & Code</th>
                   <th>Tenant Identifier</th>
+                  <th>Whitelabel Portal URL</th>
                   <th>Contact Information</th>
                   <th>Lifecycle Status</th>
                   <th>Tenant DB State</th>
@@ -221,6 +253,8 @@ export function LaboratoriesPage() {
                 {laboratories.map((lab) => {
                   const provStatus = lab.database?.provisioningStatus || lab.provisioningStatus || 'NOT_STARTED';
                   const primaryDomain = lab.domainMappings?.find((d) => d.isPrimary)?.domain || lab.domainMappings?.[0]?.domain;
+                  const labSlug = (lab.code || lab.tenantId || '').toLowerCase();
+                  const portalUrl = `${window.location.origin}/lab/${labSlug}`;
 
                   return (
                     <tr key={lab.tenantId || lab._id}>
@@ -244,6 +278,50 @@ export function LaboratoriesPage() {
                         <code style={{ fontSize: '0.75rem', color: 'var(--slate-600)', background: 'var(--slate-100)', padding: '2px 6px', borderRadius: '4px' }}>
                           {lab.tenantId}
                         </code>
+                      </td>
+
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <a
+                            href={`/lab/${labSlug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: '0.75rem',
+                              fontFamily: 'monospace',
+                              color: 'var(--primary-700)',
+                              background: 'var(--primary-50)',
+                              border: '1px solid var(--primary-200)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontWeight: 600,
+                            }}
+                            title="Open Whitelabel Laboratory Portal in new tab"
+                          >
+                            <span>/lab/{labSlug}</span>
+                            <ExternalLink size={11} />
+                          </a>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '2px 8px', fontSize: '0.72rem', height: '24px' }}
+                            onClick={() => copyPortalUrl(portalUrl, lab.tenantId || lab._id)}
+                            title="Copy Whitelabel Portal URL"
+                          >
+                            {copiedId === (lab.tenantId || lab._id) ? (
+                              <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
+                            ) : (
+                              <>
+                                <Copy size={11} />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </td>
 
                       <td>
