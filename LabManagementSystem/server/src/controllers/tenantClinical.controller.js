@@ -8,6 +8,7 @@
 
 import tenantClinicalService, { ClinicalServiceError } from '../services/tenantClinical.service.js';
 import laboratoryManagementService from '../services/laboratoryManagement.service.js';
+import auditLogService from '../services/auditLog.service.js';
 import ApiResponse from '../utils/apiResponse.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -251,8 +252,8 @@ export class TenantClinicalController {
   static async approveReport(req, res, next) {
     try {
       const { tenantId, reportId } = req.params;
-      const report = await tenantClinicalService.approveReport(tenantId, reportId, req.user);
-      return ApiResponse.success(res, report, 'Report approved by pathologist');
+      const report = await tenantClinicalService.approveReport(tenantId, reportId, req.user, req.body);
+      return ApiResponse.success(res, report, 'Report verified and approved by pathologist');
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
         return ApiResponse.error(res, err.message, err.statusCode, err.code);
@@ -280,6 +281,54 @@ export class TenantClinicalController {
       const { tenantId, reportId } = req.params;
       const report = await tenantClinicalService.releaseReport(tenantId, reportId, req.user);
       return ApiResponse.success(res, report, 'Diagnostic report verified and released');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async batchReleaseReports(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const { reportIds } = req.body;
+      if (!Array.isArray(reportIds) || reportIds.length === 0) {
+        return ApiResponse.error(res, 'reportIds must be a non-empty array of report identifiers', 400, 'VALIDATION_ERROR');
+      }
+      const summary = await tenantClinicalService.batchReleaseReports(tenantId, reportIds, req.user);
+      return ApiResponse.success(res, summary, `Batch report release completed: ${summary.releasedCount} released, ${summary.failedCount} failed`);
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async downloadReport(req, res, next) {
+    try {
+      const { tenantId, reportId } = req.params;
+      const result = await tenantClinicalService.getReportForDownload(tenantId, reportId, req.user);
+      res.setHeader('Content-Disposition', `attachment; filename="${result.safeFilename}"`);
+      return ApiResponse.success(res, result, 'Official report ready for download');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async batchDownloadReports(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const { reportIds } = req.body;
+      if (!Array.isArray(reportIds) || reportIds.length === 0) {
+        return ApiResponse.error(res, 'reportIds must be a non-empty array of report identifiers', 400, 'VALIDATION_ERROR');
+      }
+      const summary = await tenantClinicalService.batchDownloadReports(tenantId, reportIds, req.user);
+      return ApiResponse.success(res, summary, `Batch report download authorization completed: ${summary.downloadedCount} eligible, ${summary.failedCount} failed`);
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
         return ApiResponse.error(res, err.message, err.statusCode, err.code);
@@ -331,14 +380,49 @@ export class TenantClinicalController {
   }
 
   // -------------------------------------------------------------------------
-  // DASHBOARD SUMMARY (Role-Specific)
+  // DASHBOARD SUMMARY (Role-Specific & Today's Orders Summary)
   // -------------------------------------------------------------------------
   static async getDashboardSummary(req, res, next) {
     try {
       const { tenantId } = req.params;
       const userRole = req.user?.role || 'lab_admin';
-      const summary = await tenantClinicalService.getDashboardSummary(tenantId, userRole);
+      const timeZone = req.query.timezone || req.headers['x-timezone'];
+      const summary = await tenantClinicalService.getDashboardSummary(tenantId, userRole, { timeZone });
       return ApiResponse.success(res, summary, 'Laboratory dashboard metrics retrieved');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async getTodaySummary(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const timeZone = req.query.timezone || req.headers['x-timezone'];
+      const summary = await tenantClinicalService.getTodayOrderSummary(tenantId, { timeZone });
+      return ApiResponse.success(res, summary, "Today's lab orders summary retrieved");
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async getTodayTatSummary(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const timeZone = req.query.timezone || req.headers['x-timezone'];
+      const summary = await tenantClinicalService.getTodayOrderSummary(tenantId, { timeZone });
+      return ApiResponse.success(res, {
+        averageTatMinutes: summary.averageTatMinutes,
+        formattedTat: summary.formattedTat,
+        eligibleReportsCount: summary.tatReportCount,
+        date: summary.date,
+        timeZone: summary.timeZone,
+      }, "Today's report turnaround time (TAT) summary retrieved");
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
         return ApiResponse.error(res, err.message, err.statusCode, err.code);
@@ -412,6 +496,62 @@ export class TenantClinicalController {
         return ApiResponse.error(res, 'No laboratory found matching the provided domain or code', HTTP_STATUS.NOT_FOUND);
       }
       return ApiResponse.success(res, branding, 'Laboratory branding resolved successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+  // -------------------------------------------------------------------------
+  // PUBLIC UN-AUTHENTICATED REPORT VERIFICATION
+  // -------------------------------------------------------------------------
+  static async verifyPublicReport(req, res, next) {
+    try {
+      const { token } = req.params;
+      if (!token) {
+        return ApiResponse.error(res, 'Verification token is required', 400);
+      }
+      const data = await tenantClinicalService.verifyPublicReport(token);
+      return ApiResponse.success(res, data, 'Report authenticity verified');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        if (err.statusCode === 404) {
+          return res.status(404).json({
+            success: false,
+            message: err.message,
+            data: { valid: false },
+          });
+        }
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // AUDIT LOGS (Compliance & Security)
+  // -------------------------------------------------------------------------
+  static async getTenantAuditLogs(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const { action, startDate, endDate, limit, page } = req.query;
+      const data = await auditLogService.getAuditLogs({
+        tenantId,
+        action,
+        startDate,
+        endDate,
+        limit,
+        page,
+      });
+      return ApiResponse.success(res, data, 'Audit logs retrieved successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getTenantAuditActions(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const actions = await auditLogService.getDistinctActions(tenantId);
+      return ApiResponse.success(res, actions, 'Audit actions retrieved successfully');
     } catch (err) {
       next(err);
     }

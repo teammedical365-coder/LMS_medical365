@@ -70,11 +70,20 @@ export const clinicalService = {
   createReport: (tenantId, data) =>
     api.post(`/tenants/${tenantId}/reports`, data).then((res) => res.data),
 
-  approveReport: (tenantId, reportId) =>
-    api.post(`/tenants/${tenantId}/reports/${reportId}/approve`).then((res) => res.data),
+  approveReport: (tenantId, reportId, data = {}) =>
+    api.post(`/tenants/${tenantId}/reports/${reportId}/approve`, data).then((res) => res.data),
 
   releaseReport: (tenantId, reportId) =>
     api.post(`/tenants/${tenantId}/reports/${reportId}/release`).then((res) => res.data),
+
+  batchReleaseReports: (tenantId, reportIds) =>
+    api.post(`/tenants/${tenantId}/reports/batch-release`, { reportIds }).then((res) => res.data),
+
+  downloadReport: (tenantId, reportId) =>
+    api.get(`/tenants/${tenantId}/reports/${reportId}/download`).then((res) => res.data),
+
+  batchDownloadReports: (tenantId, reportIds) =>
+    api.post(`/tenants/${tenantId}/reports/batch-download`, { reportIds }).then((res) => res.data),
 
   // Billing
   getInvoices: (tenantId, params = {}) =>
@@ -87,8 +96,25 @@ export const clinicalService = {
     api.get(`/tenants/${tenantId}/billing/summary`).then((res) => res.data),
 
   // Dashboard Metrics
-  getDashboardSummary: (tenantId) =>
-    api.get(`/tenants/${tenantId}/dashboard-summary`).then((res) => res.data),
+  getDashboardSummary: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/dashboard-summary`, { params }).then((res) => res.data),
+
+  getTodaySummary: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/dashboard/today-summary`, { params }).then((res) => res.data),
+
+  getTodayTat: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/dashboard/today-tat`, { params }).then((res) => res.data),
+
+  // Public Report Verification
+  verifyPublicReport: (token) =>
+    api.get(`/public/verify-report/${token}`).then((res) => res.data),
+
+  // Audit Logs & Compliance Trail
+  getAuditLogs: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/audit-logs`, { params }).then((res) => res.data),
+
+  getAuditActions: (tenantId) =>
+    api.get(`/tenants/${tenantId}/audit-logs/actions`).then((res) => res.data),
 };
 
 export default clinicalService;

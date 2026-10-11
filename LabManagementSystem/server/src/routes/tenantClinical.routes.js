@@ -57,9 +57,12 @@ tenantClinicalRouter.patch('/tests/:testId', requirePermission('tests:manage'), 
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/reports', requirePermission('reports:view'), tenantClinicalController.listReports);
 tenantClinicalRouter.post('/reports', requirePermission('reports:create'), tenantClinicalController.createReport);
+tenantClinicalRouter.post('/reports/batch-release', requirePermission('reports:release'), tenantClinicalController.batchReleaseReports);
+tenantClinicalRouter.post('/reports/batch-download', requirePermission('reports:view'), tenantClinicalController.batchDownloadReports);
 tenantClinicalRouter.post('/reports/:reportId/approve', requirePermission('reports:verify'), tenantClinicalController.approveReport);
 tenantClinicalRouter.post('/reports/:reportId/reject', requirePermission('reports:verify'), tenantClinicalController.rejectReport);
 tenantClinicalRouter.post('/reports/:reportId/release', requirePermission('reports:release'), tenantClinicalController.releaseReport);
+tenantClinicalRouter.get('/reports/:reportId/download', requirePermission('reports:view'), tenantClinicalController.downloadReport);
 
 // ---------------------------------------------------------------------------
 // BILLING, INVOICING & PAYMENTS
@@ -69,14 +72,24 @@ tenantClinicalRouter.post('/billing/invoices/:invoiceId/payments', requirePermis
 tenantClinicalRouter.get('/billing/summary', requirePermission('billing:view'), tenantClinicalController.getBillingSummary);
 
 // ---------------------------------------------------------------------------
-// ROLE-SPECIFIC DASHBOARD SUMMARY
+// ROLE-SPECIFIC DASHBOARD SUMMARY & TODAY'S ORDER SUMMARY
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/dashboard-summary', tenantClinicalController.getDashboardSummary);
+tenantClinicalRouter.get('/dashboard/today-summary', requirePermission('orders:view'), tenantClinicalController.getTodaySummary);
+tenantClinicalRouter.get('/orders/today-summary', requirePermission('orders:view'), tenantClinicalController.getTodaySummary);
+tenantClinicalRouter.get('/dashboard/today-tat', requirePermission('orders:view'), tenantClinicalController.getTodayTatSummary);
+tenantClinicalRouter.get('/reports/today-tat', requirePermission('reports:view'), tenantClinicalController.getTodayTatSummary);
 
 // ---------------------------------------------------------------------------
 // LABORATORY SETTINGS & WHITE-LABEL BRANDING
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/settings', requirePermission('settings:view'), tenantClinicalController.getTenantSettings);
 tenantClinicalRouter.patch('/settings/branding', requirePermission('settings:manage'), tenantClinicalController.updateTenantBranding);
+
+// ---------------------------------------------------------------------------
+// AUDIT LOGS & COMPLIANCE TRAIL
+// ---------------------------------------------------------------------------
+tenantClinicalRouter.get('/audit-logs/actions', requirePermission('audit:view'), tenantClinicalController.getTenantAuditActions);
+tenantClinicalRouter.get('/audit-logs', requirePermission('audit:view'), tenantClinicalController.getTenantAuditLogs);
 
 export default tenantClinicalRouter;

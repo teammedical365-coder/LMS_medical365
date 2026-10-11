@@ -28,6 +28,8 @@ import {
   ShieldCheck,
   Building2,
   Sparkles,
+  Calendar,
+  Timer,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
@@ -43,6 +45,7 @@ export function DashboardPage() {
   const { tenant, branding } = useTenant();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
@@ -60,12 +63,18 @@ export function DashboardPage() {
 
       try {
         setLoading(true);
-        const res = await api.get(`/tenants/${tenantId}/dashboard-summary`);
+        setError(null);
+        const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const res = await api.get(`/tenants/${tenantId}/dashboard-summary`, {
+          params: { timezone: clientTimezone },
+        });
         if (isMounted && res.data?.success) {
           setDashboardData(res.data.data);
         }
       } catch (err) {
-        // Fallback to initial display if network or DB issue
+        if (isMounted) {
+          setError(err.response?.data?.message || 'Failed to retrieve live dashboard summary');
+        }
         console.warn('Dashboard summary live fetch fallback:', err.message);
       } finally {
         if (isMounted) setLoading(false);
@@ -77,6 +86,10 @@ export function DashboardPage() {
   }, [tenantId, isSuperAdmin]);
 
   const metrics = dashboardData?.metrics || {
+    todayOrders: 0,
+    pendingOrders: 0,
+    samplesCollected: 0,
+    reportsReleased: 0,
     totalPatients: 0,
     totalOrders: 0,
     pendingCollectionSamples: 0,
@@ -85,6 +98,18 @@ export function DashboardPage() {
     releasedReports: 0,
     totalRevenue: 0,
     totalOutstanding: 0,
+  };
+
+  const todaySummary = dashboardData?.todaySummary || {
+    todayOrders: metrics.todayOrders ?? 0,
+    pendingOrders: metrics.pendingOrders ?? 0,
+    samplesCollected: metrics.samplesCollected ?? 0,
+    reportsReleased: metrics.reportsReleased ?? 0,
+    averageTatMinutes: metrics.averageTatMinutes ?? null,
+    formattedTat: metrics.formattedTat || 'N/A',
+    tatReportCount: metrics.tatReportCount ?? 0,
+    date: new Date().toLocaleDateString(),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
 
   const recentOrders = dashboardData?.recentOrders || [];
@@ -367,7 +392,73 @@ export function DashboardPage() {
         message={`Operations scoped strictly to ${branding?.displayName || tenant?.name || 'this laboratory'}. Super Admin and cross-tenant clinical interference is blocked at the database tier.`}
       />
 
-      {/* Metrics Grid */}
+      {/* Error banner if live fetch failed */}
+      {error && (
+        <div style={{ marginBottom: '1rem' }}>
+          <StatusBanner type="warning" badgeText="Notice" message={error} />
+        </div>
+      )}
+
+      {/* Today's Lab Orders Summary Section */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Calendar size={18} style={{ color: 'var(--primary-blue)' }} />
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-800)', margin: 0 }}>
+              Today's Lab Orders Summary
+            </h2>
+          </div>
+          {todaySummary?.date && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+              Calendar Day: {todaySummary.date} {todaySummary.timeZone ? `(${todaySummary.timeZone})` : ''}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '1.25rem' }}>
+          <StatCard
+            title="Today's Total Orders"
+            value={loading ? '...' : (todaySummary.todayOrders ?? 0)}
+            subtitle="Requisitions logged today"
+            icon={ClipboardList}
+            colorScheme="blue"
+          />
+          <StatCard
+            title="Pending Orders"
+            value={loading ? '...' : (todaySummary.pendingOrders ?? 0)}
+            subtitle="Ordered / in progress today"
+            icon={Clock}
+            colorScheme="amber"
+          />
+          <StatCard
+            title="Samples Collected"
+            value={loading ? '...' : (todaySummary.samplesCollected ?? 0)}
+            subtitle="Specimens drawn today"
+            icon={FlaskConical}
+            colorScheme="teal"
+          />
+          <StatCard
+            title="Reports Released"
+            value={loading ? '...' : (todaySummary.reportsReleased ?? 0)}
+            subtitle="Diagnostic releases today"
+            icon={CheckCircle2}
+            colorScheme="green"
+          />
+          <StatCard
+            title="Average Report TAT Today"
+            value={loading ? '...' : (todaySummary.formattedTat || 'N/A')}
+            subtitle={
+              todaySummary.tatReportCount > 0
+                ? `Across ${todaySummary.tatReportCount} released report${todaySummary.tatReportCount === 1 ? '' : 's'}`
+                : 'No released reports with valid timestamps'
+            }
+            icon={Timer}
+            colorScheme="purple"
+          />
+        </div>
+      </section>
+
+      {/* Role-Specific Metrics Grid */}
       <section>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1.25rem' }}>
           {renderRoleCards()}

@@ -86,6 +86,13 @@ export const MODULE_ACTIONS = {
       manage: 'Edit Tenant Settings & Integrations',
     },
   },
+  audit: {
+    label: 'Audit Trail & Compliance',
+    actions: ['view'],
+    actionLabels: {
+      view: 'View Laboratory Audit Logs',
+    },
+  },
 };
 
 export const AVAILABLE_NAV_ITEMS = [
@@ -97,6 +104,7 @@ export const AVAILABLE_NAV_ITEMS = [
   { key: 'reports', label: 'Reports', path: '/reports' },
   { key: 'billing', label: 'Billing', path: '/billing' },
   { key: 'users', label: 'Users & Roles', path: '/users' },
+  { key: 'audit', label: 'Audit Logs', path: '/audit-logs' },
   { key: 'settings', label: 'Lab Settings', path: '/settings' },
 ];
 
@@ -133,7 +141,7 @@ export const DEFAULT_LAB_ROLES = [
     name: 'Laboratory Administrator',
     description: 'Full administrative access to all laboratory operational, clinical, staff, and role management workflows.',
     dashboardPath: '/dashboard',
-    navigationItems: ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'settings'],
+    navigationItems: ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'audit', 'settings'],
     permissions: [
       'patients:view', 'patients:create', 'patients:update', 'patients:delete',
       'orders:view', 'orders:create', 'orders:update', 'orders:delete',
@@ -143,6 +151,7 @@ export const DEFAULT_LAB_ROLES = [
       'billing:view', 'billing:manage',
       'users:view', 'users:manage',
       'roles:view', 'roles:manage',
+      'audit:view',
       'settings:view', 'settings:manage',
     ],
     isSystemDefault: true,

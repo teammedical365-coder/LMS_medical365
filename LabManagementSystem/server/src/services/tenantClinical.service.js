@@ -16,6 +16,7 @@ import tenantConnectionService from './tenantConnection.service.js';
 import tenantUserService from './tenantUser.service.js';
 import laboratoryManagementService from './laboratoryManagement.service.js';
 import auditLogService from './auditLog.service.js';
+import ReportVerificationModel from '../models/reportVerification.model.js';
 import { resolveSpecimenContainer, generateBarcodeSvg, generate50x25Label } from '../utils/barcode128.js';
 import logger from '../utils/logger.js';
 
@@ -26,6 +27,32 @@ export class ClinicalServiceError extends Error {
     this.code = code;
     this.statusCode = statusCode;
   }
+}
+
+export function isValidIanaTimezone(tz) {
+  if (!tz || typeof tz !== 'string' || !tz.trim()) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz.trim() });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+export function formatTatDuration(minutes) {
+  if (minutes === null || minutes === undefined || isNaN(minutes) || minutes < 0) {
+    return 'N/A';
+  }
+  const totalMins = Math.round(minutes);
+  if (totalMins < 60) {
+    return `${totalMins}m`;
+  }
+  const hours = Math.floor(totalMins / 60);
+  const remainingMins = totalMins % 60;
+  if (remainingMins === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${remainingMins}m`;
 }
 
 /**
@@ -174,6 +201,7 @@ class TenantClinicalService {
     this.memoryReports = new Map();
     this.memoryInvoices = new Map();
     this.memoryRecollections = new Map();
+    this.memoryVerifications = new Map();
   }
 
   generateId(prefix) {
@@ -1425,36 +1453,81 @@ class TenantClinicalService {
     return mock;
   }
 
-  async approveReport(tenantId, reportId, actor = {}) {
+  async approveReport(tenantId, reportId, actor = {}, data = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
 
+    let report = null;
     if (ReportModel) {
-      const report = await ReportModel.findOne({ tenantId, reportId });
-      if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
-
-      report.status = 'approved';
-      report.reviewedBy = actor.email || 'Consultant Pathologist';
-      await report.save();
-
-      await auditLogService.recordEvent({
-        action: 'REPORT_APPROVED',
-        targetTenantId: tenantId,
-        actorType: actor.accountType || 'TENANT_USER',
-        actorEmail: actor.email,
-        details: { reportId, reportNumber: report.reportNumber },
-      });
-
-      return report.toSafeJSON();
+      report = await ReportModel.findOne({ tenantId, reportId });
+    } else {
+      const tenantMap = this.memoryReports.get(tenantId);
+      report = tenantMap?.get(reportId);
     }
 
-    const tenantMap = this.memoryReports.get(tenantId);
-    const report = tenantMap?.get(reportId);
     if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
 
+    // 1. Verify valid state transition
+    if (report.status !== 'draft' && report.status !== 'pending_review') {
+      throw new ClinicalServiceError(`Report cannot be verified from status '${report.status}'`, 'INVALID_STATE_TRANSITION', 400);
+    }
+
+    // 2. Prevent verification when required clinical results are missing
+    let items = Array.isArray(report.items) && report.items.length > 0 ? report.items : [];
+    if (items.length === 0 && report.orderId) {
+      try {
+        const order = await this.getOrderById(tenantId, report.orderId);
+        if (order && Array.isArray(order.items)) {
+          items = order.items;
+          report.items = items;
+        }
+      } catch {}
+    }
+
+    if (items.length === 0) {
+      throw new ClinicalServiceError('Cannot verify report: no test items or clinical parameters found', 'MISSING_RESULTS', 400);
+    }
+
+    const hasIncomplete = items.some((it) => {
+      const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+      const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+      return !hasParams && !hasSingle;
+    });
+
+    if (hasIncomplete) {
+      throw new ClinicalServiceError('Cannot verify report: one or more tests have missing diagnostic results', 'MISSING_RESULTS', 400);
+    }
+
+    // 3. Record verification details
     report.status = 'approved';
-    report.reviewedBy = actor.email || 'Consultant Pathologist';
-    return report;
+    report.reviewedBy = actor.email || actor.userId || 'Consultant Pathologist';
+    report.verifiedAt = new Date();
+    if (data?.verificationNotes) {
+      report.verificationNotes = String(data.verificationNotes).trim();
+    }
+    if (data?.findings && String(data.findings).trim()) {
+      report.findings = String(data.findings).trim();
+    }
+
+    if (ReportModel && typeof report.save === 'function') {
+      await report.save();
+    }
+
+    await auditLogService.recordEvent({
+      action: 'REPORT_APPROVED',
+      targetTenantId: tenantId,
+      actorType: actor.accountType || 'TENANT_USER',
+      actorEmail: actor.email,
+      details: {
+        reportId,
+        reportNumber: report.reportNumber,
+        verifiedBy: report.reviewedBy,
+        verifiedAt: report.verifiedAt,
+        hasVerificationNotes: Boolean(data?.verificationNotes),
+      },
+    });
+
+    return report.toSafeJSON ? report.toSafeJSON() : report;
   }
 
   async rejectReport(tenantId, reportId, reason, actor = {}) {
@@ -1497,14 +1570,70 @@ class TenantClinicalService {
     await tenantUserService.assertTenantReady(tenantId);
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
 
+    // Resolve tenant lab name for public authenticity record
+    let labName = 'Clinical Diagnostic Laboratory';
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+      if (lab?.name) labName = lab.name;
+    } catch (_) {}
+
     if (ReportModel) {
       const report = await ReportModel.findOne({ tenantId, reportId });
       if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
 
+      if (report.status === 'released') {
+        throw new ClinicalServiceError('Report is already released', 'ALREADY_RELEASED', 400);
+      }
+      if (report.status === 'rejected') {
+        throw new ClinicalServiceError('Cannot release a rejected diagnostic report', 'INVALID_STATE_TRANSITION', 400);
+      }
+      if (report.status !== 'approved') {
+        throw new ClinicalServiceError(`Cannot release report in '${report.status}' status. Report must be approved before release.`, 'REPORT_NOT_APPROVED', 400);
+      }
+
+      // Check required results are present
+      if (Array.isArray(report.items) && report.items.length > 0) {
+        for (const item of report.items) {
+          if (Array.isArray(item.parameterResults) && item.parameterResults.length > 0) {
+            for (const pr of item.parameterResults) {
+              if (pr.value === undefined || pr.value === null || String(pr.value).trim() === '') {
+                throw new ClinicalServiceError(`Cannot release report with missing result for parameter '${pr.parameterName || pr.parameterCode}'`, 'MISSING_RESULTS', 400);
+              }
+            }
+          }
+        }
+      }
+
+      // Generate unpredictable cryptographically secure token
+      if (!report.verificationToken) {
+        report.verificationToken = crypto.randomBytes(24).toString('hex');
+      }
+
       report.status = 'released';
       report.releasedBy = actor.email || 'Pathologist / Director';
-      report.releasedAt = new Date();
+      report.releasedAt = report.releasedAt || new Date();
       await report.save();
+
+      // Upsert public verification registry in master DB
+      const verificationRecord = {
+        token: report.verificationToken,
+        tenantId,
+        labName,
+        reportNumber: report.reportNumber,
+        status: 'released',
+        releasedAt: report.releasedAt,
+      };
+
+      try {
+        await ReportVerificationModel.findOneAndUpdate(
+          { token: report.verificationToken },
+          verificationRecord,
+          { upsert: true, new: true }
+        );
+      } catch (dbErr) {
+        logger.warn('Failed to persist to master verification model, fallback to memory', { error: dbErr.message });
+      }
+      this.memoryVerifications.set(report.verificationToken, verificationRecord);
 
       await auditLogService.recordEvent({
         action: 'REPORT_RELEASED',
@@ -1521,10 +1650,258 @@ class TenantClinicalService {
     const report = tenantMap?.get(reportId);
     if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
 
+    if (report.status === 'released') {
+      throw new ClinicalServiceError('Report is already released', 'ALREADY_RELEASED', 400);
+    }
+    if (report.status === 'rejected') {
+      throw new ClinicalServiceError('Cannot release a rejected diagnostic report', 'INVALID_STATE_TRANSITION', 400);
+    }
+    if (report.status !== 'approved') {
+      throw new ClinicalServiceError(`Cannot release report in '${report.status}' status. Report must be approved before release.`, 'REPORT_NOT_APPROVED', 400);
+    }
+
+    if (Array.isArray(report.items) && report.items.length > 0) {
+      for (const item of report.items) {
+        if (Array.isArray(item.parameterResults) && item.parameterResults.length > 0) {
+          for (const pr of item.parameterResults) {
+            if (pr.value === undefined || pr.value === null || String(pr.value).trim() === '') {
+              throw new ClinicalServiceError(`Cannot release report with missing result for parameter '${pr.parameterName || pr.parameterCode}'`, 'MISSING_RESULTS', 400);
+            }
+          }
+        }
+      }
+    }
+
+    if (!report.verificationToken) {
+      report.verificationToken = crypto.randomBytes(24).toString('hex');
+    }
+
     report.status = 'released';
     report.releasedBy = actor.email;
-    report.releasedAt = new Date();
+    report.releasedAt = report.releasedAt || new Date();
+
+    const verificationRecord = {
+      token: report.verificationToken,
+      tenantId,
+      labName,
+      reportNumber: report.reportNumber,
+      status: 'released',
+      releasedAt: report.releasedAt,
+    };
+    this.memoryVerifications.set(report.verificationToken, verificationRecord);
+
     return report;
+  }
+
+  async batchReleaseReports(tenantId, reportIds, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    if (!Array.isArray(reportIds) || reportIds.length === 0) {
+      throw new ClinicalServiceError('reportIds must be a non-empty array of report IDs', 'VALIDATION_ERROR', 400);
+    }
+
+    const results = [];
+    for (const reportId of reportIds) {
+      try {
+        const released = await this.releaseReport(tenantId, reportId, actor);
+        results.push({
+          reportId,
+          reportNumber: released.reportNumber,
+          status: 'released',
+          success: true,
+          releasedAt: released.releasedAt,
+          verificationToken: released.verificationToken,
+        });
+      } catch (err) {
+        results.push({
+          reportId,
+          status: 'failed',
+          success: false,
+          error: err.message || 'Failed to release report',
+          code: err.code || 'RELEASE_FAILED',
+        });
+      }
+    }
+
+    return {
+      totalRequested: reportIds.length,
+      releasedCount: results.filter((r) => r.success).length,
+      failedCount: results.filter((r) => !r.success).length,
+      results,
+    };
+  }
+
+  async verifyPublicReport(token) {
+    if (!token || typeof token !== 'string') {
+      throw new ClinicalServiceError('Invalid verification token', 'INVALID_VERIFICATION_TOKEN', 400);
+    }
+    const cleanToken = token.trim();
+    if (!/^[a-zA-Z0-9_-]{16,128}$/.test(cleanToken)) {
+      throw new ClinicalServiceError('Malformed verification token', 'INVALID_VERIFICATION_TOKEN', 400);
+    }
+
+    let record = null;
+    try {
+      record = await ReportVerificationModel.findOne({ token: cleanToken });
+    } catch (_) {}
+
+    if (!record) {
+      record = this.memoryVerifications.get(cleanToken);
+    }
+
+    if (!record) {
+      throw new ClinicalServiceError('Invalid or unknown verification token', 'VERIFICATION_TOKEN_NOT_FOUND', 404);
+    }
+
+    // Cross-verify with tenant DB to ensure report is still released and exists
+    try {
+      const ReportModel = tenantConnectionService.getTenantReportModel(record.tenantId);
+      if (ReportModel) {
+        const liveReport = await ReportModel.findOne({ tenantId: record.tenantId, reportNumber: record.reportNumber });
+        if (!liveReport || liveReport.status !== 'released') {
+          throw new ClinicalServiceError('Report is not currently in released status', 'REPORT_NOT_RELEASED', 404);
+        }
+      }
+    } catch (err) {
+      if (err.code === 'REPORT_NOT_RELEASED') throw err;
+    }
+
+    // Minimal authenticity information ONLY (no patient demographics, no test results)
+    return {
+      valid: true,
+      labName: record.labName,
+      reportNumber: record.reportNumber,
+      status: 'released',
+      releasedAt: record.releasedAt,
+    };
+  }
+
+  async getReportForDownload(tenantId, reportId, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+
+    let report = null;
+    if (ReportModel) {
+      report = await ReportModel.findOne({ tenantId, reportId });
+    } else {
+      const tenantMap = this.memoryReports.get(tenantId);
+      report = tenantMap?.get(reportId);
+    }
+
+    if (!report) {
+      throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
+    }
+
+    // STRICT CHECK: Cannot download an unapproved draft or non-released report as official
+    if (report.status !== 'released') {
+      throw new ClinicalServiceError(
+        `Cannot download unreleased diagnostic report in status '${report.status}'. Official download is only permitted for released reports.`,
+        'REPORT_NOT_RELEASED',
+        400
+      );
+    }
+
+    // Sanitize filename based on report number
+    const rawNum = report.reportNumber || 'Report';
+    const cleanNum = String(rawNum).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFilename = `Report_${cleanNum}.pdf`;
+
+    // Audit log
+    await auditLogService.recordEvent({
+      action: 'REPORT_DOWNLOADED',
+      targetTenantId: tenantId,
+      actorType: actor.accountType || 'TENANT_USER',
+      actorEmail: actor.email,
+      details: { reportId, reportNumber: report.reportNumber, safeFilename },
+    });
+
+    const safeJson = report.toSafeJSON ? report.toSafeJSON() : { ...report };
+    return {
+      ...safeJson,
+      safeFilename,
+      downloadUrl: `/api/v1/tenants/${tenantId}/reports/${reportId}/download`,
+    };
+  }
+
+  async batchDownloadReports(tenantId, reportIds, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    if (!Array.isArray(reportIds) || reportIds.length === 0) {
+      throw new ClinicalServiceError('reportIds must be a non-empty array of report identifiers', 'VALIDATION_ERROR', 400);
+    }
+
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    const results = [];
+
+    for (const reportId of reportIds) {
+      try {
+        let report = null;
+        if (ReportModel) {
+          report = await ReportModel.findOne({ tenantId, reportId });
+        } else {
+          const tenantMap = this.memoryReports.get(tenantId);
+          report = tenantMap?.get(reportId);
+        }
+
+        if (!report) {
+          results.push({
+            reportId,
+            status: 'not_found',
+            success: false,
+            error: 'Report not found in this laboratory tenant',
+            code: 'REPORT_NOT_FOUND',
+          });
+          continue;
+        }
+
+        if (report.status !== 'released') {
+          results.push({
+            reportId,
+            reportNumber: report.reportNumber,
+            status: report.status,
+            success: false,
+            error: `Cannot download unreleased diagnostic report in status '${report.status}'. Official download is only permitted for released reports.`,
+            code: 'REPORT_NOT_RELEASED',
+          });
+          continue;
+        }
+
+        const rawNum = report.reportNumber || 'Report';
+        const cleanNum = String(rawNum).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const safeFilename = `Report_${cleanNum}.pdf`;
+
+        await auditLogService.recordEvent({
+          action: 'REPORT_DOWNLOADED',
+          targetTenantId: tenantId,
+          actorType: actor.accountType || 'TENANT_USER',
+          actorEmail: actor.email,
+          details: { reportId, reportNumber: report.reportNumber, safeFilename, batch: true },
+        });
+
+        // STRICT PRIVACY: Do not return patient demographics, clinical findings or verification tokens in batch summaries!
+        results.push({
+          reportId: report.reportId,
+          reportNumber: report.reportNumber,
+          safeFilename,
+          status: 'released',
+          success: true,
+          downloadUrl: `/api/v1/tenants/${tenantId}/reports/${report.reportId}/download`,
+        });
+      } catch (err) {
+        results.push({
+          reportId,
+          status: 'error',
+          success: false,
+          error: err.message || 'Failed to prepare report for download',
+          code: err.code || 'DOWNLOAD_FAILED',
+        });
+      }
+    }
+
+    return {
+      totalRequested: reportIds.length,
+      downloadedCount: results.filter((r) => r.success).length,
+      failedCount: results.filter((r) => !r.success).length,
+      results,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -1716,20 +2093,291 @@ class TenantClinicalService {
   }
 
   // -------------------------------------------------------------------------
-  // DASHBOARD AGGREGATED SUMMARY (Role-Specific)
+  // TODAY'S LAB ORDERS SUMMARY & LOCAL CALENDAR RANGE & TAT
   // -------------------------------------------------------------------------
-  async getDashboardSummary(tenantId, role = 'lab_admin') {
+  calculateLocalCalendarRange(timeZone = 'UTC') {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const dateStr = formatter.format(now);
+      const [year, month, day] = dateStr.split('-').map(Number);
+
+      const tempDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      const invDate = new Date(tempDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+      const localDate = new Date(tempDate.toLocaleString('en-US', { timeZone }));
+      const diffMs = invDate.getTime() - localDate.getTime();
+
+      const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) + diffMs);
+      const endOfDay = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) + diffMs);
+
+      return { startOfDay, endOfDay, dateStr, timeZone };
+    } catch (_) {
+      const now = new Date();
+      const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+      return { startOfDay, endOfDay, dateStr: startOfDay.toISOString().split('T')[0], timeZone: 'UTC' };
+    }
+  }
+
+  async getTodayOrderSummary(tenantId, options = {}) {
     await tenantUserService.assertTenantReady(tenantId);
 
-    const [patients, orders, samples, reports, billing] = await Promise.all([
+    // 1. Resolve Laboratory Local Timezone
+    // "Use the lab's configured IANA timezone where available. Validate client-provided timezone values and avoid silently using UTC when a valid lab timezone is configured."
+    let labConfiguredTimezone = null;
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+      if (lab && lab.timezone && isValidIanaTimezone(lab.timezone)) {
+        labConfiguredTimezone = lab.timezone.trim();
+      }
+    } catch (_) {}
+
+    const rawClientTz = (options.timeZone || options.timezone || '').trim();
+    const isClientValid = isValidIanaTimezone(rawClientTz);
+
+    let timeZone = null;
+    if (labConfiguredTimezone && labConfiguredTimezone !== 'UTC') {
+      timeZone = labConfiguredTimezone;
+    } else if (isClientValid) {
+      timeZone = rawClientTz;
+    } else if (labConfiguredTimezone) {
+      timeZone = labConfiguredTimezone;
+    } else {
+      timeZone = 'UTC';
+    }
+
+    // 2. Compute exact local calendar day boundaries
+    const { startOfDay, endOfDay, dateStr } = this.calculateLocalCalendarRange(timeZone);
+
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+
+    let todayOrders = 0;
+    let pendingOrders = 0;
+    let samplesCollected = 0;
+    let reportsReleased = 0;
+    let averageTatMinutes = null;
+    let formattedTat = 'N/A';
+    let tatReportCount = 0;
+
+    if (OrderModel && SampleModel && ReportModel) {
+      const [orderCount, pendingCount, sampleCount, reportCount, releasedReportsDocs] = await Promise.all([
+        // 1. Today's total lab orders
+        OrderModel.countDocuments({
+          tenantId,
+          createdAt: { $gte: startOfDay, $lte: endOfDay },
+        }),
+        // 2. Pending orders created today (ordered / in_progress / in_analysis)
+        OrderModel.countDocuments({
+          tenantId,
+          orderStatus: { $in: ['ordered', 'in_progress', 'in_analysis'] },
+          createdAt: { $gte: startOfDay, $lte: endOfDay },
+        }),
+        // 3. Samples collected today
+        SampleModel.countDocuments({
+          tenantId,
+          collectionStatus: { $in: ['collected', 'received'] },
+          $or: [
+            { collectedAt: { $gte: startOfDay, $lte: endOfDay } },
+            { collectedAt: null, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+          ],
+        }),
+        // 4. Reports released today
+        ReportModel.countDocuments({
+          tenantId,
+          status: 'released',
+          $or: [
+            { releasedAt: { $gte: startOfDay, $lte: endOfDay } },
+            { releasedAt: null, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+          ],
+        }),
+        // 5. Released reports for today's turnaround time calculation
+        ReportModel.find({
+          tenantId,
+          status: 'released',
+          releasedAt: { $gte: startOfDay, $lte: endOfDay },
+        }).select('reportId orderId releasedAt status').lean(),
+      ]);
+
+      todayOrders = orderCount;
+      pendingOrders = pendingCount;
+      samplesCollected = sampleCount;
+      reportsReleased = reportCount;
+
+      // Calculate TAT from released reports and corresponding sample timestamps
+      const orderIds = releasedReportsDocs.map((r) => r.orderId).filter(Boolean);
+      const samplesByOrder = new Map();
+      if (orderIds.length > 0) {
+        const sampleDocs = await SampleModel.find({
+          tenantId,
+          orderId: { $in: orderIds },
+        }).select('sampleId orderId collectedAt receivedAt collectionStatus').lean();
+
+        for (const s of sampleDocs) {
+          if (!samplesByOrder.has(s.orderId)) {
+            samplesByOrder.set(s.orderId, []);
+          }
+          samplesByOrder.get(s.orderId).push(s);
+        }
+      }
+
+      const reportTatList = [];
+      for (const report of releasedReportsDocs) {
+        if (!report.releasedAt) continue;
+        const releaseTime = new Date(report.releasedAt).getTime();
+        if (isNaN(releaseTime) || releaseTime <= 0) continue;
+
+        const orderSamples = samplesByOrder.get(report.orderId) || [];
+        const startCandidates = [];
+        for (const s of orderSamples) {
+          const rawStart = s.collectedAt || s.receivedAt;
+          if (rawStart) {
+            const t = new Date(rawStart).getTime();
+            if (!isNaN(t) && t > 0) {
+              startCandidates.push(t);
+            }
+          }
+        }
+
+        // If no valid collection or receipt timestamp found, exclude report
+        if (startCandidates.length === 0) continue;
+
+        // Earliest valid collection/receipt timestamp
+        const startTime = Math.min(...startCandidates);
+
+        // Exclude invalid sequence (released before collected)
+        if (releaseTime < startTime) continue;
+
+        const diffMins = Math.round((releaseTime - startTime) / (1000 * 60));
+        reportTatList.push(diffMins);
+      }
+
+      tatReportCount = reportTatList.length;
+      if (tatReportCount > 0) {
+        const totalMinutes = reportTatList.reduce((sum, m) => sum + m, 0);
+        averageTatMinutes = Math.round(totalMinutes / tatReportCount);
+        formattedTat = formatTatDuration(averageTatMinutes);
+      }
+    } else {
+      // In-memory fallback
+      const tenantOrders = this.memoryOrders.get(tenantId) || new Map();
+      const tenantSamples = this.memorySamples.get(tenantId) || new Map();
+      const tenantReports = this.memoryReports.get(tenantId) || new Map();
+
+      const ordersList = Array.from(tenantOrders.values());
+      const samplesList = Array.from(tenantSamples.values());
+      const reportsList = Array.from(tenantReports.values());
+
+      todayOrders = ordersList.filter(
+        (o) => o.createdAt && new Date(o.createdAt) >= startOfDay && new Date(o.createdAt) <= endOfDay
+      ).length;
+
+      pendingOrders = ordersList.filter(
+        (o) =>
+          ['ordered', 'in_progress', 'in_analysis'].includes(o.orderStatus) &&
+          o.createdAt &&
+          new Date(o.createdAt) >= startOfDay &&
+          new Date(o.createdAt) <= endOfDay
+      ).length;
+
+      samplesCollected = samplesList.filter(
+        (s) =>
+          (s.collectionStatus === 'collected' || s.collectionStatus === 'received') &&
+          ((s.collectedAt && new Date(s.collectedAt) >= startOfDay && new Date(s.collectedAt) <= endOfDay) ||
+            (!s.collectedAt && s.createdAt && new Date(s.createdAt) >= startOfDay && new Date(s.createdAt) <= endOfDay))
+      ).length;
+
+      reportsReleased = reportsList.filter(
+        (r) =>
+          r.status === 'released' &&
+          ((r.releasedAt && new Date(r.releasedAt) >= startOfDay && new Date(r.releasedAt) <= endOfDay) ||
+            (!r.releasedAt && r.createdAt && new Date(r.createdAt) >= startOfDay && new Date(r.createdAt) <= endOfDay))
+      ).length;
+
+      // In-memory TAT calculation
+      const eligibleReports = reportsList.filter(
+        (r) =>
+          r.status === 'released' &&
+          r.releasedAt &&
+          new Date(r.releasedAt) >= startOfDay &&
+          new Date(r.releasedAt) <= endOfDay
+      );
+
+      const memTatList = [];
+      for (const report of eligibleReports) {
+        const releaseTime = new Date(report.releasedAt).getTime();
+        if (isNaN(releaseTime) || releaseTime <= 0) continue;
+
+        const orderSamples = samplesList.filter((s) => s.orderId === report.orderId);
+        const startCandidates = [];
+        for (const s of orderSamples) {
+          const rawStart = s.collectedAt || s.receivedAt;
+          if (rawStart) {
+            const t = new Date(rawStart).getTime();
+            if (!isNaN(t) && t > 0) startCandidates.push(t);
+          }
+        }
+        if (startCandidates.length === 0) continue;
+        const startTime = Math.min(...startCandidates);
+        if (releaseTime < startTime) continue;
+
+        const diffMins = Math.round((releaseTime - startTime) / (1000 * 60));
+        memTatList.push(diffMins);
+      }
+
+      tatReportCount = memTatList.length;
+      if (tatReportCount > 0) {
+        const totalMinutes = memTatList.reduce((sum, m) => sum + m, 0);
+        averageTatMinutes = Math.round(totalMinutes / tatReportCount);
+        formattedTat = formatTatDuration(averageTatMinutes);
+      }
+    }
+
+    return {
+      todayOrders,
+      pendingOrders,
+      samplesCollected,
+      reportsReleased,
+      averageTatMinutes,
+      formattedTat,
+      tatReportCount,
+      date: dateStr,
+      timeZone,
+      startOfDay,
+      endOfDay,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // DASHBOARD AGGREGATED SUMMARY (Role-Specific)
+  // -------------------------------------------------------------------------
+  async getDashboardSummary(tenantId, role = 'lab_admin', options = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+
+    const [patients, orders, samples, reports, billing, todaySummary] = await Promise.all([
       this.listPatients(tenantId, { limit: 10 }),
       this.listOrders(tenantId, { limit: 10 }),
       this.listSamples(tenantId, { limit: 10 }),
       this.listReports(tenantId, { limit: 10 }),
       this.getBillingSummary(tenantId),
+      this.getTodayOrderSummary(tenantId, options),
     ]);
 
     const metrics = {
+      todayOrders: todaySummary.todayOrders,
+      pendingOrders: todaySummary.pendingOrders,
+      samplesCollected: todaySummary.samplesCollected,
+      reportsReleased: todaySummary.reportsReleased,
+      averageTatMinutes: todaySummary.averageTatMinutes,
+      formattedTat: todaySummary.formattedTat,
+      tatReportCount: todaySummary.tatReportCount,
+      tat: todaySummary.formattedTat,
       totalPatients: patients.length,
       totalOrders: orders.length,
       pendingCollectionSamples: samples.filter((s) => s.collectionStatus === 'pending').length,
@@ -1742,6 +2390,7 @@ class TenantClinicalService {
 
     return {
       role,
+      todaySummary,
       metrics,
       recentPatients: patients.slice(0, 5),
       recentOrders: orders.slice(0, 5),

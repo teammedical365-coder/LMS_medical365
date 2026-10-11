@@ -455,7 +455,10 @@ export const DiagnosticReportSchema = new mongoose.Schema(
     reviewedBy: { type: String, default: null },
     releasedBy: { type: String, default: null },
     rejectionReason: { type: String, default: null },
+    verifiedAt: { type: Date, default: null },
+    verificationNotes: { type: String, default: null },
     releasedAt: { type: Date, default: null },
+    verificationToken: { type: String, default: null, sparse: true, index: true },
   },
   { timestamps: true }
 );
@@ -482,7 +485,10 @@ DiagnosticReportSchema.methods.toSafeJSON = function () {
     reviewedBy: obj.reviewedBy,
     releasedBy: obj.releasedBy,
     rejectionReason: obj.rejectionReason,
+    verifiedAt: obj.verifiedAt,
+    verificationNotes: obj.verificationNotes,
     releasedAt: obj.releasedAt,
+    verificationToken: obj.verificationToken || null,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
   };

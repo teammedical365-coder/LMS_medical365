@@ -26,6 +26,7 @@ import ReportsPage from '../pages/reports/ReportsPage';
 import BillingPage from '../pages/billing/BillingPage';
 import UsersPage from '../pages/users/UsersPage';
 import SettingsPage from '../pages/settings/SettingsPage';
+import AuditLogsPage from '../pages/audit/AuditLogsPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 // Super Admin Pages (Phase 2)
@@ -34,9 +35,16 @@ import LaboratoriesPage from '../pages/superAdmin/LaboratoriesPage';
 import RegisterLaboratoryPage from '../pages/superAdmin/RegisterLaboratoryPage';
 import LaboratoryDetailsPage from '../pages/superAdmin/LaboratoryDetailsPage';
 
+// Public Unauthenticated Pages
+import PublicVerifyReportPage from '../pages/public/PublicVerifyReportPage';
+
 export function AppRoutes() {
   return (
     <Routes>
+      {/* Public unauthenticated verification routes */}
+      <Route path="/verify/:token" element={<PublicVerifyReportPage />} />
+      <Route path="/verify-report/:token" element={<PublicVerifyReportPage />} />
+
       {/* Authentication routes */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />
@@ -105,6 +113,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requiredPermission="users:view">
               <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-logs"
+          element={
+            <ProtectedRoute requiredPermission="audit:view">
+              <AuditLogsPage />
             </ProtectedRoute>
           }
         />

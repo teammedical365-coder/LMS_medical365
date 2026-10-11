@@ -20,6 +20,7 @@ import {
   CreditCard,
   ShieldCheck,
   Settings,
+  History,
   X,
   Server,
   Building2,
@@ -117,7 +118,7 @@ export function Sidebar({ isOpen, onClose }) {
   const roleNavKeys = user?.roleDefinition?.navigationItems || (() => {
     const r = (user?.role || '').toLowerCase();
     if (r === 'lab_admin' || r === 'lab_director') {
-      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'settings'];
+      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'audit', 'settings'];
     }
     if (r === 'receptionist') {
       return ['dashboard', 'patients', 'orders'];
@@ -159,6 +160,7 @@ export function Sidebar({ isOpen, onClose }) {
       items: [
         { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard },
         { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck },
+        { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History },
         { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings },
       ],
     },

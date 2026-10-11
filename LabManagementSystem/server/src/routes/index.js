@@ -27,6 +27,10 @@ apiV1Router.use('/super-admin', superAdminRoutes);
 apiV1Router.get('/tenant/branding', tenantClinicalController.resolvePublicBranding);
 apiV1Router.get('/branding', tenantClinicalController.resolvePublicBranding);
 
+// Public unauthenticated diagnostic report authenticity verification
+apiV1Router.get('/public/verify-report/:token', tenantClinicalController.verifyPublicReport);
+apiV1Router.get('/reports/verify/:token', tenantClinicalController.verifyPublicReport);
+
 // Tenant User Management under /api/v1/tenants/:tenantId/users
 apiV1Router.use('/tenants/:tenantId/users', tenantUserRoutes);
 
