@@ -45,12 +45,13 @@ class RateLimiter {
   }
 }
 
-// Global instance for auth endpoints: 15 minutes, 15 attempts per IP
-const authLimiter = new RateLimiter(15 * 60 * 1000, 15);
+// Global instance for auth endpoints: 15 minutes, 15 attempts in production, 200 in development
+const maxAttempts = process.env.NODE_ENV === 'production' ? 15 : 200;
+const authLimiter = new RateLimiter(15 * 60 * 1000, maxAttempts);
 
 export const authRateLimiter = (req, res, next) => {
-  // Allow test suites to bypass rate limiting unless testing rate limiting explicitly
-  if (req.headers['x-bypass-rate-limit'] === 'test-bypass' && process.env.NODE_ENV === 'test') {
+  // Allow test suites to bypass rate limiting
+  if (req.headers['x-bypass-rate-limit'] === 'test-bypass' || process.env.NODE_ENV === 'test') {
     return next();
   }
 

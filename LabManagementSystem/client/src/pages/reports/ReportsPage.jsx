@@ -308,6 +308,60 @@ export function ReportsPage() {
               </div>
             </div>
 
+            {/* Structured Analyte & Parameter Results */}
+            {selectedReport.items && selectedReport.items.length > 0 && (
+              <div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginBottom: '6px' }}>
+                  Verified Diagnostic Test Results & Analyte Parameters
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {selectedReport.items.map((it, idx) => (
+                    <div key={idx} style={{ border: '1px solid var(--slate-200)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                      <div style={{ padding: '6px 12px', background: 'var(--slate-100)', fontWeight: 600, fontSize: '0.8125rem', color: 'var(--slate-700)' }}>
+                        {it.testName} ({it.testCode})
+                      </div>
+                      {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
+                        <table className="lms-table" style={{ margin: 0, fontSize: '0.8125rem' }}>
+                          <thead>
+                            <tr>
+                              <th>Parameter / Analyte</th>
+                              <th>Observed Result</th>
+                              <th>Reference Range</th>
+                              <th>Clinical Flag</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {it.parameterResults.map((pr, pidx) => (
+                              <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : undefined }}>
+                                <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
+                                <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : 'inherit' }}>
+                                  {String(pr.value)} {pr.unit}
+                                </td>
+                                <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                  {pr.referenceRange || 'N/A'}
+                                </td>
+                                <td>
+                                  {pr.isAbnormal ? (
+                                    <Badge variant="danger">Abnormal</Badge>
+                                  ) : (
+                                    <Badge variant="success">Normal</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div style={{ padding: '8px 12px', fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                          Result: <strong>{it.resultValue || 'Awaiting results entry'}</strong>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginBottom: '4px' }}>Pathologist Clinical Findings</p>
               <div

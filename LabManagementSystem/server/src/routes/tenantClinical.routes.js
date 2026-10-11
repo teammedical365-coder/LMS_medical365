@@ -33,18 +33,24 @@ tenantClinicalRouter.post('/patients', requirePermission('patients:create'), ten
 tenantClinicalRouter.get('/orders', requirePermission('orders:view'), tenantClinicalController.listOrders);
 tenantClinicalRouter.post('/orders', requirePermission('orders:create'), tenantClinicalController.createOrder);
 tenantClinicalRouter.patch('/orders/:orderId/items/:itemId/result', requirePermission('samples:process'), tenantClinicalController.recordOrderItemResult);
+tenantClinicalRouter.get('/orders/:orderId/labels', requirePermission('samples:view'), tenantClinicalController.getOrderBarcodeLabels);
 
 // ---------------------------------------------------------------------------
-// SPECIMEN & SAMPLE TRACKING
+// SPECIMEN & SAMPLE TRACKING & RECOLLECTION
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/samples', requirePermission('samples:view'), tenantClinicalController.listSamples);
+tenantClinicalRouter.get('/samples/recollections', requirePermission('samples:view'), tenantClinicalController.listRecollectionTasks);
+tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission('samples:process'), tenantClinicalController.resolveRecollectionTask);
+tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);
 tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission('samples:process'), tenantClinicalController.updateSampleStatus);
 
 // ---------------------------------------------------------------------------
 // TEST CATALOG
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/tests', requirePermission('tests:view'), tenantClinicalController.listTestCatalog);
+tenantClinicalRouter.get('/tests/:testId', requirePermission('tests:view'), tenantClinicalController.getTest);
 tenantClinicalRouter.post('/tests', requirePermission('tests:manage'), tenantClinicalController.createTest);
+tenantClinicalRouter.patch('/tests/:testId', requirePermission('tests:manage'), tenantClinicalController.updateTest);
 
 // ---------------------------------------------------------------------------
 // DIAGNOSTIC REPORTS & VERIFICATION WORKFLOW

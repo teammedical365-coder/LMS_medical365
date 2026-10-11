@@ -54,22 +54,122 @@ PatientSchema.methods.toSafeJSON = function () {
 };
 
 // ---------------------------------------------------------------------------
-// 2. Lab Order Schema
+// 2. Structured Test Parameter & Reference Range Schemas
 // ---------------------------------------------------------------------------
+export const ReferenceRangeSchema = new mongoose.Schema(
+  {
+    gender: {
+      type: String,
+      enum: ['MALE', 'FEMALE', 'BOTH'],
+      default: 'BOTH',
+    },
+    ageMinDays: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    ageMaxDays: {
+      type: Number,
+      default: 47450, // ~130 years
+      min: 0,
+    },
+    lowNormal: { type: Number, default: null },
+    highNormal: { type: Number, default: null },
+    criticalLow: { type: Number, default: null },
+    criticalHigh: { type: Number, default: null },
+    textRange: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+export const TestParameterSchema = new mongoose.Schema(
+  {
+    parameterCode: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    unit: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    resultType: {
+      type: String,
+      enum: ['NUMERIC', 'TEXT', 'OPTIONS'],
+      default: 'NUMERIC',
+    },
+    options: {
+      type: [String],
+      default: [],
+    },
+    referenceRanges: {
+      type: [ReferenceRangeSchema],
+      default: [],
+    },
+    displayOrder: {
+      type: Number,
+      default: 0,
+    },
+  },
+  { _id: false }
+);
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 3. Lab Order Schema
+// ---------------------------------------------------------------------------
+const ParameterResultSchema = new mongoose.Schema(
+  {
+    parameterCode: { type: String, required: true },
+    name: { type: String, default: '' },
+    resultType: {
+      type: String,
+      enum: ['NUMERIC', 'TEXT', 'OPTIONS'],
+      default: 'TEXT',
+    },
+    value: { type: mongoose.Schema.Types.Mixed, required: true },
+    unit: { type: String, default: '' },
+    referenceRange: { type: String, default: '' },
+    isAbnormal: { type: Boolean, default: false },
+    enteredAt: { type: Date, default: Date.now },
+    enteredBy: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const OrderItemSchema = new mongoose.Schema(
   {
     itemId: { type: String, required: true },
     testCode: { type: String, required: true },
     testName: { type: String, required: true },
     price: { type: Number, required: true, default: 0 },
+    specimenType: { type: String, default: 'Serum' },
+    container: { type: String, default: 'Standard Tube' },
+    sampleId: { type: String, default: null },
+    barcode: { type: String, default: null },
     status: {
       type: String,
-      enum: ['ordered', 'sample_collected', 'in_analysis', 'verified', 'cancelled'],
+      enum: ['ordered', 'sample_collected', 'in_analysis', 'completed', 'verified', 'cancelled'],
       default: 'ordered',
     },
     resultValue: { type: String, default: null },
     referenceRange: { type: String, default: null },
     isAbnormal: { type: Boolean, default: false },
+    parameters: {
+      type: [TestParameterSchema],
+      default: [],
+    },
+    parameterResults: {
+      type: [ParameterResultSchema],
+      default: [],
+    },
   },
   { _id: false }
 );
@@ -94,7 +194,7 @@ export const LabOrderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ['ordered', 'in_progress', 'completed', 'cancelled'],
+      enum: ['ordered', 'in_progress', 'in_analysis', 'completed', 'cancelled'],
       default: 'ordered',
     },
     createdBy: { type: String, default: 'staff' },
@@ -130,7 +230,7 @@ LabOrderSchema.methods.toSafeJSON = function () {
 };
 
 // ---------------------------------------------------------------------------
-// 3. Specimen / Sample Schema
+// 4. Specimen / Sample Schema (Multi-Tube Capable)
 // ---------------------------------------------------------------------------
 export const SampleSchema = new mongoose.Schema(
   {
@@ -139,9 +239,16 @@ export const SampleSchema = new mongoose.Schema(
     barcode: { type: String, required: true, trim: true },
     orderId: { type: String, required: true, index: true },
     orderNumber: { type: String, required: true, trim: true },
+    patientId: { type: String, index: true },
+    patientMrn: { type: String, trim: true },
     patientName: { type: String, required: true },
-    sampleType: { type: String, required: true }, // e.g. Whole Blood, Serum, Urine
-    container: { type: String, default: 'Standard Tube' },
+    sampleType: { type: String, required: true }, // e.g. Whole Blood (EDTA), Serum, Urine
+    container: { type: String, default: 'Standard Tube' }, // e.g. Lavender Top (EDTA), Gold Top (SST)
+    itemIds: { type: [String], default: [] },
+    testCodes: { type: [String], default: [] },
+    testNames: { type: [String], default: [] },
+    tubeIndex: { type: Number, default: 1 },
+    totalTubes: { type: Number, default: 1 },
     collectionStatus: {
       type: String,
       enum: ['pending', 'collected', 'received', 'rejected'],
@@ -149,19 +256,26 @@ export const SampleSchema = new mongoose.Schema(
     },
     processingStatus: {
       type: String,
-      enum: ['pending', 'in_analysis', 'completed'],
+      enum: ['pending', 'in_analysis', 'completed', 'recollection_requested'],
       default: 'pending',
     },
     collectedAt: { type: Date, default: null },
     collectedBy: { type: String, default: null },
+    receivedAt: { type: Date, default: null },
+    receivedBy: { type: String, default: null },
     verifiedAt: { type: Date, default: null },
     verifiedBy: { type: String, default: null },
     rejectionReason: { type: String, default: null },
+    rejectionNotes: { type: String, default: null },
+    rejectedAt: { type: Date, default: null },
+    rejectedBy: { type: String, default: null },
+    recollectionTaskId: { type: String, default: null },
   },
   { timestamps: true }
 );
 
 SampleSchema.index({ tenantId: 1, barcode: 1 }, { unique: true });
+SampleSchema.index({ tenantId: 1, orderId: 1 });
 
 SampleSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -173,23 +287,102 @@ SampleSchema.methods.toSafeJSON = function () {
     barcode: obj.barcode,
     orderId: obj.orderId,
     orderNumber: obj.orderNumber,
+    patientId: obj.patientId,
+    patientMrn: obj.patientMrn,
     patientName: obj.patientName,
     sampleType: obj.sampleType,
     container: obj.container,
+    itemIds: obj.itemIds || [],
+    testCodes: obj.testCodes || [],
+    testNames: obj.testNames || [],
+    tubeIndex: obj.tubeIndex || 1,
+    totalTubes: obj.totalTubes || 1,
     collectionStatus: obj.collectionStatus,
     processingStatus: obj.processingStatus,
     collectedAt: obj.collectedAt,
     collectedBy: obj.collectedBy,
+    receivedAt: obj.receivedAt,
+    receivedBy: obj.receivedBy,
     verifiedAt: obj.verifiedAt,
     verifiedBy: obj.verifiedBy,
     rejectionReason: obj.rejectionReason,
+    rejectionNotes: obj.rejectionNotes,
+    rejectedAt: obj.rejectedAt,
+    rejectedBy: obj.rejectedBy,
+    recollectionTaskId: obj.recollectionTaskId,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
   };
 };
 
 // ---------------------------------------------------------------------------
-// 4. Test Catalog Item Schema
+// 5. Specimen Recollection Task Schema
+// ---------------------------------------------------------------------------
+export const RecollectionTaskSchema = new mongoose.Schema(
+  {
+    taskId: { type: String, required: true, index: true },
+    tenantId: { type: String, required: true, index: true },
+    orderId: { type: String, required: true, index: true },
+    orderNumber: { type: String, required: true },
+    rejectedSampleId: { type: String, required: true, index: true },
+    rejectedBarcode: { type: String, required: true },
+    patientId: { type: String, default: '' },
+    patientName: { type: String, required: true },
+    patientMrn: { type: String, default: '' },
+    sampleType: { type: String, required: true },
+    container: { type: String, default: 'Standard Tube' },
+    testCodes: { type: [String], default: [] },
+    testNames: { type: [String], default: [] },
+    reason: { type: String, required: true },
+    notes: { type: String, default: '' },
+    status: {
+      type: String,
+      enum: ['pending', 'recollected', 'resolved', 'cancelled'],
+      default: 'pending',
+    },
+    requestedBy: { type: String, default: 'Lab Staff' },
+    recollectedSampleId: { type: String, default: null },
+    recollectedBarcode: { type: String, default: null },
+    recollectedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+RecollectionTaskSchema.index({ tenantId: 1, taskId: 1 }, { unique: true });
+RecollectionTaskSchema.index({ tenantId: 1, rejectedSampleId: 1 });
+
+RecollectionTaskSchema.methods.toSafeJSON = function () {
+  const obj = this.toObject ? this.toObject() : { ...this };
+  delete obj.__v;
+  return {
+    id: obj._id,
+    taskId: obj.taskId,
+    tenantId: obj.tenantId,
+    orderId: obj.orderId,
+    orderNumber: obj.orderNumber,
+    rejectedSampleId: obj.rejectedSampleId,
+    rejectedBarcode: obj.rejectedBarcode,
+    patientId: obj.patientId,
+    patientName: obj.patientName,
+    patientMrn: obj.patientMrn,
+    sampleType: obj.sampleType,
+    container: obj.container,
+    testCodes: obj.testCodes || [],
+    testNames: obj.testNames || [],
+    reason: obj.reason,
+    notes: obj.notes,
+    status: obj.status,
+    requestedBy: obj.requestedBy,
+    recollectedSampleId: obj.recollectedSampleId,
+    recollectedBarcode: obj.recollectedBarcode,
+    recollectedAt: obj.recollectedAt,
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 6. Test Catalog Item Schema
 // ---------------------------------------------------------------------------
 export const TestCatalogSchema = new mongoose.Schema(
   {
@@ -200,9 +393,14 @@ export const TestCatalogSchema = new mongoose.Schema(
     category: { type: String, default: 'General' },
     department: { type: String, default: 'Clinical Pathology' },
     specimenType: { type: String, default: 'Serum' },
+    container: { type: String, default: 'Standard Tube' },
     price: { type: Number, required: true, default: 0 },
     turnaroundHours: { type: Number, default: 24 },
     referenceRange: { type: String, default: 'Standard clinical reference range' },
+    parameters: {
+      type: [TestParameterSchema],
+      default: [],
+    },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
@@ -222,9 +420,11 @@ TestCatalogSchema.methods.toSafeJSON = function () {
     category: obj.category,
     department: obj.department,
     specimenType: obj.specimenType,
+    container: obj.container,
     price: obj.price,
     turnaroundHours: obj.turnaroundHours,
     referenceRange: obj.referenceRange,
+    parameters: obj.parameters || [],
     isActive: obj.isActive,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
@@ -244,6 +444,7 @@ export const DiagnosticReportSchema = new mongoose.Schema(
     patientName: { type: String, required: true },
     patientMrn: { type: String, required: true },
     testName: { type: String, required: true },
+    items: { type: Array, default: [] },
     findings: { type: String, default: 'Specimen processed normally without pathological flags.' },
     status: {
       type: String,
@@ -274,6 +475,7 @@ DiagnosticReportSchema.methods.toSafeJSON = function () {
     patientName: obj.patientName,
     patientMrn: obj.patientMrn,
     testName: obj.testName,
+    items: obj.items || [],
     findings: obj.findings,
     status: obj.status,
     draftedBy: obj.draftedBy,
@@ -293,7 +495,11 @@ const PaymentRecordSchema = new mongoose.Schema(
   {
     paymentId: { type: String, required: true },
     amount: { type: Number, required: true },
-    method: { type: String, enum: ['cash', 'card', 'insurance', 'online'], default: 'card' },
+    method: {
+      type: String,
+      enum: ['cash', 'card', 'credit_card', 'debit_card', 'insurance', 'online', 'bank_transfer', 'cheque'],
+      default: 'card',
+    },
     reference: { type: String, default: null },
     receivedBy: { type: String, default: 'Accountant' },
     paidAt: { type: Date, default: Date.now },

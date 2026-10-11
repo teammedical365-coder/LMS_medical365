@@ -112,6 +112,58 @@ export class TenantClinicalController {
     }
   }
 
+  static async getSampleBarcodeLabel(req, res, next) {
+    try {
+      const { tenantId, sampleId } = req.params;
+      const label = await tenantClinicalService.getSampleBarcodeLabel(tenantId, sampleId);
+      return ApiResponse.success(res, label, 'Sample barcode label generated successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async getOrderBarcodeLabels(req, res, next) {
+    try {
+      const { tenantId, orderId } = req.params;
+      const labels = await tenantClinicalService.getOrderBarcodeLabels(tenantId, orderId);
+      return ApiResponse.success(res, labels, 'Order barcode labels generated successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async listRecollectionTasks(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const data = await tenantClinicalService.listRecollectionTasks(tenantId, req.query);
+      return ApiResponse.success(res, data, 'Recollection tasks retrieved successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async resolveRecollectionTask(req, res, next) {
+    try {
+      const { tenantId, taskId } = req.params;
+      const result = await tenantClinicalService.resolveRecollectionTask(tenantId, taskId, req.body, req.user);
+      return ApiResponse.success(res, result, 'Specimen recollection processed successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // TEST CATALOG
   // -------------------------------------------------------------------------
@@ -133,6 +185,32 @@ export class TenantClinicalController {
       const { tenantId } = req.params;
       const test = await tenantClinicalService.createTest(tenantId, req.body, req.user);
       return ApiResponse.success(res, test, 'Test added to catalog successfully', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async getTest(req, res, next) {
+    try {
+      const { tenantId, testId } = req.params;
+      const test = await tenantClinicalService.getTest(tenantId, testId);
+      return ApiResponse.success(res, test, 'Test retrieved successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async updateTest(req, res, next) {
+    try {
+      const { tenantId, testId } = req.params;
+      const test = await tenantClinicalService.updateTest(tenantId, testId, req.body, req.user);
+      return ApiResponse.success(res, test, 'Test updated successfully');
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
         return ApiResponse.error(res, err.message, err.statusCode, err.code);

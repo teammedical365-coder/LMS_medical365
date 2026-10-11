@@ -25,6 +25,7 @@ import {
   TestCatalogSchema,
   DiagnosticReportSchema,
   InvoiceSchema,
+  RecollectionTaskSchema,
 } from '../models/clinical.models.js';
 import logger from '../utils/logger.js';
 
@@ -214,6 +215,15 @@ class TenantConnectionService {
     const conn = this.getTenantConnection(tenantId);
     if (!conn) return null;
     return conn.models.Invoice || conn.model('Invoice', InvoiceSchema);
+  }
+
+  /**
+   * Get RecollectionTaskModel bound strictly to the tenant's database
+   */
+  getTenantRecollectionTaskModel(tenantId) {
+    const conn = this.getTenantConnection(tenantId);
+    if (!conn) return null;
+    return conn.models.RecollectionTask || conn.model('RecollectionTask', RecollectionTaskSchema);
   }
 
   /**

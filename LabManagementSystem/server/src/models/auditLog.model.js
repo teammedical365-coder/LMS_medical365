@@ -27,7 +27,7 @@ const AuditLogSchema = new mongoose.Schema(
     actor: {
       type: {
         type: String,
-        enum: ['super_admin', 'api_key', 'system', 'unauthenticated', 'PLATFORM_SUPER_ADMIN', 'TENANT_USER'],
+        enum: ['super_admin', 'api_key', 'system', 'SYSTEM', 'unauthenticated', 'PLATFORM_SUPER_ADMIN', 'TENANT_USER'],
         default: 'super_admin',
       },
       id: { type: String, default: null },

@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ClipboardList, PlusCircle, Search, Filter, Eye, Loader2, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Filter, Eye, Loader2, CheckCircle2, Clock, AlertTriangle, Edit2, Layers } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import clinicalService from '../../services/clinicalService';
 import PageHeader from '../../components/common/PageHeader';
@@ -31,6 +31,24 @@ export function OrdersPage() {
   const [orderingPhysician, setOrderingPhysician] = useState('');
   const [priority, setPriority] = useState('routine');
   const [selectedTestCodes, setSelectedTestCodes] = useState([]);
+
+  // Result Entry State (Single Item)
+  const [resultItem, setResultItem] = useState(null);
+  const [paramInputs, setParamInputs] = useState({});
+  const [singleResultInput, setSingleResultInput] = useState('');
+  const [isSavingResult, setIsSavingResult] = useState(false);
+
+  // Batch Result Entry State
+  const [isBatchOpen, setIsBatchOpen] = useState(false);
+  const [batchInputs, setBatchInputs] = useState({});
+  const [batchErrors, setBatchErrors] = useState({});
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
+
+  const canEnterResults =
+    user?.role === 'lab_technician' ||
+    user?.role === 'lab_admin' ||
+    user?.permissions?.includes('samples:process') ||
+    user?.permissions?.includes('*');
 
   const fetchOrders = useCallback(async () => {
     if (!tenantId) return;
@@ -124,6 +142,260 @@ export function OrdersPage() {
       alert(err.response?.data?.message || 'Failed to submit order');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const openResultEntry = (it) => {
+    setResultItem(it);
+    const initialInputs = {};
+    if (Array.isArray(it.parameters) && it.parameters.length > 0) {
+      it.parameters.forEach((p) => {
+        const existing = it.parameterResults?.find(
+          (pr) => pr.parameterCode?.toUpperCase() === p.parameterCode?.toUpperCase()
+        );
+        initialInputs[p.parameterCode] =
+          existing !== undefined && existing.value !== undefined
+            ? existing.value
+            : p.resultType === 'OPTIONS' && p.options?.[0]
+            ? p.options[0]
+            : '';
+      });
+    }
+    setParamInputs(initialInputs);
+    setSingleResultInput(it.resultValue || '');
+  };
+
+  const handleSaveResult = async (e) => {
+    e.preventDefault();
+    if (!resultItem || !selectedOrder) return;
+
+    try {
+      setIsSavingResult(true);
+      setError(null);
+
+      let payload = {};
+      if (Array.isArray(resultItem.parameters) && resultItem.parameters.length > 0) {
+        payload.parameterResults = resultItem.parameters.map((p) => ({
+          parameterCode: p.parameterCode,
+          name: p.name,
+          resultType: p.resultType,
+          value: paramInputs[p.parameterCode] ?? '',
+          unit: p.unit || '',
+        }));
+      } else {
+        payload.resultValue = singleResultInput;
+      }
+
+      const res = await clinicalService.recordOrderItemResult(
+        tenantId,
+        selectedOrder.orderId,
+        resultItem.itemId || resultItem.testCode,
+        payload
+      );
+
+      if (res.success) {
+        setSuccessMsg(`Diagnostic results recorded for ${resultItem.testName}`);
+        setResultItem(null);
+        await fetchOrders();
+        if (res.data) {
+          setSelectedOrder(res.data);
+        }
+        setTimeout(() => setSuccessMsg(null), 3500);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to record test results');
+    } finally {
+      setIsSavingResult(false);
+    }
+  };
+
+  const openBatchResultEntry = () => {
+    if (!selectedOrder || !Array.isArray(selectedOrder.items)) return;
+    const initial = {};
+    selectedOrder.items.forEach((it) => {
+      const itemKey = it.itemId || it.testCode;
+      if (Array.isArray(it.parameters) && it.parameters.length > 0) {
+        const pVals = {};
+        it.parameters.forEach((p) => {
+          const existing = it.parameterResults?.find(
+            (pr) => pr.parameterCode?.toUpperCase() === p.parameterCode?.toUpperCase()
+          );
+          pVals[p.parameterCode] =
+            existing !== undefined && existing.value !== undefined
+              ? existing.value
+              : p.resultType === 'OPTIONS' && p.options?.[0]
+              ? p.options[0]
+              : '';
+        });
+        initial[itemKey] = { type: 'parameters', values: pVals };
+      } else {
+        initial[itemKey] = { type: 'single', value: it.resultValue || '' };
+      }
+    });
+    setBatchInputs(initial);
+    setBatchErrors({});
+    setIsBatchOpen(true);
+  };
+
+  const updateBatchParamValue = (itemKey, paramCode, val) => {
+    setBatchInputs((prev) => {
+      const current = prev[itemKey] || { type: 'parameters', values: {} };
+      return {
+        ...prev,
+        [itemKey]: {
+          ...current,
+          values: {
+            ...current.values,
+            [paramCode]: val,
+          },
+        },
+      };
+    });
+  };
+
+  const updateBatchSingleValue = (itemKey, val) => {
+    setBatchInputs((prev) => {
+      const current = prev[itemKey] || { type: 'single', value: '' };
+      return {
+        ...prev,
+        [itemKey]: {
+          ...current,
+          value: val,
+        },
+      };
+    });
+  };
+
+  const handleSaveBatchResults = async (e) => {
+    e.preventDefault();
+    if (!selectedOrder || !selectedOrder.items?.length) return;
+
+    setIsSavingBatch(true);
+    setBatchErrors({});
+    setError(null);
+
+    const errors = {};
+    const payloads = [];
+
+    // 1. Client-side input validation per test item and parameter
+    for (const it of selectedOrder.items) {
+      const itemKey = it.itemId || it.testCode;
+      const itemInput = batchInputs[itemKey];
+
+      if (!itemInput) continue;
+
+      if (itemInput.type === 'parameters') {
+        const paramPayloads = [];
+        let itemHasErr = false;
+
+        for (const p of it.parameters || []) {
+          const val = itemInput.values?.[p.parameterCode];
+          const pType = p.resultType || 'TEXT';
+
+          if (val === undefined || val === null || String(val).trim() === '') {
+            errors[itemKey] = `Value required for parameter '${p.name || p.parameterCode}' in ${it.testName}`;
+            itemHasErr = true;
+            break;
+          }
+
+          if (pType === 'NUMERIC') {
+            if (isNaN(Number(val))) {
+              errors[itemKey] = `Numeric value required for parameter '${p.name || p.parameterCode}' in ${it.testName}`;
+              itemHasErr = true;
+              break;
+            }
+            paramPayloads.push({
+              parameterCode: p.parameterCode,
+              name: p.name,
+              resultType: 'NUMERIC',
+              value: Number(val),
+              unit: p.unit || '',
+            });
+          } else if (pType === 'OPTIONS') {
+            const validOpts = Array.isArray(p.options) ? p.options : [];
+            const matched = validOpts.find((o) => o.trim().toUpperCase() === String(val).trim().toUpperCase());
+            if (!matched) {
+              errors[itemKey] = `Invalid option '${val}' for '${p.name || p.parameterCode}'. Allowed: ${validOpts.join(', ')}`;
+              itemHasErr = true;
+              break;
+            }
+            paramPayloads.push({
+              parameterCode: p.parameterCode,
+              name: p.name,
+              resultType: 'OPTIONS',
+              value: matched,
+              unit: p.unit || '',
+            });
+          } else {
+            paramPayloads.push({
+              parameterCode: p.parameterCode,
+              name: p.name,
+              resultType: 'TEXT',
+              value: String(val).trim(),
+              unit: p.unit || '',
+            });
+          }
+        }
+
+        if (!itemHasErr) {
+          payloads.push({ itemKey, it, payload: { parameterResults: paramPayloads } });
+        }
+      } else {
+        const sVal = itemInput.value;
+        if (!sVal || String(sVal).trim() === '') {
+          errors[itemKey] = `Result value required for ${it.testName}`;
+        } else {
+          payloads.push({ itemKey, it, payload: { resultValue: String(sVal).trim() } });
+        }
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setBatchErrors(errors);
+      setIsSavingBatch(false);
+      return;
+    }
+
+    // 2. Submit results using existing API endpoint per item
+    let successCount = 0;
+    let failCount = 0;
+    let latestOrder = selectedOrder;
+
+    for (const { itemKey, it, payload } of payloads) {
+      try {
+        const res = await clinicalService.recordOrderItemResult(
+          tenantId,
+          selectedOrder.orderId,
+          itemKey,
+          payload
+        );
+        if (res.success) {
+          successCount++;
+          if (res.data) latestOrder = res.data;
+        } else {
+          failCount++;
+          errors[itemKey] = res.message || `Failed to record results for ${it.testName}`;
+        }
+      } catch (err) {
+        failCount++;
+        errors[itemKey] = err.response?.data?.message || err.message || `Error saving results for ${it.testName}`;
+      }
+    }
+
+    await fetchOrders();
+    if (latestOrder) {
+      setSelectedOrder(latestOrder);
+    }
+
+    if (failCount > 0) {
+      setBatchErrors(errors);
+      setIsSavingBatch(false);
+      setError(`Saved ${successCount} test(s), but ${failCount} test(s) failed. Check highlighted errors.`);
+    } else {
+      setIsSavingBatch(false);
+      setIsBatchOpen(false);
+      setSuccessMsg(`All ${successCount} test panel results saved successfully for requisition ${selectedOrder.orderNumber}`);
+      setTimeout(() => setSuccessMsg(null), 4000);
     }
   };
 
@@ -301,9 +573,21 @@ export function OrdersPage() {
         onClose={() => setSelectedOrder(null)}
         title={selectedOrder ? `Requisition Details: ${selectedOrder.orderNumber}` : ''}
         footer={
-          <button className="btn btn-secondary" onClick={() => setSelectedOrder(null)}>
-            Close
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            {canEnterResults && selectedOrder?.items?.length > 0 ? (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={openBatchResultEntry}
+                title="Enter results for all tests in this requisition at once"
+              >
+                <Layers size={14} />
+                <span>Enter All Results ({selectedOrder.items.length})</span>
+              </button>
+            ) : <div />}
+            <button className="btn btn-secondary" onClick={() => setSelectedOrder(null)}>
+              Close
+            </button>
+          </div>
         }
       >
         {selectedOrder && (
@@ -328,7 +612,19 @@ export function OrdersPage() {
             </div>
 
             <div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginBottom: '6px' }}>Tests In Requisition</p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)', margin: 0, fontWeight: 600 }}>Tests In Requisition</p>
+                {canEnterResults && selectedOrder.items?.length > 0 && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={openBatchResultEntry}
+                    title="Enter results for all tests in this requisition at once"
+                  >
+                    <Layers size={13} />
+                    <span>Enter All Results</span>
+                  </button>
+                )}
+              </div>
               <div style={{ border: '1px solid var(--slate-200)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                 <table className="lms-table" style={{ margin: 0 }}>
                   <thead>
@@ -337,15 +633,72 @@ export function OrdersPage() {
                       <th>Panel Name</th>
                       <th>Price</th>
                       <th>Status</th>
+                      <th>Diagnostic Results</th>
+                      {canEnterResults && <th style={{ textAlign: 'right' }}>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {selectedOrder.items?.map((it, idx) => (
                       <tr key={idx}>
                         <td style={{ fontFamily: 'monospace' }}>{it.testCode}</td>
-                        <td>{it.testName}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{it.testName}</div>
+                          {Array.isArray(it.parameters) && it.parameters.length > 0 && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                              {it.parameters.length} structured {it.parameters.length === 1 ? 'parameter' : 'parameters'}
+                            </div>
+                          )}
+                        </td>
                         <td>${Number(it.price || 0).toFixed(2)}</td>
                         <td>{it.status === 'completed' ? <Badge variant="success">Completed</Badge> : <Badge variant="slate">{it.status}</Badge>}</td>
+                        <td>
+                          {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem' }}>
+                              {it.parameterResults.map((pr, pidx) => (
+                                <div
+                                  key={pidx}
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '2px 6px',
+                                    background: pr.isAbnormal ? '#fff1f2' : 'var(--slate-50)',
+                                    borderRadius: '4px',
+                                    border: `1px solid ${pr.isAbnormal ? '#fecdd3' : 'var(--slate-200)'}`,
+                                  }}
+                                >
+                                  <span>
+                                    <strong>{pr.name || pr.parameterCode}:</strong> {String(pr.value)} {pr.unit}
+                                  </span>
+                                  <span style={{ color: pr.isAbnormal ? '#e11d48' : '#059669', fontWeight: 600 }}>
+                                    {pr.isAbnormal ? 'ABNORMAL' : 'Normal'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : it.resultValue ? (
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>
+                              {it.resultValue}
+                              {it.isAbnormal && <Badge variant="danger" style={{ marginLeft: '4px' }}>Abnormal</Badge>}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)', fontStyle: 'italic' }}>
+                              Awaiting result entry
+                            </span>
+                          )}
+                        </td>
+                        {canEnterResults && (
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => openResultEntry(it)}
+                              title="Enter / update test parameters"
+                            >
+                              <Edit2 size={12} />
+                              <span>{it.parameterResults?.length || it.resultValue ? 'Edit Results' : 'Enter Results'}</span>
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -358,6 +711,370 @@ export function OrdersPage() {
               <strong style={{ fontSize: '1rem', color: 'var(--primary-blue)' }}>${Number(selectedOrder.totalAmount || 0).toFixed(2)}</strong>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Parameter Result Entry Modal */}
+      <Modal
+        isOpen={!!resultItem}
+        onClose={() => setResultItem(null)}
+        title={resultItem ? `Diagnostic Result Entry: ${resultItem.testName} (${resultItem.testCode})` : ''}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setResultItem(null)} disabled={isSavingResult}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleSaveResult} disabled={isSavingResult}>
+              {isSavingResult ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Saving Results...</span>
+                </>
+              ) : (
+                <span>Save Diagnostic Results</span>
+              )}
+            </button>
+          </>
+        }
+      >
+        {resultItem && (
+          <form onSubmit={handleSaveResult} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                <div>Patient: <strong>{selectedOrder?.patientName}</strong> ({selectedOrder?.patientMrn})</div>
+                <div>Requisition: <strong>{selectedOrder?.orderNumber}</strong></div>
+                <div>Test Panel: <strong>{resultItem.testName}</strong></div>
+                <div>Test Code: <span style={{ fontFamily: 'monospace' }}>{resultItem.testCode}</span></div>
+              </div>
+            </div>
+
+            {Array.isArray(resultItem.parameters) && resultItem.parameters.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--slate-700)', margin: 0 }}>
+                  Enter Values for Configured Test Parameters ({resultItem.parameters.length}):
+                </p>
+                {resultItem.parameters.map((param, pIdx) => {
+                  const pType = param.resultType || 'TEXT';
+                  let refDisplay = '';
+                  if (param.referenceRanges && param.referenceRanges.length > 0) {
+                    const r = param.referenceRanges[0];
+                    if (r.lowNormal !== undefined && r.highNormal !== undefined) {
+                      refDisplay = `${r.lowNormal} - ${r.highNormal} ${param.unit || ''}`.trim();
+                    } else if (r.notes) {
+                      refDisplay = r.notes;
+                    }
+                  }
+
+                  return (
+                    <div
+                      key={pIdx}
+                      style={{
+                        padding: '0.75rem',
+                        border: '1px solid var(--slate-200)',
+                        borderRadius: 'var(--radius-md)',
+                        background: '#fff',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.4rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ color: 'var(--slate-800)' }}>{param.name}</strong>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace', marginLeft: '6px' }}>
+                            ({param.parameterCode})
+                          </span>
+                        </div>
+                        <Badge variant={pType === 'NUMERIC' ? 'blue' : pType === 'OPTIONS' ? 'purple' : 'teal'}>
+                          {pType}
+                        </Badge>
+                      </div>
+
+                      {refDisplay && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                          Reference Range: <span style={{ fontWeight: 500, color: 'var(--slate-700)' }}>{refDisplay}</span>
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: '4px' }}>
+                        {pType === 'NUMERIC' ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="number"
+                              step="any"
+                              className="form-input"
+                              required
+                              placeholder={`Enter numeric value ${param.unit ? `(${param.unit})` : ''}`}
+                              value={paramInputs[param.parameterCode] ?? ''}
+                              onChange={(e) => setParamInputs({ ...paramInputs, [param.parameterCode]: e.target.value })}
+                            />
+                            {param.unit && (
+                              <span style={{ fontWeight: 600, color: 'var(--slate-600)', minWidth: '40px' }}>
+                                {param.unit}
+                              </span>
+                            )}
+                          </div>
+                        ) : pType === 'OPTIONS' ? (
+                          <select
+                            className="form-select"
+                            required
+                            value={paramInputs[param.parameterCode] ?? ''}
+                            onChange={(e) => setParamInputs({ ...paramInputs, [param.parameterCode]: e.target.value })}
+                          >
+                            <option value="">-- Select Configured Option --</option>
+                            {param.options?.map((opt, oIdx) => (
+                              <option key={oIdx} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            className="form-input"
+                            required
+                            placeholder="Enter qualitative result text"
+                            value={paramInputs[param.parameterCode] ?? ''}
+                            onChange={(e) => setParamInputs({ ...paramInputs, [param.parameterCode]: e.target.value })}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="form-group">
+                <label className="form-label">Single Test Result Value *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  required
+                  placeholder="e.g. 14.5 g/dL or Negative"
+                  value={singleResultInput}
+                  onChange={(e) => setSingleResultInput(e.target.value)}
+                />
+              </div>
+            )}
+          </form>
+        )}
+      </Modal>
+
+      {/* Batch Result Entry Modal */}
+      <Modal
+        isOpen={isBatchOpen}
+        onClose={() => setIsBatchOpen(false)}
+        title={selectedOrder ? `Batch Diagnostic Results Entry: Requisition ${selectedOrder.orderNumber}` : ''}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setIsBatchOpen(false)} disabled={isSavingBatch}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleSaveBatchResults} disabled={isSavingBatch}>
+              {isSavingBatch ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Saving All Results...</span>
+                </>
+              ) : (
+                <span>Save All Entered Results</span>
+              )}
+            </button>
+          </>
+        }
+      >
+        {selectedOrder && (
+          <form onSubmit={handleSaveBatchResults} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                <div>Patient: <strong>{selectedOrder.patientName}</strong> ({selectedOrder.patientMrn})</div>
+                <div>Requisition: <strong>{selectedOrder.orderNumber}</strong></div>
+                <div>Physician: <strong>{selectedOrder.orderingPhysician}</strong></div>
+                <div>Total Ordered Tests: <strong>{selectedOrder.items?.length || 0}</strong></div>
+              </div>
+            </div>
+
+            {Object.keys(batchErrors).length > 0 && (
+              <div style={{ padding: '0.625rem 0.875rem', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-md)', color: '#be123c', fontSize: '0.8125rem' }}>
+                <strong>Validation Notice:</strong> Some parameter results failed validation. Please correct the highlighted entries below.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '55vh', overflowY: 'auto', paddingRight: '4px' }}>
+              {selectedOrder.items?.map((it, idx) => {
+                const itemKey = it.itemId || it.testCode;
+                const itemErr = batchErrors[itemKey];
+                const inputState = batchInputs[itemKey];
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      border: `1px solid ${itemErr ? '#fda4af' : 'var(--slate-200)'}`,
+                      borderRadius: 'var(--radius-md)',
+                      background: itemErr ? '#fff5f5' : '#fff',
+                      padding: '0.875rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.625rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--slate-100)', paddingBottom: '0.5rem' }}>
+                      <div>
+                        <span style={{ fontWeight: 600, color: 'var(--slate-800)', fontSize: '0.9rem' }}>
+                          {idx + 1}. {it.testName}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--slate-500)', marginLeft: '8px' }}>
+                          ({it.testCode})
+                        </span>
+                      </div>
+                      <div>
+                        {it.status === 'completed' ? (
+                          <Badge variant="success">Completed</Badge>
+                        ) : (
+                          <Badge variant="warning">Pending Results</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {itemErr && (
+                      <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 500 }}>
+                        ⚠️ {itemErr}
+                      </div>
+                    )}
+
+                    {Array.isArray(it.parameters) && it.parameters.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                        {it.parameters.map((param, pIdx) => {
+                          const pType = param.resultType || 'TEXT';
+                          let refDisplay = '';
+                          if (param.referenceRanges && param.referenceRanges.length > 0) {
+                            const r = param.referenceRanges[0];
+                            if (r.lowNormal !== undefined && r.highNormal !== undefined) {
+                              refDisplay = `${r.lowNormal} - ${r.highNormal} ${param.unit || ''}`.trim();
+                            } else if (r.notes) {
+                              refDisplay = r.notes;
+                            }
+                          }
+
+                          const prevSaved = it.parameterResults?.find(
+                            (pr) => pr.parameterCode?.toUpperCase() === param.parameterCode?.toUpperCase()
+                          );
+
+                          const currentVal = inputState?.values?.[param.parameterCode] ?? '';
+
+                          return (
+                            <div
+                              key={pIdx}
+                              style={{
+                                padding: '0.625rem',
+                                background: 'var(--slate-50)',
+                                border: '1px solid var(--slate-200)',
+                                borderRadius: 'var(--radius-sm)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '0.35rem',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--slate-700)', fontSize: '0.8125rem' }}>
+                                    {param.name}
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontFamily: 'monospace', marginLeft: '6px' }}>
+                                    ({param.parameterCode})
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  {prevSaved !== undefined && (
+                                    <span style={{ fontSize: '0.7rem', color: '#0d9488', background: '#f0fdfa', padding: '1px 6px', borderRadius: '4px', border: '1px solid #99f6e4' }}>
+                                      Saved: {String(prevSaved.value)} {prevSaved.unit || ''}
+                                    </span>
+                                  )}
+                                  <Badge variant={pType === 'NUMERIC' ? 'blue' : pType === 'OPTIONS' ? 'purple' : 'teal'}>
+                                    {pType}
+                                  </Badge>
+                                </div>
+                              </div>
+
+                              {refDisplay && (
+                                <div style={{ fontSize: '0.725rem', color: 'var(--slate-500)' }}>
+                                  Configured Range: <span style={{ fontWeight: 500, color: 'var(--slate-700)' }}>{refDisplay}</span>
+                                </div>
+                              )}
+
+                              <div>
+                                {pType === 'NUMERIC' ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      className="form-input"
+                                      required
+                                      placeholder={`Enter numeric value ${param.unit ? `(${param.unit})` : ''}`}
+                                      value={currentVal}
+                                      onChange={(e) => updateBatchParamValue(itemKey, param.parameterCode, e.target.value)}
+                                    />
+                                    {param.unit && (
+                                      <span style={{ fontWeight: 600, color: 'var(--slate-600)', minWidth: '40px', fontSize: '0.8125rem' }}>
+                                        {param.unit}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : pType === 'OPTIONS' ? (
+                                  <select
+                                    className="form-select"
+                                    required
+                                    value={currentVal}
+                                    onChange={(e) => updateBatchParamValue(itemKey, param.parameterCode, e.target.value)}
+                                  >
+                                    <option value="">-- Select Configured Option --</option>
+                                    {param.options?.map((opt, oIdx) => (
+                                      <option key={oIdx} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    className="form-input"
+                                    required
+                                    placeholder="Enter qualitative result text"
+                                    value={currentVal}
+                                    onChange={(e) => updateBatchParamValue(itemKey, param.parameterCode, e.target.value)}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>Single Test Result Value *</label>
+                          {it.resultValue && (
+                            <span style={{ fontSize: '0.7rem', color: '#0d9488' }}>
+                              Saved: {it.resultValue}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          className="form-input"
+                          required
+                          placeholder="e.g. Negative or Normal"
+                          value={inputState?.value ?? ''}
+                          onChange={(e) => updateBatchSingleValue(itemKey, e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </form>
         )}
       </Modal>
 

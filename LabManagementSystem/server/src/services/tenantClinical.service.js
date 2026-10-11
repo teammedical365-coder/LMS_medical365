@@ -14,7 +14,9 @@
 import crypto from 'crypto';
 import tenantConnectionService from './tenantConnection.service.js';
 import tenantUserService from './tenantUser.service.js';
+import laboratoryManagementService from './laboratoryManagement.service.js';
 import auditLogService from './auditLog.service.js';
+import { resolveSpecimenContainer, generateBarcodeSvg, generate50x25Label } from '../utils/barcode128.js';
 import logger from '../utils/logger.js';
 
 export class ClinicalServiceError extends Error {
@@ -26,6 +28,142 @@ export class ClinicalServiceError extends Error {
   }
 }
 
+/**
+ * Validates and sanitizes structured test parameter definitions and age/gender reference ranges.
+ * Enforces field contracts, demographic bounds, and prevents overlapping intervals.
+ */
+export function validateAndSanitizeParameters(parametersInput) {
+  if (!parametersInput) return [];
+  if (!Array.isArray(parametersInput)) {
+    throw new ClinicalServiceError('Parameters must be an array of parameter definitions', 'VALIDATION_ERROR', 400);
+  }
+
+  const seenCodes = new Set();
+  const sanitized = [];
+
+  for (let i = 0; i < parametersInput.length; i++) {
+    const p = parametersInput[i];
+    if (!p || typeof p !== 'object') {
+      throw new ClinicalServiceError(`Parameter at index ${i} is invalid`, 'VALIDATION_ERROR', 400);
+    }
+
+    const parameterCode = String(p.parameterCode || p.code || '').trim().toUpperCase();
+    if (!parameterCode) {
+      throw new ClinicalServiceError(`Parameter at index ${i} requires a parameterCode`, 'VALIDATION_ERROR', 400);
+    }
+    if (seenCodes.has(parameterCode)) {
+      throw new ClinicalServiceError(`Duplicate parameterCode '${parameterCode}' in test definition`, 'VALIDATION_ERROR', 400);
+    }
+    seenCodes.add(parameterCode);
+
+    const name = String(p.name || '').trim();
+    if (!name) {
+      throw new ClinicalServiceError(`Parameter '${parameterCode}' requires a descriptive name`, 'VALIDATION_ERROR', 400);
+    }
+
+    const rawType = String(p.resultType || 'NUMERIC').trim().toUpperCase();
+    if (!['NUMERIC', 'TEXT', 'OPTIONS'].includes(rawType)) {
+      throw new ClinicalServiceError(`Parameter '${parameterCode}' has invalid resultType '${p.resultType}'. Allowed values: NUMERIC, TEXT, OPTIONS`, 'VALIDATION_ERROR', 400);
+    }
+
+    let options = [];
+    if (rawType === 'OPTIONS') {
+      if (!Array.isArray(p.options) || p.options.length === 0) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' of type OPTIONS must have at least one allowed option`, 'VALIDATION_ERROR', 400);
+      }
+      options = p.options.map((o) => String(o).trim()).filter(Boolean);
+      if (options.length === 0) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' has empty allowed options`, 'VALIDATION_ERROR', 400);
+      }
+    }
+
+    const unit = String(p.unit || '').trim();
+    const displayOrder = Number(p.displayOrder) || i + 1;
+
+    // Validate referenceRanges
+    const rawRanges = Array.isArray(p.referenceRanges) ? p.referenceRanges : [];
+    const sanitizedRanges = [];
+
+    for (let rIdx = 0; rIdx < rawRanges.length; rIdx++) {
+      const r = rawRanges[rIdx];
+      if (!r || typeof r !== 'object') continue;
+
+      const gender = String(r.gender || 'BOTH').trim().toUpperCase();
+      if (!['MALE', 'FEMALE', 'BOTH'].includes(gender)) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1} has invalid gender '${r.gender}'`, 'VALIDATION_ERROR', 400);
+      }
+
+      const ageMinDays = r.ageMinDays !== undefined && r.ageMinDays !== null ? Number(r.ageMinDays) : 0;
+      const ageMaxDays = r.ageMaxDays !== undefined && r.ageMaxDays !== null ? Number(r.ageMaxDays) : 47450;
+
+      if (isNaN(ageMinDays) || ageMinDays < 0) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: ageMinDays must be non-negative`, 'VALIDATION_ERROR', 400);
+      }
+      if (isNaN(ageMaxDays) || ageMaxDays < 0) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: ageMaxDays must be non-negative`, 'VALIDATION_ERROR', 400);
+      }
+      if (ageMinDays > ageMaxDays) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: ageMinDays (${ageMinDays}) cannot exceed ageMaxDays (${ageMaxDays})`, 'VALIDATION_ERROR', 400);
+      }
+
+      let lowNormal = r.lowNormal !== undefined && r.lowNormal !== null && r.lowNormal !== '' ? Number(r.lowNormal) : null;
+      let highNormal = r.highNormal !== undefined && r.highNormal !== null && r.highNormal !== '' ? Number(r.highNormal) : null;
+      let criticalLow = r.criticalLow !== undefined && r.criticalLow !== null && r.criticalLow !== '' ? Number(r.criticalLow) : null;
+      let criticalHigh = r.criticalHigh !== undefined && r.criticalHigh !== null && r.criticalHigh !== '' ? Number(r.criticalHigh) : null;
+
+      if (lowNormal !== null && isNaN(lowNormal)) lowNormal = null;
+      if (highNormal !== null && isNaN(highNormal)) highNormal = null;
+      if (criticalLow !== null && isNaN(criticalLow)) criticalLow = null;
+      if (criticalHigh !== null && isNaN(criticalHigh)) criticalHigh = null;
+
+      if (lowNormal !== null && highNormal !== null && lowNormal > highNormal) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: lowNormal (${lowNormal}) cannot exceed highNormal (${highNormal})`, 'VALIDATION_ERROR', 400);
+      }
+      if (criticalLow !== null && lowNormal !== null && criticalLow > lowNormal) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: criticalLow (${criticalLow}) cannot exceed lowNormal (${lowNormal})`, 'VALIDATION_ERROR', 400);
+      }
+      if (criticalHigh !== null && highNormal !== null && criticalHigh < highNormal) {
+        throw new ClinicalServiceError(`Parameter '${parameterCode}' range #${rIdx + 1}: criticalHigh (${criticalHigh}) cannot be less than highNormal (${highNormal})`, 'VALIDATION_ERROR', 400);
+      }
+
+      const textRange = r.textRange !== undefined && r.textRange !== null ? String(r.textRange).trim() : null;
+
+      // Check overlap with prior ranges of matching gender
+      for (const prior of sanitizedRanges) {
+        if (prior.gender === gender) {
+          const overlap = Math.max(prior.ageMinDays, ageMinDays) <= Math.min(prior.ageMaxDays, ageMaxDays);
+          if (overlap) {
+            throw new ClinicalServiceError(`Parameter '${parameterCode}': Overlapping age interval for gender '${gender}' between [${prior.ageMinDays}-${prior.ageMaxDays}] and [${ageMinDays}-${ageMaxDays}]`, 'VALIDATION_ERROR', 400);
+          }
+        }
+      }
+
+      sanitizedRanges.push({
+        gender,
+        ageMinDays,
+        ageMaxDays,
+        lowNormal,
+        highNormal,
+        criticalLow,
+        criticalHigh,
+        textRange,
+      });
+    }
+
+    sanitized.push({
+      parameterCode,
+      name,
+      unit,
+      resultType: rawType,
+      options,
+      referenceRanges: sanitizedRanges,
+      displayOrder,
+    });
+  }
+
+  return sanitized;
+}
+
 class TenantClinicalService {
   constructor() {
     // In-memory fallback stores: tenantId -> Map<id, doc>
@@ -35,6 +173,7 @@ class TenantClinicalService {
     this.memoryTests = new Map();
     this.memoryReports = new Map();
     this.memoryInvoices = new Map();
+    this.memoryRecollections = new Map();
   }
 
   generateId(prefix) {
@@ -80,7 +219,8 @@ class TenantClinicalService {
 
   async createPatient(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { firstName, lastName, dob, gender, phone, email, address, medicalHistory } = data;
+    const dob = data.dob || data.dateOfBirth;
+    const { firstName, lastName, gender, phone, email, address, medicalHistory } = data;
 
     if (!firstName || !lastName) {
       throw new ClinicalServiceError('Patient first and last names are required', 'VALIDATION_ERROR', 400);
@@ -101,7 +241,7 @@ class TenantClinicalService {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         dob,
-        gender,
+        gender: (gender || 'other').toString().toLowerCase(),
         phone: phone?.trim() || null,
         email: email?.trim().toLowerCase() || null,
         address: address?.trim() || null,
@@ -201,12 +341,12 @@ class TenantClinicalService {
     let resolvedPatientName = data.patientName;
     let resolvedPatientMrn = data.patientMrn;
 
-    if (!resolvedPatientName && patientId) {
+    if ((!resolvedPatientName || !resolvedPatientMrn) && patientId) {
       try {
         const p = await this.getPatientById(tenantId, patientId);
         if (p) {
-          resolvedPatientName = p.fullName || `${p.firstName} ${p.lastName}`;
-          resolvedPatientMrn = p.mrn;
+          if (!resolvedPatientName) resolvedPatientName = p.fullName || `${p.firstName} ${p.lastName}`;
+          if (!resolvedPatientMrn) resolvedPatientMrn = p.mrn;
         }
       } catch {}
     }
@@ -237,15 +377,29 @@ class TenantClinicalService {
       const resolvedName = it.testName || it.name || (catalogMatch ? catalogMatch.name : 'Diagnostic Panel');
       const resolvedRef = it.referenceRange || (catalogMatch ? catalogMatch.referenceRange : 'Normal');
 
+      // Immutable snapshot of structured parameters from catalog at time of requisition
+      const paramSnapshot = (catalogMatch?.parameters && Array.isArray(catalogMatch.parameters) && catalogMatch.parameters.length > 0)
+        ? JSON.parse(JSON.stringify(catalogMatch.parameters))
+        : (Array.isArray(it.parameters) && it.parameters.length > 0 ? JSON.parse(JSON.stringify(it.parameters)) : []);
+
+      const rawSpecimen = it.specimenType || (catalogMatch ? catalogMatch.specimenType : 'Serum');
+      const rawContainer = it.container || (catalogMatch ? catalogMatch.container : null);
+      const resolvedContainer = resolveSpecimenContainer(rawSpecimen, rawContainer);
+
       return {
         itemId: `item_${idx + 1}`,
         testCode: codeKey || `TEST-${idx + 1}`,
         testName: resolvedName,
         price: resolvedPrice,
+        specimenType: rawSpecimen,
+        container: resolvedContainer,
+        sampleId: null,
+        barcode: null,
         status: 'ordered',
         resultValue: null,
         referenceRange: resolvedRef,
         isAbnormal: false,
+        parameters: paramSnapshot,
       };
     });
 
@@ -273,12 +427,14 @@ class TenantClinicalService {
       });
       await doc.save();
 
-      // Automatically create a tracking sample for this order
-      await this.createSampleForOrder(tenantId, doc.toSafeJSON());
+      // Automatically derive and create multi-tube tracking samples for this order
+      await this.createSamplesForOrder(tenantId, doc.toSafeJSON());
       // Automatically create a billing invoice for this order
       await this.createInvoiceForOrder(tenantId, doc.toSafeJSON());
 
-      return doc.toSafeJSON();
+      // Re-fetch to return order with linked sampleIds/barcodes
+      const refreshedDoc = await OrderModel.findOne({ tenantId, orderId });
+      return (refreshedDoc || doc).toSafeJSON();
     }
 
     // In-memory fallback
@@ -304,7 +460,7 @@ class TenantClinicalService {
       },
     };
     this.memoryOrders.get(tenantId).set(orderId, mockOrder);
-    await this.createSampleForOrder(tenantId, mockOrder);
+    await this.createSamplesForOrder(tenantId, mockOrder);
     await this.createInvoiceForOrder(tenantId, mockOrder);
     return mockOrder;
   }
@@ -332,53 +488,198 @@ class TenantClinicalService {
     return list;
   }
 
-  async createSampleForOrder(tenantId, order) {
-    const sampleId = this.generateId('smp');
-    const barcode = `BAR-${order.orderNumber.replace('ORD-', '')}-01`;
+  async createSamplesForOrder(tenantId, order) {
     const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
 
+    // 1. Idempotency Check: If samples already exist for this order, return existing records
     if (SampleModel) {
-      const sampleDoc = new SampleModel({
+      const existing = await SampleModel.find({ tenantId, orderId: order.orderId }).sort({ tubeIndex: 1 });
+      if (existing.length > 0) {
+        return existing.map((s) => s.toSafeJSON());
+      }
+    } else {
+      const tenantMap = this.memorySamples.get(tenantId);
+      if (tenantMap) {
+        const existing = Array.from(tenantMap.values())
+          .filter((s) => s.orderId === order.orderId)
+          .sort((a, b) => (a.tubeIndex || 1) - (b.tubeIndex || 1));
+        if (existing.length > 0) {
+          return existing;
+        }
+      }
+    }
+
+    // 2. Multi-Tube Derivation based on specimenType and container requirements
+    const items = Array.isArray(order.items) && order.items.length > 0
+      ? order.items
+      : [{
+          itemId: 'item_1',
+          testCode: 'GENERAL',
+          testName: 'General Specimen',
+          specimenType: 'Whole Blood (EDTA)',
+          container: 'Lavender Top (EDTA)',
+        }];
+
+    // Group items: tests sharing compatible specimenType and container share one tube
+    const tubeGroups = new Map();
+    for (const item of items) {
+      const specType = (item.specimenType || 'Serum').trim();
+      const cont = resolveSpecimenContainer(specType, item.container);
+      const groupKey = `${specType.toLowerCase()}:::${cont.toLowerCase()}`;
+
+      if (!tubeGroups.has(groupKey)) {
+        tubeGroups.set(groupKey, {
+          specimenType: specType,
+          container: cont,
+          items: [],
+        });
+      }
+      tubeGroups.get(groupKey).items.push(item);
+    }
+
+    const groups = Array.from(tubeGroups.values());
+    const totalTubes = groups.length;
+    const cleanOrderNum = (order.orderNumber || 'ORD-000').replace('ORD-', '');
+    const createdSamples = [];
+    const itemToSampleMap = new Map();
+
+    for (let i = 0; i < totalTubes; i++) {
+      const group = groups[i];
+      const tubeIndex = i + 1;
+      const sampleId = this.generateId('smp');
+      const barcode = `BAR-${cleanOrderNum}-${String(tubeIndex).padStart(2, '0')}`;
+      const itemIds = group.items.map((it) => it.itemId);
+      const testCodes = group.items.map((it) => it.testCode);
+      const testNames = group.items.map((it) => it.testName);
+
+      for (const it of group.items) {
+        itemToSampleMap.set(it.itemId, { sampleId, barcode });
+      }
+
+      const sampleData = {
         sampleId,
         tenantId,
         barcode,
         orderId: order.orderId,
         orderNumber: order.orderNumber,
+        patientId: order.patientId || '',
+        patientMrn: order.patientMrn || '',
         patientName: order.patientName,
-        sampleType: 'Whole Blood (EDTA)',
-        container: 'Lavender Top Tube',
+        sampleType: group.specimenType,
+        container: group.container,
+        itemIds,
+        testCodes,
+        testNames,
+        tubeIndex,
+        totalTubes,
         collectionStatus: 'pending',
         processingStatus: 'pending',
-      });
-      await sampleDoc.save();
-      return sampleDoc.toSafeJSON();
+      };
+
+      if (SampleModel) {
+        const sampleDoc = new SampleModel(sampleData);
+        await sampleDoc.save();
+        createdSamples.push(sampleDoc.toSafeJSON());
+      } else {
+        if (!this.memorySamples.has(tenantId)) this.memorySamples.set(tenantId, new Map());
+        const mock = {
+          ...sampleData,
+          createdAt: new Date(),
+          toSafeJSON() { return { ...this }; },
+        };
+        this.memorySamples.get(tenantId).set(sampleId, mock);
+        createdSamples.push(mock);
+      }
     }
 
-    if (!this.memorySamples.has(tenantId)) this.memorySamples.set(tenantId, new Map());
-    const mock = {
-      sampleId,
-      tenantId,
-      barcode,
-      orderId: order.orderId,
-      orderNumber: order.orderNumber,
-      patientName: order.patientName,
-      sampleType: 'Whole Blood (EDTA)',
-      container: 'Lavender Top Tube',
-      collectionStatus: 'pending',
-      processingStatus: 'pending',
-      createdAt: new Date(),
-      toSafeJSON() {
-        return { ...this };
-      },
-    };
-    this.memorySamples.get(tenantId).set(sampleId, mock);
-    return mock;
+    // 3. Link sampleId and barcode onto order items
+    if (OrderModel) {
+      const orderDoc = await OrderModel.findOne({ tenantId, orderId: order.orderId });
+      if (orderDoc && Array.isArray(orderDoc.items)) {
+        for (const it of orderDoc.items) {
+          const mapping = itemToSampleMap.get(it.itemId);
+          if (mapping) {
+            it.sampleId = mapping.sampleId;
+            it.barcode = mapping.barcode;
+          }
+        }
+        await orderDoc.save();
+      }
+    }
+
+    return createdSamples;
+  }
+
+  // Backward compatibility alias for single-sample consumers
+  async createSampleForOrder(tenantId, order) {
+    const samples = await this.createSamplesForOrder(tenantId, order);
+    return Array.isArray(samples) && samples.length > 0 ? samples[0] : samples;
+  }
+
+  async getSampleBarcodeLabel(tenantId, sampleId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    let sample = null;
+
+    if (SampleModel) {
+      const doc = await SampleModel.findOne({ tenantId, $or: [{ sampleId }, { barcode: sampleId }] });
+      if (doc) sample = doc.toSafeJSON();
+    } else {
+      const tenantMap = this.memorySamples.get(tenantId);
+      if (tenantMap) {
+        sample = tenantMap.get(sampleId) || Array.from(tenantMap.values()).find((s) => s.barcode === sampleId);
+      }
+    }
+
+    if (!sample) {
+      throw new ClinicalServiceError(`Specimen '${sampleId}' not found`, 'SAMPLE_NOT_FOUND', 404);
+    }
+
+    let tenantBranding = { name: 'Laboratory' };
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+      if (lab) tenantBranding = lab;
+    } catch {}
+
+    return generate50x25Label(sample, tenantBranding);
+  }
+
+  async getOrderBarcodeLabels(tenantId, orderId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    let samples = [];
+
+    if (SampleModel) {
+      const docs = await SampleModel.find({ tenantId, $or: [{ orderId }, { orderNumber: orderId }] }).sort({ tubeIndex: 1 });
+      samples = docs.map((d) => d.toSafeJSON());
+    } else {
+      const tenantMap = this.memorySamples.get(tenantId);
+      if (tenantMap) {
+        samples = Array.from(tenantMap.values())
+          .filter((s) => s.orderId === orderId || s.orderNumber === orderId)
+          .sort((a, b) => (a.tubeIndex || 1) - (b.tubeIndex || 1));
+      }
+    }
+
+    if (samples.length === 0) {
+      throw new ClinicalServiceError(`No specimen tubes found for order '${orderId}'`, 'SAMPLES_NOT_FOUND', 404);
+    }
+
+    let tenantBranding = { name: 'Laboratory' };
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+      if (lab) tenantBranding = lab;
+    } catch {}
+
+    return samples.map((s) => generate50x25Label(s, tenantBranding));
   }
 
   async updateSampleStatus(tenantId, sampleId, updates, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { collectionStatus, processingStatus, rejectionReason } = updates;
+    const { collectionStatus, processingStatus, rejectionReason, rejectionNotes, notes } = updates;
     const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
 
     if (SampleModel) {
       const sample = await SampleModel.findOne({ tenantId, $or: [{ sampleId }, { barcode: sampleId }] });
@@ -388,7 +689,7 @@ class TenantClinicalService {
         if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
           throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
         }
-        if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected') {
+        if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected' && processingStatus !== 'recollection_requested') {
           throw new ClinicalServiceError('Cannot alter status of a rejected specimen', 'INVALID_STATUS_TRANSITION', 400);
         }
         sample.processingStatus = processingStatus;
@@ -399,34 +700,233 @@ class TenantClinicalService {
       }
 
       if (collectionStatus) {
-        sample.collectionStatus = collectionStatus;
-        if (collectionStatus === 'collected') {
+        if (collectionStatus === 'rejected') {
+          const finalReason = (rejectionReason || updates.reason || '').trim();
+          if (!finalReason) {
+            throw new ClinicalServiceError('A clinical rejection reason is mandatory when rejecting a specimen', 'REJECTION_REASON_REQUIRED', 400);
+          }
+          sample.collectionStatus = 'rejected';
+          sample.processingStatus = 'recollection_requested';
+          sample.rejectionReason = finalReason;
+          sample.rejectionNotes = (rejectionNotes || notes || '').trim();
+          sample.rejectedAt = new Date();
+          sample.rejectedBy = actor.email || 'Lab Technician';
+
+          // Idempotent Recollection Task Creation
+          if (RecollectionModel) {
+            let existingTask = await RecollectionModel.findOne({ tenantId, rejectedSampleId: sample.sampleId });
+            if (!existingTask) {
+              const taskId = this.generateId('rec');
+              const taskDoc = new RecollectionModel({
+                taskId,
+                tenantId,
+                orderId: sample.orderId,
+                orderNumber: sample.orderNumber,
+                rejectedSampleId: sample.sampleId,
+                rejectedBarcode: sample.barcode,
+                patientId: sample.patientId || '',
+                patientName: sample.patientName,
+                patientMrn: sample.patientMrn || '',
+                sampleType: sample.sampleType,
+                container: sample.container,
+                testCodes: sample.testCodes || [],
+                testNames: sample.testNames || [],
+                reason: finalReason,
+                notes: sample.rejectionNotes,
+                status: 'pending',
+                requestedBy: actor.email || 'Lab Technician',
+              });
+              await taskDoc.save();
+              sample.recollectionTaskId = taskId;
+            } else {
+              sample.recollectionTaskId = existingTask.taskId;
+            }
+          }
+        } else if (collectionStatus === 'received') {
+          // Central receipt and triage in lab
+          sample.collectionStatus = 'received';
+          sample.receivedAt = new Date();
+          sample.receivedBy = actor.email || 'Accessioning Technician';
+        } else if (collectionStatus === 'collected') {
+          sample.collectionStatus = 'collected';
           sample.collectedAt = new Date();
           sample.collectedBy = actor.email || 'Phlebotomist';
+        } else {
+          sample.collectionStatus = collectionStatus;
         }
       }
-      if (rejectionReason) sample.rejectionReason = rejectionReason;
 
       await sample.save();
       return sample.toSafeJSON();
     }
 
+    // In-memory fallback
     const tenantMap = this.memorySamples.get(tenantId);
-    const sample = tenantMap?.get(sampleId);
+    let sample = tenantMap?.get(sampleId);
+    if (!sample && tenantMap) {
+      sample = Array.from(tenantMap.values()).find((s) => s.barcode === sampleId);
+    }
     if (!sample) throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
 
     if (processingStatus) {
       if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
         throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
       }
-      if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected') {
-        throw new ClinicalServiceError('Cannot alter status of a rejected specimen', 'INVALID_STATUS_TRANSITION', 400);
-      }
       sample.processingStatus = processingStatus;
     }
-    if (collectionStatus) sample.collectionStatus = collectionStatus;
-    if (rejectionReason) sample.rejectionReason = rejectionReason;
+    if (collectionStatus) {
+      if (collectionStatus === 'rejected') {
+        const finalReason = (rejectionReason || updates.reason || '').trim();
+        if (!finalReason) {
+          throw new ClinicalServiceError('A clinical rejection reason is mandatory when rejecting a specimen', 'REJECTION_REASON_REQUIRED', 400);
+        }
+        sample.collectionStatus = 'rejected';
+        sample.processingStatus = 'recollection_requested';
+        sample.rejectionReason = finalReason;
+        sample.rejectionNotes = (rejectionNotes || notes || '').trim();
+        sample.rejectedAt = new Date();
+        sample.rejectedBy = actor.email || 'Lab Technician';
+
+        // In-memory recollection task
+        if (!this.memoryRecollections.has(tenantId)) this.memoryRecollections.set(tenantId, new Map());
+        const existingTask = Array.from(this.memoryRecollections.get(tenantId).values()).find((t) => t.rejectedSampleId === sample.sampleId);
+        if (!existingTask) {
+          const taskId = this.generateId('rec');
+          const mockTask = {
+            taskId,
+            tenantId,
+            orderId: sample.orderId,
+            orderNumber: sample.orderNumber,
+            rejectedSampleId: sample.sampleId,
+            rejectedBarcode: sample.barcode,
+            patientId: sample.patientId || '',
+            patientName: sample.patientName,
+            patientMrn: sample.patientMrn || '',
+            sampleType: sample.sampleType,
+            container: sample.container,
+            testCodes: sample.testCodes || [],
+            testNames: sample.testNames || [],
+            reason: finalReason,
+            notes: sample.rejectionNotes,
+            status: 'pending',
+            requestedBy: actor.email || 'Lab Technician',
+            createdAt: new Date(),
+            toSafeJSON() { return { ...this }; },
+          };
+          this.memoryRecollections.get(tenantId).set(taskId, mockTask);
+          sample.recollectionTaskId = taskId;
+        } else {
+          sample.recollectionTaskId = existingTask.taskId;
+        }
+      } else if (collectionStatus === 'received') {
+        sample.collectionStatus = 'received';
+        sample.receivedAt = new Date();
+        sample.receivedBy = actor.email || 'Accessioning Technician';
+      } else if (collectionStatus === 'collected') {
+        sample.collectionStatus = 'collected';
+        sample.collectedAt = new Date();
+        sample.collectedBy = actor.email || 'Phlebotomist';
+      } else {
+        sample.collectionStatus = collectionStatus;
+      }
+    }
+
     return sample;
+  }
+
+  // -------------------------------------------------------------------------
+  // RECOLLECTION QUEUE & TRIAGE MANAGEMENT
+  // -------------------------------------------------------------------------
+  async listRecollectionTasks(tenantId, query = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const { status, limit = 50 } = query;
+    const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
+
+    if (RecollectionModel) {
+      const filter = { tenantId };
+      if (status) filter.status = status;
+      const list = await RecollectionModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
+      return list.map((t) => t.toSafeJSON());
+    }
+
+    const tenantMap = this.memoryRecollections.get(tenantId) || new Map();
+    let list = Array.from(tenantMap.values());
+    if (status) list = list.filter((t) => t.status === status);
+    return list;
+  }
+
+  async resolveRecollectionTask(tenantId, taskId, data = {}, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+
+    let task = null;
+    if (RecollectionModel) {
+      task = await RecollectionModel.findOne({ tenantId, taskId });
+    } else {
+      task = this.memoryRecollections.get(tenantId)?.get(taskId);
+    }
+
+    if (!task) {
+      throw new ClinicalServiceError(`Recollection task '${taskId}' not found`, 'TASK_NOT_FOUND', 404);
+    }
+
+    if (task.status === 'recollected') {
+      return {
+        task: task.toSafeJSON ? task.toSafeJSON() : task,
+        alreadyResolved: true,
+      };
+    }
+
+    // Generate new replacement tube with suffix -R1
+    const newSampleId = this.generateId('smp');
+    const newBarcode = `${task.rejectedBarcode}-R1`;
+
+    const newSampleData = {
+      sampleId: newSampleId,
+      tenantId,
+      barcode: newBarcode,
+      orderId: task.orderId,
+      orderNumber: task.orderNumber,
+      patientId: task.patientId,
+      patientMrn: task.patientMrn,
+      patientName: task.patientName,
+      sampleType: task.sampleType,
+      container: task.container,
+      testCodes: task.testCodes || [],
+      testNames: task.testNames || [],
+      tubeIndex: 1,
+      totalTubes: 1,
+      collectionStatus: 'collected',
+      processingStatus: 'pending',
+      collectedAt: new Date(),
+      collectedBy: actor.email || 'Phlebotomist',
+    };
+
+    let newSample = null;
+    if (SampleModel) {
+      const doc = new SampleModel(newSampleData);
+      await doc.save();
+      newSample = doc.toSafeJSON();
+    } else {
+      if (!this.memorySamples.has(tenantId)) this.memorySamples.set(tenantId, new Map());
+      newSample = { ...newSampleData, createdAt: new Date(), toSafeJSON() { return { ...this }; } };
+      this.memorySamples.get(tenantId).set(newSampleId, newSample);
+    }
+
+    task.status = 'resolved';
+    task.recollectedSampleId = newSampleId;
+    task.recollectedBarcode = newBarcode;
+    task.recollectedAt = new Date();
+    task.resolvedBy = actor.email || 'Phlebotomist';
+    if (task.save) await task.save();
+
+    return {
+      task: task.toSafeJSON ? task.toSafeJSON() : task,
+      newSample,
+      replacementBarcode: newBarcode,
+      replacementSample: newSample,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -481,7 +981,7 @@ class TenantClinicalService {
 
   async createTest(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { code, name, category, department, specimenType, price, turnaroundHours, referenceRange } = data;
+    const { code, name, category, department, specimenType, container, price, turnaroundHours, referenceRange, parameters } = data;
 
     if (!code || !name) {
       throw new ClinicalServiceError('Test code and descriptive name are required', 'VALIDATION_ERROR', 400);
@@ -489,6 +989,8 @@ class TenantClinicalService {
 
     const testId = this.generateId('tst');
     const cleanCode = code.trim().toUpperCase();
+    const sanitizedParams = validateAndSanitizeParameters(parameters);
+    const resolvedCont = container?.trim() || resolveSpecimenContainer(specimenType, container);
     const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
 
     if (TestModel) {
@@ -504,9 +1006,11 @@ class TenantClinicalService {
         category: category?.trim() || 'General Pathology',
         department: department?.trim() || 'Laboratory Diagnostics',
         specimenType: specimenType?.trim() || 'Serum',
+        container: resolvedCont,
         price: Number(price) || 0,
         turnaroundHours: Number(turnaroundHours) || 24,
         referenceRange: referenceRange?.trim() || 'Standard clinical normal reference range',
+        parameters: sanitizedParams,
         isActive: true,
       });
       await doc.save();
@@ -522,14 +1026,127 @@ class TenantClinicalService {
       category: category || 'General Pathology',
       department: department || 'Laboratory Diagnostics',
       specimenType: specimenType || 'Serum',
+      container: resolvedCont,
       price: Number(price) || 0,
       turnaroundHours: Number(turnaroundHours) || 24,
       referenceRange: referenceRange || 'Standard reference range',
+      parameters: sanitizedParams,
       isActive: true,
       toSafeJSON() { return { ...this }; },
     };
     this.memoryTests.get(tenantId).set(testId, mock);
     return mock;
+  }
+
+  async getTest(tenantId, testId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+
+    if (TestModel) {
+      const doc = await TestModel.findOne({
+        tenantId,
+        $or: [{ testId }, { code: String(testId).trim().toUpperCase() }],
+      });
+      if (!doc) {
+        throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+      }
+      return doc.toSafeJSON();
+    }
+
+    const tenantMap = this.memoryTests.get(tenantId);
+    if (!tenantMap) throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+    const direct = tenantMap.get(testId);
+    if (direct) return direct.toSafeJSON ? direct.toSafeJSON() : direct;
+    for (const t of tenantMap.values()) {
+      if (t.code === String(testId).trim().toUpperCase() || t.testId === testId) {
+        return t.toSafeJSON ? t.toSafeJSON() : t;
+      }
+    }
+    throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+  }
+
+  async updateTest(tenantId, testId, data, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+
+    const updates = {};
+    if (data.code !== undefined) {
+      const cleanCode = String(data.code).trim().toUpperCase();
+      if (!cleanCode) throw new ClinicalServiceError('Test code cannot be empty', 'VALIDATION_ERROR', 400);
+      updates.code = cleanCode;
+    }
+    if (data.name !== undefined) {
+      const cleanName = String(data.name).trim();
+      if (!cleanName) throw new ClinicalServiceError('Test name cannot be empty', 'VALIDATION_ERROR', 400);
+      updates.name = cleanName;
+    }
+    if (data.category !== undefined) updates.category = String(data.category).trim();
+    if (data.department !== undefined) updates.department = String(data.department).trim();
+    if (data.specimenType !== undefined) updates.specimenType = String(data.specimenType).trim();
+    if (data.container !== undefined) updates.container = String(data.container).trim();
+    if (data.price !== undefined) {
+      const p = Number(data.price);
+      if (isNaN(p) || p < 0) throw new ClinicalServiceError('Price must be a non-negative number', 'VALIDATION_ERROR', 400);
+      updates.price = p;
+    }
+    if (data.turnaroundHours !== undefined) {
+      const t = Number(data.turnaroundHours);
+      if (isNaN(t) || t < 0) throw new ClinicalServiceError('Turnaround hours must be non-negative', 'VALIDATION_ERROR', 400);
+      updates.turnaroundHours = t;
+    }
+    if (data.referenceRange !== undefined) {
+      updates.referenceRange = String(data.referenceRange).trim();
+    }
+    if (data.isActive !== undefined) {
+      updates.isActive = Boolean(data.isActive);
+    }
+    if (data.parameters !== undefined) {
+      updates.parameters = validateAndSanitizeParameters(data.parameters);
+    }
+
+    if (TestModel) {
+      const existing = await TestModel.findOne({
+        tenantId,
+        $or: [{ testId }, { code: String(testId).trim().toUpperCase() }],
+      });
+      if (!existing) {
+        throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+      }
+
+      if (updates.code && updates.code !== existing.code) {
+        const dup = await TestModel.findOne({ tenantId, code: updates.code, testId: { $ne: existing.testId } });
+        if (dup) {
+          throw new ClinicalServiceError(`A test with code '${updates.code}' already exists`, 'DUPLICATE_TEST', 409);
+        }
+      }
+
+      Object.assign(existing, updates);
+      await existing.save();
+      return existing.toSafeJSON();
+    }
+
+    const tenantMap = this.memoryTests.get(tenantId);
+    if (!tenantMap) throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+    let target = tenantMap.get(testId);
+    if (!target) {
+      for (const t of tenantMap.values()) {
+        if (t.code === String(testId).trim().toUpperCase() || t.testId === testId) {
+          target = t; break;
+        }
+      }
+    }
+    if (!target) throw new ClinicalServiceError(`Test '${testId}' not found in catalog`, 'TEST_NOT_FOUND', 404);
+
+    if (updates.code && updates.code !== target.code) {
+      for (const t of tenantMap.values()) {
+        if (t.code === updates.code && t.testId !== target.testId) {
+          throw new ClinicalServiceError(`A test with code '${updates.code}' already exists`, 'DUPLICATE_TEST', 409);
+        }
+      }
+    }
+
+    Object.assign(target, updates);
+    return target.toSafeJSON ? target.toSafeJSON() : target;
   }
 
   async getOrderById(tenantId, orderId) {
@@ -553,50 +1170,163 @@ class TenantClinicalService {
 
   async recordOrderItemResult(tenantId, orderId, itemId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { resultValue, referenceRange, isAbnormal = false } = data;
+    const { referenceRange, parameterResults } = data;
+    let { resultValue, isAbnormal = false } = data;
 
-    if (resultValue === undefined || resultValue === null || String(resultValue).trim() === '') {
-      throw new ClinicalServiceError('Test result value must be provided and cannot be empty', 'VALIDATION_ERROR', 400);
+    const hasParamResults = parameterResults && (
+      (Array.isArray(parameterResults) && parameterResults.length > 0) ||
+      (typeof parameterResults === 'object' && Object.keys(parameterResults).length > 0)
+    );
+
+    const hasSingleResult = resultValue !== undefined && resultValue !== null && String(resultValue).trim() !== '';
+
+    if (!hasParamResults && !hasSingleResult) {
+      throw new ClinicalServiceError('Test result value or structured parameter results must be provided', 'VALIDATION_ERROR', 400);
     }
 
     const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    let order = null;
     if (OrderModel) {
-      const order = await OrderModel.findOne({ tenantId, $or: [{ orderId }, { orderNumber: orderId }] });
-      if (!order) throw new ClinicalServiceError('Order not found', 'ORDER_NOT_FOUND', 404);
-
-      const targetItem = order.items.find((it) => it.itemId === itemId || it.testCode === itemId);
-      if (!targetItem) throw new ClinicalServiceError(`Test item '${itemId}' not found in order`, 'ITEM_NOT_FOUND', 404);
-
-      targetItem.resultValue = String(resultValue).trim();
-      targetItem.status = 'completed';
-      targetItem.isAbnormal = Boolean(isAbnormal);
-      if (referenceRange) targetItem.referenceRange = String(referenceRange).trim();
-
-      const allDone = order.items.every((it) => it.status === 'completed' && it.resultValue);
-      order.orderStatus = allDone ? 'completed' : 'in_analysis';
-
-      await order.save();
-      return order.toSafeJSON();
-    }
-
-    // In-memory fallback
-    const tenantMap = this.memoryOrders.get(tenantId);
-    let order = tenantMap?.get(orderId);
-    if (!order && tenantMap) {
-      for (const o of tenantMap.values()) {
-        if (o.orderNumber === orderId) { order = o; break; }
+      order = await OrderModel.findOne({ tenantId, $or: [{ orderId }, { orderNumber: orderId }] });
+    } else {
+      const tenantMap = this.memoryOrders.get(tenantId);
+      order = tenantMap?.get(orderId);
+      if (!order && tenantMap) {
+        for (const o of tenantMap.values()) {
+          if (o.orderNumber === orderId) { order = o; break; }
+        }
       }
     }
+
     if (!order) throw new ClinicalServiceError('Order not found', 'ORDER_NOT_FOUND', 404);
+
     const targetItem = order.items.find((it) => it.itemId === itemId || it.testCode === itemId);
     if (!targetItem) throw new ClinicalServiceError(`Test item '${itemId}' not found in order`, 'ITEM_NOT_FOUND', 404);
-    targetItem.resultValue = String(resultValue).trim();
+
+    // Validate and process parameter results if provided
+    let storedParamResults = [];
+    if (hasParamResults) {
+      let rawList = [];
+      if (Array.isArray(parameterResults)) {
+        rawList = parameterResults;
+      } else {
+        rawList = Object.entries(parameterResults).map(([k, v]) => {
+          if (v && typeof v === 'object' && v.value !== undefined) {
+            return { parameterCode: k, ...v };
+          }
+          return { parameterCode: k, value: v };
+        });
+      }
+
+      const itemParams = Array.isArray(targetItem.parameters) ? targetItem.parameters : [];
+
+      for (const entry of rawList) {
+        const code = (entry.parameterCode || entry.code || '').trim().toUpperCase();
+        if (!code) continue;
+
+        // Match strictly against the order item's parameter snapshot
+        const paramDef = itemParams.find((p) => (p.parameterCode || '').toUpperCase() === code);
+        const resultType = paramDef?.resultType || entry.resultType || 'TEXT';
+        let val = entry.value;
+        let itemAbnormal = Boolean(entry.isAbnormal);
+
+        if (resultType === 'NUMERIC') {
+          if (val === undefined || val === null || val === '' || isNaN(Number(val))) {
+            throw new ClinicalServiceError(
+              `Numeric value required for parameter '${paramDef?.name || code}'`,
+              'INVALID_NUMERIC_VALUE',
+              400
+            );
+          }
+          val = Number(val);
+
+          // Evaluate abnormal flag against reference range if configured
+          if (paramDef?.referenceRanges && Array.isArray(paramDef.referenceRanges) && paramDef.referenceRanges.length > 0) {
+            const ref = paramDef.referenceRanges[0];
+            if (ref) {
+              if (ref.lowNormal !== undefined && ref.lowNormal !== null && val < ref.lowNormal) itemAbnormal = true;
+              if (ref.highNormal !== undefined && ref.highNormal !== null && val > ref.highNormal) itemAbnormal = true;
+            }
+          }
+        } else if (resultType === 'OPTIONS') {
+          const validOpts = Array.isArray(paramDef?.options) ? paramDef.options : [];
+          if (validOpts.length > 0) {
+            const matchedOpt = validOpts.find((o) => o.trim().toUpperCase() === String(val).trim().toUpperCase());
+            if (!matchedOpt) {
+              throw new ClinicalServiceError(
+                `Invalid option '${val}' for parameter '${paramDef?.name || code}'. Allowed: ${validOpts.join(', ')}`,
+                'INVALID_PARAMETER_OPTION',
+                400
+              );
+            }
+            val = matchedOpt;
+          } else {
+            val = String(val).trim();
+          }
+        } else {
+          // TEXT
+          if (val === undefined || val === null || String(val).trim() === '') {
+            throw new ClinicalServiceError(
+              `Text value required for parameter '${paramDef?.name || code}'`,
+              'INVALID_TEXT_VALUE',
+              400
+            );
+          }
+          val = String(val).trim();
+        }
+
+        const unit = entry.unit || paramDef?.unit || '';
+        let refDisplay = entry.referenceRange || '';
+        if (!refDisplay && paramDef?.referenceRanges && paramDef.referenceRanges.length > 0) {
+          const r = paramDef.referenceRanges[0];
+          refDisplay = (r.lowNormal !== undefined && r.highNormal !== undefined)
+            ? `${r.lowNormal} - ${r.highNormal} ${unit}`.trim()
+            : (r.notes || '');
+        }
+
+        storedParamResults.push({
+          parameterCode: code,
+          name: paramDef?.name || entry.name || code,
+          resultType,
+          value: val,
+          unit,
+          referenceRange: refDisplay,
+          isAbnormal: itemAbnormal,
+          enteredAt: new Date(),
+          enteredBy: actor.email || 'Lab Technician',
+        });
+      }
+
+      targetItem.parameterResults = storedParamResults;
+      if (storedParamResults.some((p) => p.isAbnormal)) {
+        isAbnormal = true;
+      }
+
+      // Generate composite resultValue string if omitted
+      if (!hasSingleResult && storedParamResults.length > 0) {
+        resultValue = storedParamResults
+          .map((p) => `${p.name || p.parameterCode}: ${p.value}${p.unit ? ' ' + p.unit : ''}`)
+          .join(', ');
+      }
+    }
+
+    if (resultValue) {
+      targetItem.resultValue = String(resultValue).trim();
+    }
     targetItem.status = 'completed';
     targetItem.isAbnormal = Boolean(isAbnormal);
     if (referenceRange) targetItem.referenceRange = String(referenceRange).trim();
-    const allDone = order.items.every((it) => it.status === 'completed' && it.resultValue);
+
+    const allDone = order.items.every(
+      (it) => it.status === 'completed' && (it.resultValue || (it.parameterResults && it.parameterResults.length > 0))
+    );
     order.orderStatus = allDone ? 'completed' : 'in_analysis';
-    return order;
+
+    if (OrderModel && order.save) {
+      await order.save();
+      return order.toSafeJSON();
+    }
+    return order.toSafeJSON ? order.toSafeJSON() : order;
   }
 
   // -------------------------------------------------------------------------
@@ -629,7 +1359,9 @@ class TenantClinicalService {
     let resolvedPatientMrn = data.patientMrn;
     let resolvedTestName = data.testName;
 
-    if (orderId && (!resolvedPatientName || !resolvedTestName)) {
+    let resolvedItems = Array.isArray(data.items) ? data.items : [];
+
+    if (orderId) {
       try {
         const order = await this.getOrderById(tenantId, orderId);
         if (order) {
@@ -637,6 +1369,9 @@ class TenantClinicalService {
           resolvedPatientName = resolvedPatientName || order.patientName;
           resolvedPatientMrn = resolvedPatientMrn || order.patientMrn;
           resolvedTestName = resolvedTestName || order.items?.[0]?.testName || 'Diagnostic Panel';
+          if (resolvedItems.length === 0 && Array.isArray(order.items)) {
+            resolvedItems = order.items;
+          }
         }
       } catch {}
     }
@@ -660,6 +1395,7 @@ class TenantClinicalService {
         patientName: resolvedPatientName,
         patientMrn: resolvedPatientMrn || 'MRN-GEN',
         testName: resolvedTestName,
+        items: resolvedItems,
         findings: String(findings).trim(),
         status: 'draft',
         draftedBy: actor.email || 'Lab Technician',
@@ -678,6 +1414,7 @@ class TenantClinicalService {
       patientName: resolvedPatientName,
       patientMrn: resolvedPatientMrn || 'MRN-GEN',
       testName: resolvedTestName,
+      items: resolvedItems,
       findings: String(findings).trim(),
       status: 'draft',
       draftedBy: actor.email || 'Lab Technician',

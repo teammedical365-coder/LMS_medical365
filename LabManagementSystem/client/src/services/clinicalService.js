@@ -31,19 +31,37 @@ export const clinicalService = {
   recordOrderItemResult: (tenantId, orderId, itemId, data) =>
     api.patch(`/tenants/${tenantId}/orders/${orderId}/items/${itemId}/result`, data).then((res) => res.data),
 
-  // Samples
+  // Samples & Specimen Tracking
   getSamples: (tenantId, params = {}) =>
     api.get(`/tenants/${tenantId}/samples`, { params }).then((res) => res.data),
 
   updateSampleStatus: (tenantId, sampleId, updates) =>
     api.patch(`/tenants/${tenantId}/samples/${sampleId}/status`, updates).then((res) => res.data),
 
+  getSampleLabel: (tenantId, sampleId) =>
+    api.get(`/tenants/${tenantId}/samples/${sampleId}/label`).then((res) => res.data),
+
+  getOrderLabels: (tenantId, orderId) =>
+    api.get(`/tenants/${tenantId}/orders/${orderId}/labels`).then((res) => res.data),
+
+  getRecollectionTasks: (tenantId, params = {}) =>
+    api.get(`/tenants/${tenantId}/samples/recollections`, { params }).then((res) => res.data),
+
+  resolveRecollectionTask: (tenantId, taskId, data = {}) =>
+    api.post(`/tenants/${tenantId}/samples/recollections/${taskId}/recollect`, data).then((res) => res.data),
+
   // Test Catalog
   getTestCatalog: (tenantId, params = {}) =>
     api.get(`/tenants/${tenantId}/tests`, { params }).then((res) => res.data),
 
+  getTest: (tenantId, testId) =>
+    api.get(`/tenants/${tenantId}/tests/${testId}`).then((res) => res.data),
+
   createTest: (tenantId, data) =>
     api.post(`/tenants/${tenantId}/tests`, data).then((res) => res.data),
+
+  updateTest: (tenantId, testId, data) =>
+    api.patch(`/tenants/${tenantId}/tests/${testId}`, data).then((res) => res.data),
 
   // Reports
   getReports: (tenantId, params = {}) =>
