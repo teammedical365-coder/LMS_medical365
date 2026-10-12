@@ -110,6 +110,10 @@ export function DashboardPage() {
     userRole === 'technician' ||
     hasPermission(['samples:process', 'samples:collect']);
 
+  const isClinicalStaff =
+    isLabAdmin ||
+    ['lab_admin', 'pathologist', 'lab_technician', 'technician'].includes(userRole);
+
   const fetchDashboard = useCallback(async () => {
     if (!tenantId || isSuperAdmin) {
       setLoading(false);
@@ -919,8 +923,8 @@ export function DashboardPage() {
       {/* ========================================================================= */}
       {(workstationView === 'all' || (!isPathologist && !isTechnician)) && (
         <>
-          {/* Today's Lab Orders Summary Section */}
-          {hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
+          {/* Today's Lab Orders Summary Section (Clinical Staff Only) */}
+          {isClinicalStaff && hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
             <section style={{ marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -987,8 +991,8 @@ export function DashboardPage() {
             </div>
           </section>
 
-          {/* Laboratory Workflow Pipeline Summary */}
-          {hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
+          {/* Laboratory Workflow Pipeline Summary (Clinical Staff Only) */}
+          {isClinicalStaff && hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
             <section className="card" style={{ marginBottom: '1.5rem' }}>
               <div className="card-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

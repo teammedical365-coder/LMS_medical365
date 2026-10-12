@@ -2510,7 +2510,60 @@ class TenantClinicalService {
   async getDashboardSummary(tenantId, role = 'lab_admin', options = {}) {
     await tenantUserService.assertTenantReady(tenantId);
 
-    const [patients, orders, samples, reports, billing, todaySummary, staffList] = await Promise.all([
+    const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+
+    const countsPromise = (async () => {
+      if (PatientModel && OrderModel && SampleModel && ReportModel) {
+        const [
+          totalPatients,
+          totalOrders,
+          pendingCollectionSamples,
+          inAnalysisSamples,
+          pendingReviewReports,
+          releasedReports,
+        ] = await Promise.all([
+          PatientModel.countDocuments({ tenantId, isActive: { $ne: false } }),
+          OrderModel.countDocuments({ tenantId }),
+          SampleModel.countDocuments({ tenantId, collectionStatus: 'pending' }),
+          SampleModel.countDocuments({ tenantId, processingStatus: 'in_analysis' }),
+          ReportModel.countDocuments({ tenantId, status: { $in: ['draft', 'pending_review'] } }),
+          ReportModel.countDocuments({ tenantId, status: 'released' }),
+        ]);
+        return {
+          totalPatients,
+          totalOrders,
+          pendingCollectionSamples,
+          inAnalysisSamples,
+          pendingReviewReports,
+          releasedReports,
+        };
+      }
+
+      // In-memory fallback for offline test suites
+      const tenantPatients = this.memoryPatients.get(tenantId) || new Map();
+      const tenantOrders = this.memoryOrders.get(tenantId) || new Map();
+      const tenantSamples = this.memorySamples.get(tenantId) || new Map();
+      const tenantReports = this.memoryReports.get(tenantId) || new Map();
+
+      const patientList = Array.from(tenantPatients.values());
+      const orderList = Array.from(tenantOrders.values());
+      const sampleList = Array.from(tenantSamples.values());
+      const reportList = Array.from(tenantReports.values());
+
+      return {
+        totalPatients: patientList.filter((p) => p.isActive !== false).length,
+        totalOrders: orderList.length,
+        pendingCollectionSamples: sampleList.filter((s) => s.collectionStatus === 'pending').length,
+        inAnalysisSamples: sampleList.filter((s) => s.processingStatus === 'in_analysis').length,
+        pendingReviewReports: reportList.filter((r) => r.status === 'draft' || r.status === 'pending_review').length,
+        releasedReports: reportList.filter((r) => r.status === 'released').length,
+      };
+    })();
+
+    const [patients, orders, samples, reports, billing, todaySummary, staffList, counts] = await Promise.all([
       this.listPatients(tenantId, { limit: 10 }),
       this.listOrders(tenantId, { limit: 10 }),
       this.listSamples(tenantId, { limit: 10 }),
@@ -2518,6 +2571,7 @@ class TenantClinicalService {
       this.getBillingSummary(tenantId),
       this.getTodayOrderSummary(tenantId, options),
       tenantUserService.listUsers(tenantId).catch(() => []),
+      countsPromise,
     ]);
 
     const metrics = {
@@ -2529,13 +2583,13 @@ class TenantClinicalService {
       formattedTat: todaySummary.formattedTat,
       tatReportCount: todaySummary.tatReportCount,
       tat: todaySummary.formattedTat,
-      totalPatients: patients.length,
-      totalOrders: orders.length,
+      totalPatients: counts.totalPatients,
+      totalOrders: counts.totalOrders,
       totalStaff: staffList.length,
-      pendingCollectionSamples: samples.filter((s) => s.collectionStatus === 'pending').length,
-      inAnalysisSamples: samples.filter((s) => s.processingStatus === 'in_analysis').length,
-      pendingReviewReports: reports.filter((r) => r.status === 'draft' || r.status === 'pending_review').length,
-      releasedReports: reports.filter((r) => r.status === 'released').length,
+      pendingCollectionSamples: counts.pendingCollectionSamples,
+      inAnalysisSamples: counts.inAnalysisSamples,
+      pendingReviewReports: counts.pendingReviewReports,
+      releasedReports: counts.releasedReports,
       totalRevenue: billing.totalRevenue,
       totalOutstanding: billing.totalOutstanding,
     };
