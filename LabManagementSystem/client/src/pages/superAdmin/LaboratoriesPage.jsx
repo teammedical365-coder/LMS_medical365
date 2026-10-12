@@ -1,10 +1,10 @@
 /**
  * Lab Management System (LMS) - Platform Super Admin Laboratories Directory
- * Medical365 Aesthetic: White rounded cards, light borders, crisp typography, and filterable tables
+ * Medical365 Aesthetic: Integrated Registration Form, Filterable Table, Dedicated Portals
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   Building2,
   PlusCircle,
@@ -21,6 +21,15 @@ import {
   Copy,
   Sparkles,
   Globe,
+  X,
+  Check,
+  Shield,
+  Mail,
+  Phone,
+  MapPin,
+  Lock,
+  Palette,
+  UserCheck,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
@@ -31,17 +40,53 @@ import AdminSecurityBoundary from '../../components/common/AdminSecurityBoundary
 import superAdminService from '../../services/superAdminService';
 
 export function LaboratoriesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isRegisterParam = searchParams.get('action') === 'register' || searchParams.get('register') === 'true';
+
   const [laboratories, setLaboratories] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [showRegisterForm, setShowRegisterForm] = useState(isRegisterParam);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [provFilter, setProvFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Registration Form State
+  const initialFormState = {
+    name: '',
+    code: '',
+    legalName: '',
+    contactEmail: '',
+    contactPhone: '',
+    domain: '',
+    timezone: 'UTC',
+    locale: 'en-US',
+    subscriptionPlan: 'standard',
+    adminFullName: '',
+    adminEmail: '',
+    adminPassword: '',
+    displayName: '',
+    primaryColor: '#2563EB',
+    accentColor: '#22C1DC',
+    address: {
+      street: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: 'India',
+    },
+  };
+
+  const [regForm, setRegForm] = useState(initialFormState);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState(null);
+  const [regSuccess, setRegSuccess] = useState(null);
+  const [regCopied, setRegCopied] = useState(false);
 
   const copyPortalUrl = (url, labId) => {
     if (navigator.clipboard) {
@@ -83,6 +128,79 @@ export function LaboratoriesPage() {
     fetchLabs();
   };
 
+  const handleRegInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name.startsWith('addr_')) {
+      const field = name.replace('addr_', '');
+      setRegForm((prev) => ({
+        ...prev,
+        address: { ...prev.address, [field]: value },
+      }));
+    } else if (name === 'code') {
+      setRegForm((prev) => ({
+        ...prev,
+        code: value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''),
+      }));
+    } else {
+      setRegForm((prev) => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    setRegLoading(true);
+    setRegError(null);
+    setRegSuccess(null);
+
+    const payload = {
+      name: regForm.name.trim(),
+      code: regForm.code.trim(),
+      legalName: regForm.legalName.trim() || undefined,
+      email: regForm.contactEmail.trim().toLowerCase(),
+      contactEmail: regForm.contactEmail.trim().toLowerCase(),
+      phone: regForm.contactPhone.trim() || undefined,
+      timezone: regForm.timezone,
+      locale: regForm.locale,
+      subscriptionPlan: regForm.subscriptionPlan,
+      address: {
+        street: regForm.address.street.trim(),
+        city: regForm.address.city.trim(),
+        state: regForm.address.state.trim(),
+        postalCode: regForm.address.postalCode.trim(),
+        country: regForm.address.country.trim() || 'India',
+      },
+      domains: regForm.domain.trim() ? [regForm.domain.trim().toLowerCase()] : undefined,
+      initialAdmin:
+        regForm.adminEmail.trim() && regForm.adminPassword
+          ? {
+              fullName: regForm.adminFullName.trim() || `${regForm.name.trim()} Administrator`,
+              email: regForm.adminEmail.trim().toLowerCase(),
+              password: regForm.adminPassword,
+            }
+          : undefined,
+      branding: {
+        displayName: regForm.displayName.trim() || regForm.name.trim(),
+        primaryColor: regForm.primaryColor || '#2563EB',
+        accentColor: regForm.accentColor || '#22C1DC',
+      },
+    };
+
+    try {
+      const createdLab = await superAdminService.registerLaboratory(payload);
+      setRegSuccess(createdLab);
+      setRegForm(initialFormState);
+      fetchLabs(); // Automatically refresh list below so new lab appears immediately!
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setRegError('Super Administrator authentication required to register new medical facilities.');
+      } else {
+        setRegError(err.response?.data?.message || err.message || 'Failed to register laboratory');
+      }
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'ACTIVE':
@@ -112,33 +230,370 @@ export function LaboratoriesPage() {
     }
   };
 
+  const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <PageHeader
         title="Laboratory Registry & Tenant Provisioning"
         description="Master catalog of healthcare diagnostic facilities, tenant lifecycle states, and dedicated database provisioning."
         actions={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={fetchLabs} title="Refresh directory">
               <RefreshCw size={14} />
               <span>Refresh</span>
             </button>
-            <Link to="/super-admin/laboratories/new" className="btn btn-primary">
-              <PlusCircle size={16} />
-              <span>Register New Laboratory</span>
-            </Link>
+            <button
+              className={`btn ${showRegisterForm ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={() => {
+                setShowRegisterForm((prev) => !prev);
+                setRegSuccess(null);
+                setRegError(null);
+              }}
+            >
+              {showRegisterForm ? <X size={15} /> : <PlusCircle size={15} />}
+              <span>{showRegisterForm ? 'Close Registration Form' : 'Register New Laboratory'}</span>
+            </button>
           </div>
         }
       />
+
+      {/* Embedded Registration Form Section */}
+      {showRegisterForm && (
+        <div
+          className="card"
+          style={{
+            background: '#ffffff',
+            border: '1.5px solid #0284c7',
+            borderRadius: 'var(--radius-lg, 12px)',
+            boxShadow: '0 8px 24px -4px rgba(2, 132, 199, 0.15)',
+            padding: '1.5rem',
+            animation: 'modalIn 0.2s ease-out',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <PlusCircle size={20} />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Register New Diagnostic Laboratory
+                </h2>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.785rem', color: 'var(--slate-500)' }}>
+                  Instantly provision tenant isolation, custom whitelabel login portal, and administrator credentials.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowRegisterForm(false)}
+              className="btn-icon"
+              style={{ color: 'var(--slate-400)' }}
+              title="Close form"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Success Banner */}
+          {regSuccess && (
+            <div
+              style={{
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '8px',
+                padding: '1rem',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: 700, fontSize: '0.9rem' }}>
+                <CheckCircle2 size={18} />
+                <span>Laboratory "{regSuccess.name}" ({regSuccess.code}) Registered Successfully!</span>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.8125rem', color: '#15803d' }}>
+                Dedicated Whitelabel Portal has been generated and isolated database provisioning initiated.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                <code style={{ fontSize: '0.775rem', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px', color: '#166534' }}>
+                  {`${originUrl}/lab/${regSuccess.code.toLowerCase()}`}
+                </code>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(`${originUrl}/lab/${regSuccess.code.toLowerCase()}`);
+                      setRegCopied(true);
+                      setTimeout(() => setRegCopied(false), 2000);
+                    }
+                  }}
+                >
+                  {regCopied ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
+                  <span>{regCopied ? 'Copied!' : 'Copy Portal URL'}</span>
+                </button>
+                <a
+                  href={`${originUrl}/lab/${regSuccess.code.toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm"
+                  style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                >
+                  <ExternalLink size={12} />
+                  <span>Open Portal</span>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {regError && (
+            <div
+              style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+                padding: '0.85rem 1rem',
+                marginBottom: '1.25rem',
+                color: '#b91c1c',
+                fontSize: '0.825rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <AlertTriangle size={16} />
+              <span>{regError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Section 1: Facility Details */}
+            <div>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Building2 size={16} style={{ color: '#0284c7' }} />
+                <span>1. Facility Information</span>
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Laboratory Name *</label>
+                  <input
+                    type="text"
+                    name="name"
+                    className="form-input"
+                    placeholder="e.g. Apex Diagnostics Lab"
+                    value={regForm.name}
+                    onChange={handleRegInputChange}
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Unique Lab Code * (Short Prefix)</label>
+                  <input
+                    type="text"
+                    name="code"
+                    className="form-input"
+                    placeholder="e.g. APEX-01"
+                    value={regForm.code}
+                    onChange={handleRegInputChange}
+                    style={{ textTransform: 'uppercase', fontFamily: 'monospace', fontWeight: 700 }}
+                    maxLength={16}
+                    required
+                  />
+                  <span className="form-hint">Used in URLs: /lab/apex-01</span>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Contact Email *</label>
+                  <input
+                    type="email"
+                    name="contactEmail"
+                    className="form-input"
+                    placeholder="lab@apexdiag.com"
+                    value={regForm.contactEmail}
+                    onChange={handleRegInputChange}
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Contact Phone</label>
+                  <input
+                    type="tel"
+                    name="contactPhone"
+                    className="form-input"
+                    placeholder="+91 98765 43210"
+                    value={regForm.contactPhone}
+                    onChange={handleRegInputChange}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Initial Administrator Account */}
+            <div>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Shield size={16} style={{ color: '#7c3aed' }} />
+                <span>2. Laboratory Administrator Account</span>
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Admin Full Name *</label>
+                  <input
+                    type="text"
+                    name="adminFullName"
+                    className="form-input"
+                    placeholder="Dr. Rajesh Kumar"
+                    value={regForm.adminFullName}
+                    onChange={handleRegInputChange}
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Admin Login Email *</label>
+                  <input
+                    type="email"
+                    name="adminEmail"
+                    className="form-input"
+                    placeholder="admin@apexdiag.com"
+                    value={regForm.adminEmail}
+                    onChange={handleRegInputChange}
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Temporary Password *</label>
+                  <input
+                    type="password"
+                    name="adminPassword"
+                    className="form-input"
+                    placeholder="••••••••••••"
+                    value={regForm.adminPassword}
+                    onChange={handleRegInputChange}
+                    minLength={8}
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Branding & Whitelabel */}
+            <div>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Palette size={16} style={{ color: '#ea580c' }} />
+                <span>3. White-Label Branding</span>
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Display Brand Name</label>
+                  <input
+                    type="text"
+                    name="displayName"
+                    className="form-input"
+                    placeholder="Apex Diagnostics & Imaging"
+                    value={regForm.displayName}
+                    onChange={handleRegInputChange}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Primary Brand Color</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="color"
+                      name="primaryColor"
+                      value={regForm.primaryColor}
+                      onChange={handleRegInputChange}
+                      style={{ width: '40px', height: '36px', padding: 0, border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
+                    />
+                    <input
+                      type="text"
+                      name="primaryColor"
+                      className="form-input"
+                      value={regForm.primaryColor}
+                      onChange={handleRegInputChange}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Accent Color</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="color"
+                      name="accentColor"
+                      value={regForm.accentColor}
+                      onChange={handleRegInputChange}
+                      style={{ width: '40px', height: '36px', padding: 0, border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
+                    />
+                    <input
+                      type="text"
+                      name="accentColor"
+                      className="form-input"
+                      value={regForm.accentColor}
+                      onChange={handleRegInputChange}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Form Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowRegisterForm(false)}
+                disabled={regLoading}
+              >
+                Cancel
+              </button>
+
+              <button type="submit" className="btn btn-primary" disabled={regLoading}>
+                {regLoading ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    <span>Provisioning Laboratory...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={15} />
+                    <span>Register & Provision Laboratory</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Multi-Tenant Whitelabel Portal Architecture Banner */}
       <div
         style={{
           background: '#f0f9ff',
           border: '1px solid #bae6fd',
-          borderRadius: 'var(--radius-md)',
-          padding: '0.875rem 1.25rem',
-          marginBottom: '1.25rem',
+          borderRadius: 'var(--radius-md, 10px)',
+          padding: '0.85rem 1.15rem',
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
@@ -151,9 +606,9 @@ export function LaboratoriesPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="card" style={{ marginBottom: '1.25rem', padding: '1rem' }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-          <div style={{ flex: '1 1 280px', position: 'relative' }}>
+      <div className="card" style={{ padding: '0.85rem 1rem' }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+          <div style={{ flex: '1 1 260px', position: 'relative' }}>
             <input
               type="text"
               className="form-input"
@@ -168,7 +623,7 @@ export function LaboratoriesPage() {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
             <select
               className="form-select"
               value={statusFilter}
@@ -176,7 +631,7 @@ export function LaboratoriesPage() {
                 setStatusFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ width: 'auto', minWidth: '150px' }}
+              style={{ width: 'auto', minWidth: '140px' }}
             >
               <option value="">All Statuses</option>
               <option value="ACTIVE">ACTIVE</option>
@@ -192,16 +647,16 @@ export function LaboratoriesPage() {
                 setProvFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ width: 'auto', minWidth: '170px' }}
+              style={{ width: 'auto', minWidth: '150px' }}
             >
-              <option value="">All Database States</option>
+              <option value="">All DB States</option>
               <option value="READY">READY</option>
               <option value="IN_PROGRESS">IN_PROGRESS</option>
               <option value="FAILED">FAILED</option>
               <option value="NOT_STARTED">NOT_STARTED</option>
             </select>
 
-            <button type="submit" className="btn btn-primary">
+            <button type="submit" className="btn btn-primary btn-sm">
               <Filter size={14} />
               <span>Filter</span>
             </button>
@@ -226,10 +681,10 @@ export function LaboratoriesPage() {
                 : 'No diagnostic laboratories have been onboarded to this multi-tenant platform yet.'
             }
             action={
-              <Link to="/super-admin/laboratories/new" className="btn btn-primary">
+              <button onClick={() => setShowRegisterForm(true)} className="btn btn-primary">
                 <PlusCircle size={15} />
                 <span>Onboard First Laboratory</span>
-              </Link>
+              </button>
             }
           />
         </div>
@@ -255,8 +710,7 @@ export function LaboratoriesPage() {
                 {laboratories.map((lab) => {
                   const provStatus = lab.database?.provisioningStatus || lab.provisioningStatus || 'NOT_STARTED';
                   const primaryDomain = lab.domainMappings?.find((d) => d.isPrimary)?.domain || lab.domainMappings?.[0]?.domain;
-                  const labSlug = (lab.code || lab.tenantId || '').toLowerCase();
-                  const portalUrl = `${window.location.origin}/lab/${lab.code.toLowerCase()}`;
+                  const portalUrl = `${originUrl}/lab/${lab.code.toLowerCase()}`;
 
                   return (
                     <tr key={lab.tenantId || lab._id}>
@@ -418,7 +872,7 @@ export function LaboratoriesPage() {
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }
 

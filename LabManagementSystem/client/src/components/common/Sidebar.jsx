@@ -43,13 +43,7 @@ export function Sidebar({ isOpen, onClose }) {
       return current === '/super-admin';
     }
     if (target === '/super-admin/laboratories') {
-      return (
-        current === '/super-admin/laboratories' ||
-        (current.startsWith('/super-admin/laboratories/') && current !== '/super-admin/laboratories/new')
-      );
-    }
-    if (target === '/super-admin/laboratories/new') {
-      return current === '/super-admin/laboratories/new';
+      return current === '/super-admin/laboratories' || current.startsWith('/super-admin/laboratories/');
     }
     if (target === '/super-admin/roles') {
       return current === '/super-admin/roles';
@@ -69,7 +63,6 @@ export function Sidebar({ isOpen, onClose }) {
           { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server, color: 'blue' },
           { key: 'sa_labs', name: 'Laboratories', path: '/super-admin/laboratories', icon: Building2, color: 'emerald' },
           { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck, color: 'purple' },
-          { key: 'sa_register', name: 'Register Laboratory', path: '/super-admin/laboratories/new', icon: PlusCircle, color: 'orange' },
         ],
       },
     ];

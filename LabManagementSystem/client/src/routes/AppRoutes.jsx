@@ -171,7 +171,7 @@ export function AppRoutes() {
           path="/super-admin/laboratories/new"
           element={
             <ProtectedRoute requireSuperAdmin>
-              <RegisterLaboratoryPage />
+              <Navigate to="/super-admin/laboratories?action=register" replace />
             </ProtectedRoute>
           }
         />
