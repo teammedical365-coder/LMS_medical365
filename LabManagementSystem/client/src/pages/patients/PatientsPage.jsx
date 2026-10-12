@@ -29,7 +29,6 @@ import {
   Check,
   Receipt,
   FileText,
-  DollarSign,
   ArrowRight,
   RefreshCw,
 } from 'lucide-react';

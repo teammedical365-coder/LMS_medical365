@@ -42,6 +42,8 @@ import {
   Loader2,
   Layers,
   Search,
+  IndianRupee,
+  Receipt,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
@@ -100,19 +102,35 @@ export function DashboardPage() {
     return rolePermissions.includes(required);
   };
 
+  const isReceptionist =
+    userRole === 'receptionist' ||
+    userRole === 'front_desk' ||
+    userRole === 'clerk' ||
+    userRole === 'reception';
+
+  const isBillingClerk =
+    userRole === 'billing_clerk' ||
+    userRole === 'accountant' ||
+    userRole === 'billing';
+
   const isPathologist =
-    userRole === 'pathologist' ||
-    userRole === 'report_reviewer' ||
-    hasPermission(['reports:verify', 'reports:create']);
+    !isReceptionist &&
+    !isBillingClerk &&
+    (userRole === 'pathologist' ||
+      userRole === 'report_reviewer' ||
+      (!isLabAdmin && hasPermission(['reports:verify'])));
 
   const isTechnician =
-    userRole === 'lab_technician' ||
-    userRole === 'technician' ||
-    hasPermission(['samples:process', 'samples:collect']);
+    !isReceptionist &&
+    !isBillingClerk &&
+    (userRole === 'lab_technician' ||
+      userRole === 'technician' ||
+      (!isLabAdmin && hasPermission(['samples:process'])));
 
   const isClinicalStaff =
-    isLabAdmin ||
-    ['lab_admin', 'pathologist', 'lab_technician', 'technician'].includes(userRole);
+    !isReceptionist &&
+    !isBillingClerk &&
+    (isLabAdmin || ['lab_admin', 'pathologist', 'lab_technician', 'technician'].includes(userRole));
 
   const fetchDashboard = useCallback(async () => {
     if (!tenantId || isSuperAdmin) {
@@ -148,10 +166,12 @@ export function DashboardPage() {
       setWorkstationView('pathologist');
     } else if (userRole === 'lab_technician') {
       setWorkstationView('technician');
+    } else if (isReceptionist) {
+      setWorkstationView('receptionist');
     } else {
       setWorkstationView('all');
     }
-  }, [userRole]);
+  }, [userRole, isReceptionist]);
 
   const metrics = dashboardData?.metrics || {
     todayOrders: 0,
@@ -194,6 +214,8 @@ export function DashboardPage() {
         roleDescription = 'Clinical Pathology Workstation: Diagnostic specimen interpretation, panic flag triage, and medical sign-off.';
       } else if (userRole === 'lab_technician') {
         roleDescription = 'Analyzer Bench Workstation: Specimen tube triage, instrument batch analysis, and test result entry.';
+      } else if (isReceptionist) {
+        roleDescription = 'Patient Intake & Billing Reception Desk: Patient registration, test requisitions booking, and fee collection.';
       } else if (isLabAdmin) {
         roleDescription = 'Comprehensive laboratory administration, multi-department throughput, and clinical workflow control.';
       } else {
@@ -333,6 +355,61 @@ export function DashboardPage() {
   const renderRoleCards = () => {
     const cards = [];
 
+    // Dedicated Receptionist & Front Desk Stat Cards
+    if (isReceptionist) {
+      cards.push(
+        <StatCard
+          key="patients"
+          title="Registered Patients"
+          value={metrics.totalPatients}
+          subtitle="Total directory profiles"
+          icon={Users}
+          colorScheme="cyan"
+        />
+      );
+      cards.push(
+        <StatCard
+          key="today-orders"
+          title="Today's Bookings"
+          value={todaySummary.todayOrders ?? metrics.todayOrders ?? 0}
+          subtitle="Requisitions logged today"
+          icon={ClipboardList}
+          colorScheme="blue"
+        />
+      );
+      cards.push(
+        <StatCard
+          key="pending-orders"
+          title="Pending Processing"
+          value={todaySummary.pendingOrders ?? metrics.pendingOrders ?? 0}
+          subtitle="In pipeline or phlebotomy"
+          icon={Clock}
+          colorScheme="amber"
+        />
+      );
+      cards.push(
+        <StatCard
+          key="revenue"
+          title="Settled Collections"
+          value={`₹${(metrics.totalRevenue || 0).toLocaleString()}`}
+          subtitle="Recorded receipts"
+          icon={IndianRupee}
+          colorScheme="teal"
+        />
+      );
+      cards.push(
+        <StatCard
+          key="outstanding"
+          title="Outstanding Ledger"
+          value={`₹${(metrics.totalOutstanding || 0).toLocaleString()}`}
+          subtitle="Pending patient balance"
+          icon={CreditCard}
+          colorScheme="orange"
+        />
+      );
+      return cards;
+    }
+
     if (hasPermission('users:view')) {
       cards.push(
         <StatCard
@@ -382,7 +459,7 @@ export function DashboardPage() {
       );
     }
 
-    if (hasPermission(['samples:view', 'samples:collect', 'samples:process'])) {
+    if (!isReceptionist && hasPermission(['samples:view', 'samples:collect', 'samples:process'])) {
       cards.push(
         <StatCard
           key="pending-samples"
@@ -405,7 +482,7 @@ export function DashboardPage() {
       );
     }
 
-    if (hasPermission(['reports:view', 'reports:create', 'reports:verify', 'reports:release'])) {
+    if (!isReceptionist && hasPermission(['reports:view', 'reports:create', 'reports:verify', 'reports:release'])) {
       cards.push(
         <StatCard
           key="pending-reports"
@@ -433,7 +510,7 @@ export function DashboardPage() {
         <StatCard
           key="revenue"
           title="Settled Revenue"
-          value={`$${metrics.totalRevenue.toLocaleString()}`}
+          value={`₹${metrics.totalRevenue.toLocaleString()}`}
           subtitle="Recorded receipts"
           icon={CreditCard}
           colorScheme="teal"
@@ -443,7 +520,7 @@ export function DashboardPage() {
         <StatCard
           key="outstanding"
           title="Outstanding Balance"
-          value={`$${metrics.totalOutstanding.toLocaleString()}`}
+          value={`₹${metrics.totalOutstanding.toLocaleString()}`}
           subtitle="Accounts receivable"
           icon={AlertTriangle}
           colorScheme="slate"
@@ -480,35 +557,66 @@ export function DashboardPage() {
         description={headerInfo.description}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {hasPermission(['patients:create', 'orders:create']) && (
-              <Link
-                to="/patients?register=true"
-                className="btn btn-primary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Users size={14} />
-                <span>New Patient Intake & Order</span>
-              </Link>
-            )}
-            {hasPermission(['samples:collect', 'samples:process']) && (
-              <Link
-                to="/samples"
-                className="btn btn-secondary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <FlaskConical size={14} />
-                <span>Specimens Bench</span>
-              </Link>
-            )}
-            {hasPermission(['reports:create', 'reports:verify']) && (
-              <Link
-                to="/reports"
-                className="btn btn-secondary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <FileText size={14} />
-                <span>Pathology Reports</span>
-              </Link>
+            {isReceptionist ? (
+              <>
+                <Link
+                  to="/patients?register=true"
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Users size={14} />
+                  <span>New Patient Intake</span>
+                </Link>
+                <Link
+                  to="/orders"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ClipboardList size={14} />
+                  <span>Quick Order Booking</span>
+                </Link>
+                <Link
+                  to="/billing"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <CreditCard size={14} />
+                  <span>Billing & Collections</span>
+                </Link>
+              </>
+            ) : (
+              <>
+                {hasPermission(['patients:create', 'orders:create']) && (
+                  <Link
+                    to="/patients?register=true"
+                    className="btn btn-primary btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Users size={14} />
+                    <span>New Patient Intake & Order</span>
+                  </Link>
+                )}
+                {hasPermission(['samples:collect', 'samples:process']) && (
+                  <Link
+                    to="/samples"
+                    className="btn btn-secondary btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <FlaskConical size={14} />
+                    <span>Specimens Bench</span>
+                  </Link>
+                )}
+                {hasPermission(['reports:create', 'reports:verify']) && (
+                  <Link
+                    to="/reports"
+                    className="btn btn-secondary btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <FileText size={14} />
+                    <span>Pathology Reports</span>
+                  </Link>
+                )}
+              </>
             )}
             <span
               style={{
@@ -633,13 +741,33 @@ export function DashboardPage() {
             <FlaskConical size={16} />
             <span>Analyzer Testing Bench ({metrics.inAnalysisSamples})</span>
           </button>
+
+          <button
+            onClick={() => setWorkstationView('receptionist')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              border: 'none',
+              background: 'none',
+              color: workstationView === 'receptionist' ? '#0284c7' : 'var(--slate-500)',
+              borderBottom: workstationView === 'receptionist' ? '2px solid #0284c7' : '2px solid transparent',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Users size={16} />
+            <span>Reception & Intake Desk ({todaySummary.todayOrders ?? metrics.todayOrders ?? 0})</span>
+          </button>
         </div>
       )}
 
       {/* ========================================================================= */}
       {/* 1. DEDICATED PATHOLOGIST CLINICAL WORKSTATION */}
       {/* ========================================================================= */}
-      {(workstationView === 'pathologist' || (!isLabAdmin && isPathologist)) && (
+      {!isReceptionist && (workstationView === 'pathologist' || (!isLabAdmin && isPathologist)) && (
         <section style={{ marginBottom: '1.75rem' }}>
           {/* Pathologist KPI Banner */}
           <div
@@ -777,7 +905,7 @@ export function DashboardPage() {
       {/* ========================================================================= */}
       {/* 2. DEDICATED LAB TESTING / TECHNICIAN ANALYZER WORKSTATION */}
       {/* ========================================================================= */}
-      {(workstationView === 'technician' || (!isLabAdmin && isTechnician)) && (
+      {!isReceptionist && (workstationView === 'technician' || (!isLabAdmin && isTechnician)) && (
         <section style={{ marginBottom: '1.75rem' }}>
           {/* Analyzer Bench Status Header Bar */}
           <div
@@ -919,12 +1047,140 @@ export function DashboardPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* 3. DYNAMIC OPERATIONAL OVERVIEW (Rendered for Lab Admin & Permitted Roles) */}
+      {/* 3. DEDICATED PATIENT INTAKE & BILLING RECEPTION DESK WORKSTATION */}
       {/* ========================================================================= */}
-      {(workstationView === 'all' || (!isPathologist && !isTechnician)) && (
+      {(isReceptionist || workstationView === 'receptionist') && (
+        <section style={{ marginBottom: '1.75rem' }}>
+          {/* Receptionist Intake & Billing KPI Banner */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #0e7490 0%, #0369a1 100%)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '1.5rem',
+              color: 'white',
+              marginBottom: '1.25rem',
+              boxShadow: 'var(--shadow-md)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <Users size={22} style={{ color: '#bae6fd' }} />
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: 'white' }}>
+                    Patient Intake & Billing Reception Desk
+                  </h2>
+                </div>
+                <p style={{ fontSize: '0.875rem', color: '#bae6fd', margin: 0, maxWidth: '650px' }}>
+                  Front desk intake portal: Patient registration, test booking, fee settlement, and requisition tracking.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.todayOrders ?? metrics.todayOrders ?? 0}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Today's Bookings</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.pendingOrders ?? metrics.pendingOrders ?? 0}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Pending Orders</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>₹{(metrics.totalRevenue || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Settled Collections</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>₹{(metrics.totalOutstanding || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Outstanding Balance</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Receptionist Quick Action Strip */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+              <Link
+                to="/patients?register=true"
+                style={{
+                  fontSize: '0.8125rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'white',
+                  color: '#0369a1',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                }}
+              >
+                <Users size={14} />
+                <span>New Patient Intake & Order</span>
+              </Link>
+              <Link
+                to="/orders"
+                style={{
+                  fontSize: '0.8125rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(255,255,255,0.15)',
+                  color: 'white',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                }}
+              >
+                <ClipboardList size={14} />
+                <span>Quick Order Booking</span>
+              </Link>
+              <Link
+                to="/billing"
+                style={{
+                  fontSize: '0.8125rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(255,255,255,0.15)',
+                  color: 'white',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                }}
+              >
+                <CreditCard size={14} />
+                <span>Billing & Fee Collections</span>
+              </Link>
+              <Link
+                to="/patients"
+                style={{
+                  fontSize: '0.8125rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(255,255,255,0.15)',
+                  color: 'white',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                }}
+              >
+                <Search size={14} />
+                <span>Lookup Patient Profiles</span>
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. DYNAMIC OPERATIONAL OVERVIEW (Rendered for Permitted Roles) */}
+      {/* ========================================================================= */}
+      {(workstationView === 'all' || isReceptionist || workstationView === 'receptionist' || (!isPathologist && !isTechnician)) && (
         <>
           {/* Today's Lab Orders Summary Section (Clinical Staff Only) */}
-          {isClinicalStaff && hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
+          {isClinicalStaff && !isReceptionist && hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
             <section style={{ marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -992,7 +1248,7 @@ export function DashboardPage() {
           </section>
 
           {/* Laboratory Workflow Pipeline Summary (Clinical Staff Only) */}
-          {isClinicalStaff && hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
+          {isClinicalStaff && !isReceptionist && hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
             <section className="card" style={{ marginBottom: '1.5rem' }}>
               <div className="card-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1028,14 +1284,24 @@ export function DashboardPage() {
           {/* Recent Requisitions Activity Table */}
           {hasPermission('orders:view') && (
             <section className="card" style={{ marginBottom: '1.5rem' }}>
-              <div className="card-header">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <ClipboardList size={18} style={{ color: 'var(--primary-600)' }} />
-                  <h2 className="card-title">Recent Laboratory Activity</h2>
+                  <h2 className="card-title">
+                    {isReceptionist ? 'Recent Patient Requisitions & Booking Intake' : 'Recent Laboratory Activity'}
+                  </h2>
                 </div>
-                <span className="badge badge-blue">
-                  {recentOrders.length} {recentOrders.length === 1 ? 'Record' : 'Records'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge badge-blue">
+                    {recentOrders.length} {recentOrders.length === 1 ? 'Record' : 'Records'}
+                  </span>
+                  {isReceptionist && (
+                    <Link to="/orders" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <span>View All Orders</span>
+                      <ArrowRight size={13} />
+                    </Link>
+                  )}
+                </div>
               </div>
 
               <div className="table-container">
@@ -1105,8 +1371,66 @@ export function DashboardPage() {
             </section>
           )}
 
+          {/* Reception Billing & Collections Ledger Summary (Receptionist & Front Desk) */}
+          {(isReceptionist || workstationView === 'receptionist') && (
+            <section className="card" style={{ marginBottom: '1.5rem' }}>
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Receipt size={18} style={{ color: '#0d9488' }} />
+                  <h2 className="card-title">Front Desk Billing & Collections Ledger</h2>
+                </div>
+                <Link to="/billing" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Open Billing Ledger</span>
+                  <ArrowRight size={13} />
+                </Link>
+              </div>
+
+              <div style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                  <div style={{ padding: '1rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced</div>
+                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--slate-900)', marginTop: '4px' }}>
+                      ₹{((metrics.totalRevenue || 0) + (metrics.totalOutstanding || 0)).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>Gross requisition billings</div>
+                  </div>
+
+                  <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: 'var(--radius-md)', border: '1px solid #bbf7d0' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Settled Collections</div>
+                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#166534', marginTop: '4px' }}>
+                      ₹{(metrics.totalRevenue || 0).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: '2px' }}>Receipted payments</div>
+                  </div>
+
+                  <div style={{ padding: '1rem', background: '#fffbeb', borderRadius: 'var(--radius-md)', border: '1px solid #fde68a' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#92400e', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance Due</div>
+                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#b45309', marginTop: '4px' }}>
+                      ₹{(metrics.totalOutstanding || 0).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#92400e', marginTop: '2px' }}>Pending front desk collection</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', background: 'var(--slate-100)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)' }}>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                    Collect patient dues directly during requisition booking or settle balances from the Billing page.
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <Link to="/patients?register=true" className="btn btn-secondary btn-sm">
+                      Intake Patient With Payment
+                    </Link>
+                    <Link to="/billing" className="btn btn-primary btn-sm">
+                      Collect Invoice Dues
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* Laboratory Staff Directory Section */}
-          {hasPermission('users:view') && (
+          {!isReceptionist && hasPermission('users:view') && (
             <section className="card">
               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

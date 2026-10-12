@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { CreditCard, DollarSign, Receipt, Eye, CheckCircle2, Clock, Loader2, AlertCircle } from 'lucide-react';
+import { CreditCard, IndianRupee, Receipt, Eye, CheckCircle2, Clock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import clinicalService from '../../services/clinicalService';
 import PageHeader from '../../components/common/PageHeader';
@@ -72,7 +72,7 @@ export function BillingPage() {
       return;
     }
     if (num > paymentInvoice.balance) {
-      alert(`Amount ($${num.toFixed(2)}) cannot exceed outstanding balance ($${paymentInvoice.balance.toFixed(2)})`);
+      alert(`Amount (₹${num.toFixed(2)}) cannot exceed outstanding balance (₹${paymentInvoice.balance.toFixed(2)})`);
       return;
     }
 
@@ -86,7 +86,7 @@ export function BillingPage() {
       });
 
       if (res.success) {
-        setSuccessMsg(`Payment of $${num.toFixed(2)} recorded on invoice ${paymentInvoice.invoiceNumber}`);
+        setSuccessMsg(`Payment of ₹${num.toFixed(2)} recorded on invoice ${paymentInvoice.invoiceNumber}`);
         setPaymentInvoice(null);
         fetchBillingData();
         setTimeout(() => setSuccessMsg(null), 3000);
@@ -133,21 +133,21 @@ export function BillingPage() {
       <div className="grid-3">
         <StatCard
           title="Total Invoiced"
-          value={`$${(summary?.totalInvoiced || totalInvoiced).toFixed(2)}`}
+          value={`₹${(summary?.totalInvoiced || totalInvoiced).toFixed(2)}`}
           subtitle={`${invoices.length} Requisition Invoices`}
           icon={Receipt}
           colorScheme="blue"
         />
         <StatCard
           title="Settled Revenue"
-          value={`$${(summary?.totalRevenue || totalSettled).toFixed(2)}`}
+          value={`₹${(summary?.totalRevenue || totalSettled).toFixed(2)}`}
           subtitle="Processed Collections"
-          icon={DollarSign}
+          icon={IndianRupee}
           colorScheme="teal"
         />
         <StatCard
           title="Outstanding Balance"
-          value={`$${(summary?.totalOutstanding || totalOutstanding).toFixed(2)}`}
+          value={`₹${(summary?.totalOutstanding || totalOutstanding).toFixed(2)}`}
           subtitle="Pending Collection"
           icon={CreditCard}
           colorScheme="orange"
@@ -197,10 +197,10 @@ export function BillingPage() {
                       <span style={{ fontFamily: 'monospace' }}>{inv.orderNumber || 'ORD-GEN'}</span>
                     </td>
                     <td style={{ fontWeight: 600 }}>{inv.patientName}</td>
-                    <td>${Number(inv.totalAmount || 0).toFixed(2)}</td>
-                    <td>${Number(inv.paidAmount || 0).toFixed(2)}</td>
+                    <td>₹{Number(inv.totalAmount || 0).toFixed(2)}</td>
+                    <td>₹{Number(inv.paidAmount || 0).toFixed(2)}</td>
                     <td style={{ fontWeight: 600, color: inv.balance > 0 ? 'var(--danger-600)' : 'var(--teal-600)' }}>
-                      ${Number(inv.balance || 0).toFixed(2)}
+                      ₹{Number(inv.balance || 0).toFixed(2)}
                     </td>
                     <td>{getStatusBadge(inv.status)}</td>
                     <td style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
@@ -257,11 +257,11 @@ export function BillingPage() {
               </div>
               <div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Total Invoiced</p>
-                <p style={{ fontWeight: 600 }}>${Number(selectedInvoice.totalAmount || 0).toFixed(2)}</p>
+                <p style={{ fontWeight: 600 }}>₹{Number(selectedInvoice.totalAmount || 0).toFixed(2)}</p>
               </div>
               <div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Outstanding Balance</p>
-                <p style={{ fontWeight: 700, color: 'var(--danger-600)' }}>${Number(selectedInvoice.balance || 0).toFixed(2)}</p>
+                <p style={{ fontWeight: 700, color: 'var(--danger-600)' }}>₹{Number(selectedInvoice.balance || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -284,7 +284,7 @@ export function BillingPage() {
                           <td>{new Date(p.paidAt).toLocaleDateString()}</td>
                           <td style={{ textTransform: 'capitalize' }}>{p.method}</td>
                           <td style={{ fontFamily: 'monospace' }}>{p.reference || 'N/A'}</td>
-                          <td style={{ fontWeight: 600, color: 'var(--teal-600)' }}>+${Number(p.amount).toFixed(2)}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--teal-600)' }}>+₹{Number(p.amount).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -317,7 +317,7 @@ export function BillingPage() {
                   <span>Processing...</span>
                 </>
               ) : (
-                <span>Confirm Payment (${Number(paymentAmount || 0).toFixed(2)})</span>
+                <span>Confirm Payment (₹{Number(paymentAmount || 0).toFixed(2)})</span>
               )}
             </button>
           </>
@@ -327,11 +327,11 @@ export function BillingPage() {
           <form onSubmit={handleRecordPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
             <div style={{ padding: '0.75rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between' }}>
               <span>Outstanding Balance:</span>
-              <strong style={{ color: 'var(--danger-600)' }}>${paymentInvoice.balance?.toFixed(2)}</strong>
+              <strong style={{ color: 'var(--danger-600)' }}>₹{paymentInvoice.balance?.toFixed(2)}</strong>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Payment Amount ($) *</label>
+              <label className="form-label">Payment Amount (₹) *</label>
               <input
                 type="number"
                 step="0.01"

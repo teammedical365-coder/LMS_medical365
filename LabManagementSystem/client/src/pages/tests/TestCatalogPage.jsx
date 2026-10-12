@@ -467,7 +467,7 @@ export function TestCatalogPage() {
                         )}
                       </td>
                       <td>{test.turnaroundHours ? `${test.turnaroundHours}h` : '24h'}</td>
-                      <td style={{ fontWeight: 600 }}>${Number(test.price || 0).toFixed(2)}</td>
+                      <td style={{ fontWeight: 600 }}>₹{Number(test.price || 0).toFixed(2)}</td>
                       <td>
                         <Badge variant="success">Active</Badge>
                       </td>
@@ -541,7 +541,7 @@ export function TestCatalogPage() {
               </div>
               <div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Standard Tariff</p>
-                <p style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>${Number(selectedTest.price || 0).toFixed(2)}</p>
+                <p style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>₹{Number(selectedTest.price || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -731,7 +731,7 @@ export function TestCatalogPage() {
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Standard Price ($) *</label>
+              <label className="form-label">Standard Price (₹) *</label>
               <input
                 type="number"
                 step="0.01"

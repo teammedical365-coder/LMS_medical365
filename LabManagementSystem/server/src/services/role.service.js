@@ -450,31 +450,47 @@ class RoleService {
   async seedDefaultRoles(tenantId) {
     const RoleModel = tenantConnectionService.getTenantRoleModel(tenantId);
     const masterRoles = await this.listMasterRoles().catch(() => []);
-    const rolesToSeed = masterRoles && masterRoles.length > 0 ? masterRoles : [];
+    const rolesToSeed = masterRoles && masterRoles.length > 0 ? masterRoles : DEFAULT_LAB_ROLES;
 
-    if (rolesToSeed.length === 0) return; // No custom roles defined yet by Super Admin
+    if (!rolesToSeed || rolesToSeed.length === 0) return;
 
     if (RoleModel) {
-      const existingCount = await RoleModel.countDocuments({ tenantId });
-      if (existingCount > 0) return; // Tenant already has roles seeded or customized
-
       for (const def of rolesToSeed) {
-        const roleId = def.roleId || this.generateRoleId();
-        const roleDoc = new RoleModel({
-          roleId,
-          tenantId,
-          code: def.code,
-          name: def.name,
-          description: def.description,
-          dashboardPath: def.dashboardPath,
-          navigationItems: def.navigationItems,
-          permissions: def.permissions,
-          isSystemDefault: def.isSystemDefault ?? true,
-          isActive: def.isActive ?? true,
-        });
-        await roleDoc.save();
+        const existing = await RoleModel.findOne({ tenantId, code: def.code });
+        if (!existing) {
+          const roleId = def.roleId || this.generateRoleId();
+          const roleDoc = new RoleModel({
+            roleId,
+            tenantId,
+            code: def.code,
+            name: def.name,
+            description: def.description,
+            dashboardPath: def.dashboardPath,
+            navigationItems: def.navigationItems,
+            permissions: def.permissions,
+            isSystemDefault: def.isSystemDefault ?? true,
+            isActive: def.isActive ?? true,
+          });
+          await roleDoc.save();
+        } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
+          let updated = false;
+          if (!existing.permissions.includes('tests:view')) {
+            existing.permissions.push('tests:view');
+            updated = true;
+          }
+          if (!existing.permissions.includes('samples:collect')) {
+            existing.permissions.push('samples:collect');
+            updated = true;
+          }
+          if (!existing.permissions.includes('samples:view')) {
+            existing.permissions.push('samples:view');
+            updated = true;
+          }
+          if (updated) {
+            await existing.save();
+          }
+        }
       }
-      logger.info(`[ROLES] Seeded ${rolesToSeed.length} roles for tenant: ${tenantId}`);
       return;
     }
 
@@ -483,29 +499,35 @@ class RoleService {
       this.memoryStore.set(tenantId, new Map());
     }
     const tenantRoles = this.memoryStore.get(tenantId);
-    if (tenantRoles.size > 0) return;
 
     for (const def of rolesToSeed) {
-      const roleId = def.roleId || this.generateRoleId();
-      const mockRole = {
-        id: roleId,
-        roleId,
-        tenantId,
-        code: def.code,
-        name: def.name,
-        description: def.description,
-        dashboardPath: def.dashboardPath,
-        navigationItems: def.navigationItems,
-        permissions: def.permissions,
-        isSystemDefault: def.isSystemDefault ?? true,
-        isActive: def.isActive ?? true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        toSafeJSON: function () {
-          return { ...this };
-        },
-      };
-      tenantRoles.set(roleId, mockRole);
+      const existing = Array.from(tenantRoles.values()).find((r) => r.code === def.code);
+      if (!existing) {
+        const roleId = def.roleId || this.generateRoleId();
+        const mockRole = {
+          id: roleId,
+          roleId,
+          tenantId,
+          code: def.code,
+          name: def.name,
+          description: def.description,
+          dashboardPath: def.dashboardPath,
+          navigationItems: def.navigationItems,
+          permissions: [...def.permissions],
+          isSystemDefault: def.isSystemDefault ?? true,
+          isActive: def.isActive ?? true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          toSafeJSON: function () {
+            return { ...this };
+          },
+        };
+        tenantRoles.set(roleId, mockRole);
+      } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
+        if (!existing.permissions.includes('tests:view')) existing.permissions.push('tests:view');
+        if (!existing.permissions.includes('samples:collect')) existing.permissions.push('samples:collect');
+        if (!existing.permissions.includes('samples:view')) existing.permissions.push('samples:view');
+      }
     }
   }
 
@@ -572,21 +594,100 @@ class RoleService {
     const RoleModel = tenantConnectionService.getTenantRoleModel(tenantId);
 
     if (RoleModel) {
-      const role = await RoleModel.findOne({
+      let role = await RoleModel.findOne({
         tenantId,
         $or: [{ roleId: roleIdOrCode }, { code: roleIdOrCode.toLowerCase() }],
       });
       if (!role) {
-        throw new RoleServiceError(`Role '${roleIdOrCode}' not found in this laboratory`, 'ROLE_NOT_FOUND', 404);
+        const targetCode = roleIdOrCode.toLowerCase();
+        const def = DEFAULT_LAB_ROLES.find(
+          (r) => r.code === targetCode ||
+                 (targetCode === 'sample_collection' && r.code === 'phlebotomist') ||
+                 (targetCode === 'phlebotomist' && r.code === 'sample_collection')
+        );
+        if (def) {
+          const roleId = this.generateRoleId();
+          const newDoc = new RoleModel({
+            roleId,
+            tenantId,
+            code: targetCode,
+            name: def.name,
+            description: def.description,
+            dashboardPath: def.dashboardPath,
+            navigationItems: def.navigationItems,
+            permissions: def.permissions,
+            isSystemDefault: true,
+            isActive: true,
+          });
+          await newDoc.save();
+          role = newDoc;
+        } else {
+          throw new RoleServiceError(`Role '${roleIdOrCode}' not found in this laboratory`, 'ROLE_NOT_FOUND', 404);
+        }
       }
+
+      if (['phlebotomist', 'sample_collection'].includes(role.code)) {
+        let modified = false;
+        if (!role.permissions.includes('tests:view')) {
+          role.permissions.push('tests:view');
+          modified = true;
+        }
+        if (!role.permissions.includes('samples:collect')) {
+          role.permissions.push('samples:collect');
+          modified = true;
+        }
+        if (!role.permissions.includes('samples:view')) {
+          role.permissions.push('samples:view');
+          modified = true;
+        }
+        if (modified && typeof role.save === 'function') {
+          await role.save();
+        }
+      }
+
       return role.toSafeJSON();
     }
 
     const tenantRoles = this.memoryStore.get(tenantId) || new Map();
     for (const r of tenantRoles.values()) {
       if (r.roleId === roleIdOrCode || r.code === roleIdOrCode.toLowerCase()) {
+        if (['phlebotomist', 'sample_collection'].includes(r.code)) {
+          if (!r.permissions.includes('tests:view')) r.permissions.push('tests:view');
+          if (!r.permissions.includes('samples:collect')) r.permissions.push('samples:collect');
+          if (!r.permissions.includes('samples:view')) r.permissions.push('samples:view');
+        }
         return typeof r.toSafeJSON === 'function' ? r.toSafeJSON() : r;
       }
+    }
+
+    const targetCode = roleIdOrCode.toLowerCase();
+    const def = DEFAULT_LAB_ROLES.find(
+      (r) => r.code === targetCode ||
+             (targetCode === 'sample_collection' && r.code === 'phlebotomist') ||
+             (targetCode === 'phlebotomist' && r.code === 'sample_collection')
+    );
+    if (def) {
+      const roleId = this.generateRoleId();
+      const mockRole = {
+        id: roleId,
+        roleId,
+        tenantId,
+        code: targetCode,
+        name: def.name,
+        description: def.description,
+        dashboardPath: def.dashboardPath,
+        navigationItems: def.navigationItems,
+        permissions: [...def.permissions],
+        isSystemDefault: true,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        toSafeJSON: function () {
+          return { ...this };
+        },
+      };
+      tenantRoles.set(roleId, mockRole);
+      return mockRole.toSafeJSON();
     }
 
     throw new RoleServiceError(`Role '${roleIdOrCode}' not found in this laboratory`, 'ROLE_NOT_FOUND', 404);

@@ -187,7 +187,7 @@ export function Sidebar({ isOpen, onClose }) {
         { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard, color: 'emerald' },
         { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck, color: 'purple' },
         { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History, color: 'slate' },
-        { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings, color: 'cyan' },
+        { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings, color: 'indigo' },
       ],
     },
   ];
