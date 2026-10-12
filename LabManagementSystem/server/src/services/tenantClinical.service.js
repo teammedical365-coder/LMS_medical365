@@ -285,14 +285,14 @@ class TenantClinicalService {
 
   async createPatient(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const dob = data.dob || data.dateOfBirth;
-    const { firstName, lastName, gender, phone, email, address, medicalHistory } = data;
+    const dob = data.dob || data.dateOfBirth || (data.age ? `Age: ${data.age}` : '');
+    const { firstName, lastName, gender, phone, email, address, medicalHistory, bloodGroup, age } = data;
 
     if (!firstName || !lastName) {
       throw new ClinicalServiceError('Patient first and last names are required', 'VALIDATION_ERROR', 400);
     }
     if (!dob || !gender) {
-      throw new ClinicalServiceError('Date of birth and gender are required', 'VALIDATION_ERROR', 400);
+      throw new ClinicalServiceError('Date of birth (or age) and gender are required', 'VALIDATION_ERROR', 400);
     }
 
     const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
@@ -307,9 +307,11 @@ class TenantClinicalService {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         dob,
+        age: age ? String(age).trim() : null,
         gender: (gender || 'other').toString().toLowerCase(),
         phone: phone?.trim() || null,
         email: email?.trim().toLowerCase() || null,
+        bloodGroup: bloodGroup?.trim() || 'O+',
         address: address?.trim() || null,
         medicalHistory: medicalHistory?.trim() || null,
       });
@@ -327,9 +329,12 @@ class TenantClinicalService {
       lastName: lastName.trim(),
       fullName: `${firstName.trim()} ${lastName.trim()}`,
       dob,
+      dateOfBirth: dob,
+      age: age ? String(age).trim() : '',
       gender,
       phone,
       email,
+      bloodGroup: bloodGroup || 'O+',
       address,
       medicalHistory,
       createdAt: new Date(),
@@ -339,6 +344,66 @@ class TenantClinicalService {
     };
     this.memoryPatients.get(tenantId).set(patientId, mock);
     return mock;
+  }
+
+  async registerPatientWithOrder(tenantId, data, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+
+    // 1. Create Patient Demographics
+    const patientData = {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      dob: data.dob || data.dateOfBirth || (data.age ? `Age: ${data.age}` : ''),
+      age: data.age,
+      gender: data.gender,
+      phone: data.phone,
+      email: data.email,
+      bloodGroup: data.bloodGroup || 'O+',
+      address: data.address,
+      medicalHistory: data.medicalHistory,
+    };
+    const patient = await this.createPatient(tenantId, patientData, actor);
+
+    // 2. Check if test items/orders are specified
+    const orderItems = (Array.isArray(data.items) && data.items.length > 0)
+      ? data.items
+      : (Array.isArray(data.tests) ? data.tests : []);
+
+    let order = null;
+    let invoice = null;
+
+    if (orderItems.length > 0) {
+      // 3. Create Order with items, pricing, payment collection
+      const orderPayload = {
+        patientId: patient.patientId,
+        patientName: patient.fullName || `${patient.firstName} ${patient.lastName}`,
+        patientMrn: patient.mrn,
+        orderingPhysician: data.orderingPhysician || data.physicianName || 'Attending Physician',
+        priority: data.priority || 'routine',
+        items: orderItems,
+        paidAmount: data.paidAmount,
+        paymentMethod: data.paymentMethod || 'cash',
+        paymentReference: data.paymentReference || null,
+      };
+
+      order = await this.createOrder(tenantId, orderPayload, actor);
+
+      // Re-fetch invoice generated for this order
+      const InvoiceModel = tenantConnectionService.getTenantInvoiceModel(tenantId);
+      if (InvoiceModel) {
+        const invDoc = await InvoiceModel.findOne({ tenantId, orderId: order.orderId });
+        if (invDoc) invoice = invDoc.toSafeJSON();
+      } else if (this.memoryInvoices.has(tenantId)) {
+        const invList = Array.from(this.memoryInvoices.get(tenantId).values());
+        invoice = invList.find((i) => i.orderId === order.orderId) || null;
+      }
+    }
+
+    return {
+      patient,
+      order,
+      invoice,
+    };
   }
 
   async getPatientById(tenantId, patientId) {
@@ -484,6 +549,14 @@ class TenantClinicalService {
     const orderingPhysician = data.orderingPhysician || data.physicianName || 'Attending Physician';
     const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
 
+    // Initial payment at order creation / intake
+    const initialPaid = Math.max(0, Math.min(totalAmount, Number(data.paidAmount) || 0));
+    const paymentStatus = (initialPaid >= totalAmount && totalAmount > 0)
+      ? 'paid'
+      : (initialPaid > 0 ? 'partially_paid' : 'unpaid');
+    const paymentMethod = data.paymentMethod || 'cash';
+    const paymentReference = data.paymentReference || null;
+
     if (OrderModel) {
       const doc = new OrderModel({
         orderId,
@@ -496,8 +569,8 @@ class TenantClinicalService {
         priority,
         items: formattedItems,
         totalAmount,
-        paidAmount: 0,
-        paymentStatus: 'unpaid',
+        paidAmount: initialPaid,
+        paymentStatus,
         orderStatus: 'ordered',
         createdBy: actor.email || 'Receptionist',
       });
@@ -505,8 +578,13 @@ class TenantClinicalService {
 
       // Automatically derive and create multi-tube tracking samples for this order
       await this.createSamplesForOrder(tenantId, doc.toSafeJSON());
-      // Automatically create a billing invoice for this order
-      await this.createInvoiceForOrder(tenantId, doc.toSafeJSON());
+      // Automatically create a billing invoice for this order with initial payment
+      await this.createInvoiceForOrder(tenantId, doc.toSafeJSON(), {
+        paidAmount: initialPaid,
+        paymentMethod,
+        paymentReference,
+        actor,
+      });
 
       // Re-fetch to return order with linked sampleIds/barcodes
       const refreshedDoc = await OrderModel.findOne({ tenantId, orderId });
@@ -526,8 +604,8 @@ class TenantClinicalService {
       priority,
       items: formattedItems,
       totalAmount,
-      paidAmount: 0,
-      paymentStatus: 'unpaid',
+      paidAmount: initialPaid,
+      paymentStatus,
       orderStatus: 'ordered',
       createdBy: actor.email || 'Receptionist',
       createdAt: new Date(),
@@ -537,7 +615,12 @@ class TenantClinicalService {
     };
     this.memoryOrders.get(tenantId).set(orderId, mockOrder);
     await this.createSamplesForOrder(tenantId, mockOrder);
-    await this.createInvoiceForOrder(tenantId, mockOrder);
+    await this.createInvoiceForOrder(tenantId, mockOrder, {
+      paidAmount: initialPaid,
+      paymentMethod,
+      paymentReference,
+      actor,
+    });
     return mockOrder;
   }
 
@@ -1955,10 +2038,29 @@ class TenantClinicalService {
   // -------------------------------------------------------------------------
   // BILLING & INVOICES (Accountant, Lab Admin)
   // -------------------------------------------------------------------------
-  async createInvoiceForOrder(tenantId, order) {
+  async createInvoiceForOrder(tenantId, order, paymentInfo = null) {
     const invoiceId = this.generateId('inv');
     const invoiceNumber = `INV-${order.orderNumber.replace('ORD-', '')}`;
     const InvoiceModel = tenantConnectionService.getTenantInvoiceModel(tenantId);
+
+    const paidAmount = Number(order.paidAmount) || (paymentInfo ? Number(paymentInfo.paidAmount) || 0 : 0);
+    const totalAmount = Number(order.totalAmount) || 0;
+    const balance = Math.max(0, totalAmount - paidAmount);
+    const status = (balance === 0 && totalAmount > 0)
+      ? 'paid'
+      : (paidAmount > 0 ? 'partially_paid' : 'unpaid');
+
+    const payments = [];
+    if (paidAmount > 0) {
+      payments.push({
+        paymentId: this.generateId('pay'),
+        amount: paidAmount,
+        method: paymentInfo?.paymentMethod || 'cash',
+        reference: paymentInfo?.paymentReference || 'Intake Payment at Registration',
+        receivedBy: paymentInfo?.actor?.email || order.createdBy || 'Receptionist',
+        paidAt: new Date(),
+      });
+    }
 
     if (InvoiceModel) {
       const invoiceDoc = new InvoiceModel({
@@ -1968,11 +2070,11 @@ class TenantClinicalService {
         orderId: order.orderId,
         orderNumber: order.orderNumber,
         patientName: order.patientName,
-        totalAmount: order.totalAmount,
-        paidAmount: 0,
-        balance: order.totalAmount,
-        status: 'unpaid',
-        payments: [],
+        totalAmount,
+        paidAmount,
+        balance,
+        status,
+        payments,
       });
       await invoiceDoc.save();
       return invoiceDoc.toSafeJSON();
@@ -1986,11 +2088,11 @@ class TenantClinicalService {
       orderId: order.orderId,
       orderNumber: order.orderNumber,
       patientName: order.patientName,
-      totalAmount: order.totalAmount,
-      paidAmount: 0,
-      balance: order.totalAmount,
-      status: 'unpaid',
-      payments: [],
+      totalAmount,
+      paidAmount,
+      balance,
+      status,
+      payments,
       createdAt: new Date(),
       toSafeJSON() { return { ...this }; },
     };

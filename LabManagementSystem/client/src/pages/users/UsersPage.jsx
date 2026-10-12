@@ -39,8 +39,7 @@ import roleService from '../../services/roleService';
 
 export function UsersPage() {
   const { tenant: authTenant, isSuperAdmin } = useAuth();
-  const { tenant: contextTenant } = useTenant();
-  const tenantId = authTenant?.tenantId || contextTenant?.tenantId || 'ten_demo_central';
+  const tenantId = authTenant?.tenantId || contextTenant?.tenantId || null;
 
   // Navigation tab: 'users' | 'roles'
   const [activeTab, setActiveTab] = useState('users');

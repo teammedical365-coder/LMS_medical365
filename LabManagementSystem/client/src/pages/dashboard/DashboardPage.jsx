@@ -364,6 +364,16 @@ export function DashboardPage() {
         description={headerInfo.description}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {(userRole === 'receptionist' || userRole === 'lab_admin') && (
+              <Link
+                to="/patients?register=true"
+                className="btn btn-primary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Users size={14} />
+                <span>New Patient Intake & Order</span>
+              </Link>
+            )}
             <span
               style={{
                 display: 'inline-flex',

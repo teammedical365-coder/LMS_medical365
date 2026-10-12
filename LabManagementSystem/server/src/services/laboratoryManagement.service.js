@@ -41,37 +41,7 @@ class LaboratoryManagementService {
   }
 
   initDefaultMemoryTenants() {
-    // Seed initial demo tenant in memory for offline development
-    const initialTenantId = 'ten_demo_central';
-    this.memoryTenants.set(initialTenantId, {
-      tenantId: initialTenantId,
-      code: 'central-diag',
-      name: 'Central Diagnostics Laboratory',
-      legalName: 'Central Diagnostics Reference Labs Inc.',
-      email: 'admin@centraldiagnostics.org',
-      phone: '+1 (555) 019-2831',
-      address: { street: '100 Medical Center Dr', city: 'Metropolis', state: 'NY', postalCode: '10001', country: 'US' },
-      timezone: 'UTC',
-      locale: 'en-US',
-      status: LAB_STATUS.ACTIVE,
-      plan: 'enterprise',
-      branding: { primaryColor: '#2563EB', accentColor: '#22C1DC', logoUrl: null },
-      domains: [{ domain: 'central.labms.health', isVerified: true, verifiedAt: new Date(), verificationToken: 'lms-verify-demo-central' }],
-      database: {
-        name: 'lms_lab_ten_demo_central',
-        provisioningStatus: PROVISIONING_STATUS.READY,
-        provisioningStrategy: 'OFFLINE_SIMULATED_DB',
-        isLiveDatabase: false,
-        provisioningMode: 'OFFLINE_MEMORY',
-        note: 'Offline simulated database. Live MongoDB collections require live MongoDB cluster with DB_AUTO_CONNECT=true.',
-        provisionedAt: new Date(),
-        provisioningError: null,
-        retryCount: 0,
-        collectionsInitialized: ['users', 'patients', 'lab_orders', 'samples', 'audit_logs'],
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // Only real laboratories created by users/super-admin are stored
   }
 
   isMongoActive() {

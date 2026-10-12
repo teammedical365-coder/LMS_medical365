@@ -175,6 +175,8 @@ export function requireLabAdminOrSuperAdmin(req, res, next) {
  * @param {string} requiredPermission e.g. 'roles:manage', 'users:view', 'reports:release'
  */
 export function requirePermission(requiredPermission) {
+  const permissionsToCheck = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+
   return async (req, res, next) => {
     if (!req.user) {
       return ApiResponse.error(
@@ -220,15 +222,16 @@ export function requirePermission(requiredPermission) {
 
         const hasPermission =
           role.permissions?.includes('*') ||
-          role.permissions?.includes(requiredPermission);
+          permissionsToCheck.some((p) => role.permissions?.includes(p));
 
         if (!hasPermission) {
+          const permLabel = permissionsToCheck.join(' or ');
           logger.warn(
-            `[SECURITY] Permission denied: user=${req.user.email} (role=${role.code}) missing required permission: ${requiredPermission}`
+            `[SECURITY] Permission denied: user=${req.user.email} (role=${role.code}) missing required permission: ${permLabel}`
           );
           return ApiResponse.error(
             res,
-            `Access denied. Missing required permission: ${requiredPermission}`,
+            `Access denied. Missing required permission: ${permLabel}`,
             HTTP_STATUS.FORBIDDEN,
             'PERMISSION_DENIED'
           );

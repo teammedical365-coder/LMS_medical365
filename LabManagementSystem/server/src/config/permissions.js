@@ -208,6 +208,7 @@ export const DEFAULT_LAB_ROLES = [
     permissions: [
       'patients:view', 'patients:create', 'patients:update',
       'orders:view', 'orders:create',
+      'tests:view',
     ],
     isSystemDefault: true,
   },

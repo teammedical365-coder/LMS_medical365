@@ -16,8 +16,16 @@ export class SuperAdminController {
    */
   static async getOverview(req, res, next) {
     try {
-      const data = await laboratoryManagementService.getPlatformOverview();
-      return ApiResponse.success(res, data, 'Platform overview retrieved successfully');
+      const metrics = await laboratoryManagementService.getPlatformOverview();
+      const auditResult = await auditLogService.getAuditLogs({ limit: 10 }).catch(() => ({ logs: [] }));
+      const recentLaboratories = await laboratoryManagementService.listLaboratories({ limit: 10 }).catch(() => ({ laboratories: [] }));
+
+      const payload = {
+        metrics,
+        recentAudits: auditResult?.logs || [],
+        recentLaboratories: recentLaboratories?.laboratories || [],
+      };
+      return ApiResponse.success(res, payload, 'Platform overview retrieved successfully');
     } catch (err) {
       next(err);
     }

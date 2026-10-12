@@ -26,6 +26,7 @@ tenantClinicalRouter.use(requireTenantUser);
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/patients', requirePermission('patients:view'), tenantClinicalController.listPatients);
 tenantClinicalRouter.post('/patients', requirePermission('patients:create'), tenantClinicalController.createPatient);
+tenantClinicalRouter.post('/patients/register-with-order', requirePermission('patients:create'), tenantClinicalController.registerPatientWithOrder);
 
 // ---------------------------------------------------------------------------
 // LABORATORY ORDERS / REQUISITIONS
@@ -47,8 +48,8 @@ tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission('sampl
 // ---------------------------------------------------------------------------
 // TEST CATALOG
 // ---------------------------------------------------------------------------
-tenantClinicalRouter.get('/tests', requirePermission('tests:view'), tenantClinicalController.listTestCatalog);
-tenantClinicalRouter.get('/tests/:testId', requirePermission('tests:view'), tenantClinicalController.getTest);
+tenantClinicalRouter.get('/tests', requirePermission(['tests:view', 'orders:create']), tenantClinicalController.listTestCatalog);
+tenantClinicalRouter.get('/tests/:testId', requirePermission(['tests:view', 'orders:create']), tenantClinicalController.getTest);
 tenantClinicalRouter.post('/tests', requirePermission('tests:manage'), tenantClinicalController.createTest);
 tenantClinicalRouter.patch('/tests/:testId', requirePermission('tests:manage'), tenantClinicalController.updateTest);
 

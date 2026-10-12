@@ -21,6 +21,9 @@ export const clinicalService = {
   createPatient: (tenantId, data) =>
     api.post(`/tenants/${tenantId}/patients`, data).then((res) => res.data),
 
+  registerPatientWithOrder: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/patients/register-with-order`, data).then((res) => res.data),
+
   // Orders
   getOrders: (tenantId, params = {}) =>
     api.get(`/tenants/${tenantId}/orders`, { params }).then((res) => res.data),

@@ -42,6 +42,19 @@ export class TenantClinicalController {
     }
   }
 
+  static async registerPatientWithOrder(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const result = await tenantClinicalService.registerPatientWithOrder(tenantId, req.body, req.user);
+      return ApiResponse.success(res, result, 'Patient registered and order processed successfully', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // LAB ORDERS
   // -------------------------------------------------------------------------
