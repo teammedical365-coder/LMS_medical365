@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Activity,
   Layers,
+  ExternalLink,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';

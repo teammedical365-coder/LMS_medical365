@@ -41,9 +41,9 @@ tenantClinicalRouter.get('/orders/:orderId/labels', requirePermission('samples:v
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/samples', requirePermission('samples:view'), tenantClinicalController.listSamples);
 tenantClinicalRouter.get('/samples/recollections', requirePermission('samples:view'), tenantClinicalController.listRecollectionTasks);
-tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission('samples:process'), tenantClinicalController.resolveRecollectionTask);
+tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.resolveRecollectionTask);
 tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);
-tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission('samples:process'), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
 
 // ---------------------------------------------------------------------------
 // TEST CATALOG
