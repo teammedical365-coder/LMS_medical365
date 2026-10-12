@@ -620,17 +620,17 @@ export function SuperAdminRolesPage() {
         >
           <form onSubmit={handleSaveRole}>
             {/* Quick Presets Bar */}
-            <div style={{ padding: '10px 14px', background: 'var(--slate-50, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--slate-700)' }}>
-                <Sparkles size={15} style={{ color: 'var(--primary-blue)' }} />
+            <div style={{ padding: '12px 14px', background: 'var(--primary-50, #eff6ff)', borderRadius: '10px', border: '1px solid var(--primary-200, #bfdbfe)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--primary-900, #1e3a8a)' }}>
+                <Sparkles size={16} style={{ color: 'var(--primary-blue, #2563eb)' }} />
                 <span>Quick Permission Presets:</span>
               </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => applyPreset('ALL')}
                   className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+                  style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'white' }}
                 >
                   Full Access (All)
                 </button>
@@ -638,7 +638,7 @@ export function SuperAdminRolesPage() {
                   type="button"
                   onClick={() => applyPreset('CLINICAL')}
                   className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+                  style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'white' }}
                 >
                   Clinical Staff
                 </button>
@@ -646,7 +646,7 @@ export function SuperAdminRolesPage() {
                   type="button"
                   onClick={() => applyPreset('VIEW_ONLY')}
                   className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+                  style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'white' }}
                 >
                   View-Only
                 </button>
@@ -654,7 +654,7 @@ export function SuperAdminRolesPage() {
                   type="button"
                   onClick={() => applyPreset('CLEAR')}
                   className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.75rem', padding: '3px 8px', color: '#dc2626' }}
+                  style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'white', color: '#dc2626', borderColor: '#fecaca' }}
                 >
                   Clear All
                 </button>
@@ -662,10 +662,11 @@ export function SuperAdminRolesPage() {
             </div>
 
             {/* Basic Information */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Role Name *</label>
+            <div className="grid-2" style={{ gap: '1rem', marginBottom: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="role-name-input">Role Name *</label>
                 <input
+                  id="role-name-input"
                   type="text"
                   required
                   placeholder="e.g., Senior Pathologist, Front Desk Receptionist"
@@ -682,9 +683,10 @@ export function SuperAdminRolesPage() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Role Identifier Code *</label>
+              <div className="form-group">
+                <label className="form-label" htmlFor="role-code-input">Role Identifier Code *</label>
                 <input
+                  id="role-code-input"
                   type="text"
                   required
                   placeholder="e.g., senior_pathologist"
@@ -693,27 +695,30 @@ export function SuperAdminRolesPage() {
                   className="form-control"
                   style={{ fontFamily: 'monospace' }}
                 />
-                <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                <span className="form-hint">
                   Alphanumeric & underscore only. Used for role checks in the system.
                 </span>
               </div>
             </div>
 
-            <div style={{ marginBottom: '1rem' }}>
-              <label className="form-label" style={{ fontWeight: 600 }}>Description</label>
+            <div className="form-group" style={{ marginBottom: '1rem' }}>
+              <label className="form-label" htmlFor="role-description-input">Description</label>
               <textarea
+                id="role-description-input"
                 rows={2}
                 placeholder="What does this role do in the laboratory? (e.g., Interprets laboratory findings, verifies samples...)"
                 value={roleForm.description}
                 onChange={(e) => setRoleForm((prev) => ({ ...prev, description: e.target.value }))}
                 className="form-control"
+                style={{ resize: 'vertical' }}
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Default Landing Dashboard</label>
+            <div className="grid-2" style={{ gap: '1rem', marginBottom: '1.25rem' }}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="role-dashboard-select">Default Landing Dashboard</label>
                 <select
+                  id="role-dashboard-select"
                   value={roleForm.dashboardPath}
                   onChange={(e) => setRoleForm((prev) => ({ ...prev, dashboardPath: e.target.value }))}
                   className="form-control"
@@ -728,14 +733,14 @@ export function SuperAdminRolesPage() {
                   <option value="/users">Staff Directory (/users)</option>
                   <option value="/settings">Lab Settings (/settings)</option>
                 </select>
-                <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                <span className="form-hint">
                   Where the user lands immediately upon logging in.
                 </span>
               </div>
 
-              <div>
+              <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ fontWeight: 600, margin: 0 }}>Authorized Navigation Items</label>
+                  <label className="form-label" style={{ margin: 0 }}>Authorized Navigation Items</label>
                   <button
                     type="button"
                     onClick={handleSelectAllNavItems}
@@ -744,7 +749,7 @@ export function SuperAdminRolesPage() {
                     Select All
                   </button>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '110px', overflowY: 'auto', padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: '6px', background: 'var(--slate-50)' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '44px', maxHeight: '110px', overflowY: 'auto', padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: '6px', background: 'var(--slate-50)' }}>
                   {(matrixData.navigationItems || []).map((nav) => {
                     const isChecked = roleForm.navigationItems.includes(nav.key);
                     return (
@@ -753,12 +758,12 @@ export function SuperAdminRolesPage() {
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '5px',
-                          fontSize: '0.75rem',
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          background: isChecked ? 'white' : 'transparent',
-                          border: isChecked ? '1px solid var(--primary-blue, #2563eb)' : '1px solid #cbd5e1',
+                          gap: '6px',
+                          fontSize: '0.78rem',
+                          padding: '4px 9px',
+                          borderRadius: '5px',
+                          background: isChecked ? '#eff6ff' : 'white',
+                          border: isChecked ? '1.5px solid var(--primary-blue, #2563eb)' : '1px solid #cbd5e1',
                           color: isChecked ? 'var(--primary-blue, #2563eb)' : 'var(--slate-700)',
                           cursor: 'pointer',
                           userSelect: 'none',
@@ -769,7 +774,7 @@ export function SuperAdminRolesPage() {
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => handleToggleNavItem(nav.key)}
-                          style={{ margin: 0 }}
+                          style={{ margin: 0, accentColor: 'var(--primary-blue)' }}
                         />
                         <span>{nav.label}</span>
                       </label>
@@ -792,15 +797,15 @@ export function SuperAdminRolesPage() {
                 </div>
 
                 {/* Search inside permissions */}
-                <div style={{ position: 'relative' }}>
-                  <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--slate-400)' }} />
+                <div style={{ position: 'relative', minWidth: '180px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--slate-400)' }} />
                   <input
                     type="text"
                     placeholder="Filter permissions..."
                     value={permSearch}
                     onChange={(e) => setPermSearch(e.target.value)}
                     className="form-control"
-                    style={{ paddingLeft: '28px', fontSize: '0.75rem', padding: '4px 8px 4px 28px', width: '180px' }}
+                    style={{ paddingLeft: '30px', fontSize: '0.75rem', padding: '6px 8px 6px 30px' }}
                   />
                 </div>
               </div>

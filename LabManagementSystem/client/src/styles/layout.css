@@ -3,9 +3,12 @@
    ========================================================================== */
 
 .app-layout {
-  display: flex;
   min-height: 100vh;
   background-color: var(--bg-app);
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
 }
 
 /* Sidebar - Medical365 Light Aesthetic */
@@ -124,17 +127,111 @@
   color: var(--primary-blue);
 }
 
-/* Medical365 Mint Active Highlight with Left Green Accent */
+/* Dynamic Multi-Color Active Navigation Tabs */
 .nav-item.active {
-  background-color: var(--mint-bg);
-  color: var(--mint-text);
   font-weight: 600;
-  border-left: 3.5px solid var(--mint-accent);
-  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.08);
+  transition: all 0.15s ease;
 }
 
-.nav-item.active svg {
-  color: var(--mint-text);
+/* Blue (Overview / Dashboard) */
+.nav-item.active-blue,
+.nav-item.active:not([class*="active-"]) {
+  background-color: #eff6ff;
+  color: #2563eb;
+  border-left: 3.5px solid #2563eb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.14);
+}
+.nav-item.active-blue svg,
+.nav-item.active:not([class*="active-"]) svg {
+  color: #2563eb;
+}
+
+/* Emerald / Mint (Laboratories / Samples / Billing) */
+.nav-item.active-emerald {
+  background-color: #ecfdf5;
+  color: #059669;
+  border-left: 3.5px solid #10b981;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.14);
+}
+.nav-item.active-emerald svg {
+  color: #059669;
+}
+
+/* Purple (Roles & Permissions / Staff) */
+.nav-item.active-purple {
+  background-color: #faf5ff;
+  color: #7c3aed;
+  border-left: 3.5px solid #8b5cf6;
+  box-shadow: 0 1px 3px rgba(139, 92, 246, 0.14);
+}
+.nav-item.active-purple svg {
+  color: #7c3aed;
+}
+
+/* Orange (Register Laboratory) */
+.nav-item.active-orange {
+  background-color: #fff7ed;
+  color: #ea580c;
+  border-left: 3.5px solid #f97316;
+  box-shadow: 0 1px 3px rgba(249, 115, 22, 0.14);
+}
+.nav-item.active-orange svg {
+  color: #ea580c;
+}
+
+/* Cyan / Teal (Patients / Settings) */
+.nav-item.active-cyan {
+  background-color: #ecfeff;
+  color: #0891b2;
+  border-left: 3.5px solid #06b6d4;
+  box-shadow: 0 1px 3px rgba(6, 182, 212, 0.14);
+}
+.nav-item.active-cyan svg {
+  color: #0891b2;
+}
+
+/* Indigo (Orders) */
+.nav-item.active-indigo {
+  background-color: #eef2ff;
+  color: #4f46e5;
+  border-left: 3.5px solid #6366f1;
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.14);
+}
+.nav-item.active-indigo svg {
+  color: #4f46e5;
+}
+
+/* Amber (Test Catalog) */
+.nav-item.active-amber {
+  background-color: #fffbeb;
+  color: #d97706;
+  border-left: 3.5px solid #f59e0b;
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.14);
+}
+.nav-item.active-amber svg {
+  color: #d97706;
+}
+
+/* Rose (Reports) */
+.nav-item.active-rose {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border-left: 3.5px solid #f43f5e;
+  box-shadow: 0 1px 3px rgba(244, 63, 94, 0.14);
+}
+.nav-item.active-rose svg {
+  color: #e11d48;
+}
+
+/* Slate (Audit Logs) */
+.nav-item.active-slate {
+  background-color: #f1f5f9;
+  color: #475569;
+  border-left: 3.5px solid #64748b;
+  box-shadow: 0 1px 3px rgba(100, 116, 139, 0.14);
+}
+.nav-item.active-slate svg {
+  color: #475569;
 }
 
 .sidebar-footer {
@@ -180,13 +277,16 @@
 
 /* Main Content Area */
 .app-main {
-  flex: 1;
   margin-left: var(--sidebar-width);
+  width: calc(100% - var(--sidebar-width));
+  max-width: calc(100% - var(--sidebar-width));
+  min-width: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-app);
-  transition: margin-left 0.25s ease-in-out;
+  transition: margin-left 0.25s ease-in-out, width 0.25s ease-in-out;
+  box-sizing: border-box;
 }
 
 /* Header - Medical365 White & Bright Aesthetic */
@@ -197,11 +297,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.75rem;
+  padding: 0 1.25rem;
   position: sticky;
   top: 0;
   z-index: 30;
   box-shadow: 0 1px 3px rgba(34, 193, 220, 0.04);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .header-left {
@@ -210,13 +312,45 @@
   gap: 1rem;
 }
 
+.header-portal-title-block {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.header-portal-name {
+  font-family: var(--font-display, inherit);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  letter-spacing: -0.01em;
+}
+
+.header-portal-pill {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background-color: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
 .mobile-menu-btn {
   display: none;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .header-search {
   position: relative;
-  width: 320px;
+  width: 280px;
 }
 
 .header-search input {
@@ -245,81 +379,30 @@
   pointer-events: none;
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-/* Notification Button & Badge */
-.icon-badge-wrap {
-  position: relative;
-}
-
-.badge-count {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background-color: var(--danger-500);
+/* User Circular Avatar Button */
+.user-avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #bfdbfe;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: white;
-  font-size: 0.625rem;
   font-weight: 700;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 50%;
+  font-size: 0.8125rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 2px;
-}
-
-/* User Profile Menu */
-.user-menu-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-sidebar);
-  background: white;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  padding: 0;
+  user-select: none;
 }
 
-.user-menu-trigger:hover {
-  background: #f8fafc;
-  border-color: var(--border-strong);
-}
-
-.user-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary-100), var(--cyan-100));
-  color: var(--primary-blue);
-  font-weight: 700;
-  font-size: 0.8125rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.user-info-text {
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-}
-
-.user-name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-main);
-  line-height: 1.1;
-}
-
-.user-role {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
+.user-avatar-circle:hover {
+  transform: scale(1.05);
+  border-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
 }
 
 /* Breadcrumbs Bar */
@@ -351,10 +434,10 @@
 /* Content Area - Light Blue/Cyan Medical365 Aesthetic */
 .app-content {
   flex: 1;
-  padding: 1.5rem 1.75rem 2.5rem 1.75rem;
+  padding: 1.15rem 1.4rem 2rem 1.4rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
   background-color: var(--bg-app);
 }
 
@@ -364,24 +447,24 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .page-header-text {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
 .page-header-title {
-  font-size: 1.55rem;
+  font-size: 1.4rem;
   font-weight: 700;
   color: var(--text-main);
   letter-spacing: -0.01em;
 }
 
 .page-header-desc {
-  font-size: 0.875rem;
+  font-size: 0.825rem;
   color: var(--text-muted);
 }
 
@@ -399,6 +482,9 @@
 @media (max-width: 1024px) {
   .app-sidebar {
     transform: translateX(-100%);
+    width: 280px;
+    z-index: 50;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
   }
 
   .app-sidebar.open {
@@ -409,17 +495,21 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.4);
-    z-index: 35;
-    backdrop-filter: blur(2px);
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 45;
+    backdrop-filter: blur(3px);
   }
 
   .app-main {
     margin-left: 0;
+    width: 100%;
+    min-width: 0;
   }
 
   .mobile-menu-btn {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .header-search {
@@ -434,6 +524,7 @@
 
   .app-header {
     padding: 0 1rem;
+    height: 58px;
   }
 
   .breadcrumbs-bar {
@@ -442,9 +533,23 @@
 
   .app-content {
     padding: 1rem;
+    gap: 1.25rem;
   }
 
   .user-info-text {
     display: none;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+  }
+
+  .page-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 }

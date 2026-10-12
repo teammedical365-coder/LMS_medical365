@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -32,6 +32,33 @@ import { useAuth } from '../../context/AuthContext';
 export function Sidebar({ isOpen, onClose }) {
   const { tenant, branding } = useTenant();
   const { user, isSuperAdmin, tenant: authTenant } = useAuth();
+  const location = useLocation();
+
+  // Strict route-aware active item detector guaranteeing ONLY the current active tab is highlighted
+  const isItemActive = (itemPath) => {
+    const current = location.pathname.replace(/\/+$/, '') || '/';
+    const target = itemPath.replace(/\/+$/, '') || '/';
+
+    if (target === '/super-admin') {
+      return current === '/super-admin';
+    }
+    if (target === '/super-admin/laboratories') {
+      return (
+        current === '/super-admin/laboratories' ||
+        (current.startsWith('/super-admin/laboratories/') && current !== '/super-admin/laboratories/new')
+      );
+    }
+    if (target === '/super-admin/laboratories/new') {
+      return current === '/super-admin/laboratories/new';
+    }
+    if (target === '/super-admin/roles') {
+      return current === '/super-admin/roles';
+    }
+    if (target === '/dashboard') {
+      return current === '/dashboard' || current === '/';
+    }
+    return current === target || (target !== '/' && current.startsWith(target + '/'));
+  };
 
   // If Platform Super Admin, show ONLY Super Admin platform management
   if (isSuperAdmin) {
@@ -39,10 +66,10 @@ export function Sidebar({ isOpen, onClose }) {
       {
         section: 'Platform Super Admin',
         items: [
-          { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server },
-          { key: 'sa_labs', name: 'Laboratories', path: '/super-admin/laboratories', icon: Building2 },
-          { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck },
-          { key: 'sa_register', name: 'Register Laboratory', path: '/super-admin/laboratories/new', icon: PlusCircle },
+          { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server, color: 'blue' },
+          { key: 'sa_labs', name: 'Laboratories', path: '/super-admin/laboratories', icon: Building2, color: 'emerald' },
+          { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck, color: 'purple' },
+          { key: 'sa_register', name: 'Register Laboratory', path: '/super-admin/laboratories/new', icon: PlusCircle, color: 'orange' },
         ],
       },
     ];
@@ -55,7 +82,7 @@ export function Sidebar({ isOpen, onClose }) {
           aria-hidden="true"
         />
 
-        <aside className={`app-sidebar ${isOpen ? 'open' : ''}`}>
+        <aside className={`app-sidebar super-admin-sidebar ${isOpen ? 'open' : ''}`}>
           <div className="sidebar-header">
             <Link to="/super-admin" className="brand-badge" onClick={onClose}>
               <div className="brand-icon-box" style={{ background: '#eff6ff', color: '#2563eb' }}>
@@ -63,7 +90,6 @@ export function Sidebar({ isOpen, onClose }) {
               </div>
               <div className="brand-text-block">
                 <span className="brand-title">LMS Platform</span>
-                <span className="brand-subtitle">Master Registry</span>
               </div>
             </Link>
 
@@ -83,18 +109,18 @@ export function Sidebar({ isOpen, onClose }) {
                 <div className="nav-section-title">{group.section}</div>
                 {group.items.map((item) => {
                   const Icon = item.icon;
+                  const active = isItemActive(item.path);
                   return (
-                    <NavLink
+                    <Link
                       key={item.path}
                       to={item.path}
                       onClick={onClose}
-                      className={({ isActive }) =>
-                        `nav-item ${isActive ? 'active' : ''}`
-                      }
+                      className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
+                      aria-current={active ? 'page' : undefined}
                     >
                       <Icon size={18} />
                       <span>{item.name}</span>
-                    </NavLink>
+                    </Link>
                   );
                 })}
               </div>
@@ -105,8 +131,7 @@ export function Sidebar({ isOpen, onClose }) {
             <div className="tenant-indicator">
               <span className="tenant-dot" style={{ backgroundColor: '#2563eb' }} />
               <div className="tenant-details">
-                <span className="tenant-name">Master Registry</span>
-                <span className="tenant-type">Platform Super Admin</span>
+                <span className="tenant-name">Platform Super Admin</span>
               </div>
             </div>
           </div>
@@ -143,26 +168,26 @@ export function Sidebar({ isOpen, onClose }) {
     {
       section: 'Laboratory Operations',
       items: [
-        { key: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+        { key: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, color: 'blue' },
       ],
     },
     {
       section: 'Clinical Workflow',
       items: [
-        { key: 'patients', name: 'Patients', path: '/patients', icon: Users },
-        { key: 'orders', name: 'Lab Orders', path: '/orders', icon: ClipboardList },
-        { key: 'samples', name: 'Samples', path: '/samples', icon: FlaskConical },
-        { key: 'tests', name: 'Test Catalog', path: '/tests', icon: TestTube2 },
-        { key: 'reports', name: 'Reports', path: '/reports', icon: FileText },
+        { key: 'patients', name: 'Patients', path: '/patients', icon: Users, color: 'cyan' },
+        { key: 'orders', name: 'Lab Orders', path: '/orders', icon: ClipboardList, color: 'indigo' },
+        { key: 'samples', name: 'Samples', path: '/samples', icon: FlaskConical, color: 'emerald' },
+        { key: 'tests', name: 'Test Catalog', path: '/tests', icon: TestTube2, color: 'amber' },
+        { key: 'reports', name: 'Reports', path: '/reports', icon: FileText, color: 'rose' },
       ],
     },
     {
       section: 'Tenant Administration',
       items: [
-        { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard },
-        { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck },
-        { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History },
-        { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings },
+        { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard, color: 'emerald' },
+        { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck, color: 'purple' },
+        { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History, color: 'slate' },
+        { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings, color: 'cyan' },
       ],
     },
   ];
@@ -228,18 +253,18 @@ export function Sidebar({ isOpen, onClose }) {
               <div className="nav-section-title">{group.section}</div>
               {group.items.map((item) => {
                 const Icon = item.icon;
+                const active = isItemActive(item.path);
                 return (
-                  <NavLink
+                  <Link
                     key={item.path}
                     to={item.path}
                     onClick={onClose}
-                    className={({ isActive }) =>
-                      `nav-item ${isActive ? 'active' : ''}`
-                    }
+                    className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
+                    aria-current={active ? 'page' : undefined}
                   >
                     <Icon size={18} />
                     <span>{item.name}</span>
-                  </NavLink>
+                  </Link>
                 );
               })}
             </div>

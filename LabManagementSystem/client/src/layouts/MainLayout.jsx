@@ -20,7 +20,6 @@ export function MainLayout() {
 
       <div className="app-main">
         <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
-        <Breadcrumbs />
         <main className="app-content">
           <Outlet />
         </main>

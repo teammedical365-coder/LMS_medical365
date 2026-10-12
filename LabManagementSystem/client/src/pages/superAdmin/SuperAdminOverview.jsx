@@ -112,17 +112,13 @@ export function SuperAdminOverview() {
               <RefreshCw size={14} />
               <span>Refresh</span>
             </button>
-            <Link to="/super-admin/laboratories/new" className="btn btn-primary">
-              <PlusCircle size={16} />
-              <span>Register New Laboratory</span>
-            </Link>
           </div>
         }
       />
 
       {/* Primary KPI Metrics */}
       <section>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+        <div className="overview-stats-grid">
           <StatCard
             title="Total Laboratories"
             value={metrics?.totalLaboratories || laboratories.length || 0}
