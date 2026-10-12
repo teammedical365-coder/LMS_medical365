@@ -20,6 +20,7 @@ router.get('/overview', SuperAdminController.getOverview);
 router.get('/laboratories', SuperAdminController.listLaboratories);
 router.post('/laboratories', SuperAdminController.registerLaboratory);
 router.get('/laboratories/:id', SuperAdminController.getLaboratory);
+router.get('/laboratories/:id/staff', SuperAdminController.getLaboratoryStaff);
 router.patch('/laboratories/:id', SuperAdminController.updateLaboratory);
 
 // Lifecycle Transitions

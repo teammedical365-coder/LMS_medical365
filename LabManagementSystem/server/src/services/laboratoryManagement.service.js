@@ -123,8 +123,44 @@ class LaboratoryManagementService {
         TenantModel.countDocuments(filter),
       ]);
 
+      const rawLabs = docs.map((d) => d.toSafeJSON());
+      const laboratoriesWithStaff = await Promise.all(
+        rawLabs.map(async (lab) => {
+          try {
+            const users = await tenantUserService.listUsers(lab.tenantId);
+            const admin = users.find((u) => u.role === 'lab_admin') || null;
+            return {
+              ...lab,
+              adminUser: admin ? {
+                fullName: admin.fullName,
+                email: admin.email,
+                phone: admin.phone || null,
+                role: admin.role,
+              } : null,
+              staffCount: users.length,
+              staff: users.map((u) => ({
+                userId: u.userId,
+                fullName: u.fullName,
+                email: u.email,
+                role: u.role,
+                department: u.department,
+                phone: u.phone,
+                isActive: u.isActive,
+              })),
+            };
+          } catch {
+            return {
+              ...lab,
+              adminUser: null,
+              staffCount: 0,
+              staff: [],
+            };
+          }
+        })
+      );
+
       return {
-        laboratories: docs.map((d) => d.toSafeJSON()),
+        laboratories: laboratoriesWithStaff,
         pagination: {
           total,
           page: pageNum,
@@ -155,8 +191,35 @@ class LaboratoryManagementService {
     const total = list.length;
     const paginated = list.slice(skip, skip + limitNum);
 
+    const laboratoriesWithStaff = await Promise.all(
+      paginated.map(async (lab) => {
+        try {
+          const users = await tenantUserService.listUsers(lab.tenantId);
+          const admin = users.find((u) => u.role === 'lab_admin') || null;
+          return {
+            ...lab,
+            adminUser: admin ? {
+              fullName: admin.fullName,
+              email: admin.email,
+              phone: admin.phone || null,
+              role: admin.role,
+            } : null,
+            staffCount: users.length,
+            staff: users,
+          };
+        } catch {
+          return {
+            ...lab,
+            adminUser: null,
+            staffCount: 0,
+            staff: [],
+          };
+        }
+      })
+    );
+
     return {
-      laboratories: paginated,
+      laboratories: laboratoriesWithStaff,
       pagination: {
         total,
         page: pageNum,
@@ -174,6 +237,8 @@ class LaboratoryManagementService {
       throw new LaboratoryManagementError('Laboratory ID is required', 400);
     }
 
+    let lab = null;
+
     if (this.isMongoActive()) {
       const isObjectId = mongoose.Types.ObjectId.isValid(idOrTenantId);
       const query = isObjectId
@@ -184,17 +249,48 @@ class LaboratoryManagementService {
       if (!doc) {
         throw new LaboratoryManagementError(`Laboratory not found with identifier: ${idOrTenantId}`, 404);
       }
-      return doc.toSafeJSON();
+      lab = doc.toSafeJSON();
+    } else {
+      // In-memory fallback
+      const tenant = this.memoryTenants.get(idOrTenantId) ||
+        Array.from(this.memoryTenants.values()).find((l) => l.tenantId === idOrTenantId || l.code === idOrTenantId);
+
+      if (!tenant) {
+        throw new LaboratoryManagementError(`Laboratory not found with identifier: ${idOrTenantId}`, 404);
+      }
+      lab = { ...tenant };
     }
 
-    // In-memory fallback
-    const tenant = this.memoryTenants.get(idOrTenantId) ||
-      Array.from(this.memoryTenants.values()).find((l) => l.tenantId === idOrTenantId || l.code === idOrTenantId);
-
-    if (!tenant) {
-      throw new LaboratoryManagementError(`Laboratory not found with identifier: ${idOrTenantId}`, 404);
+    if (lab) {
+      try {
+        const users = await tenantUserService.listUsers(lab.tenantId);
+        const adminUser = users.find((u) => u.role === 'lab_admin') || null;
+        lab.adminUser = adminUser ? {
+          fullName: adminUser.fullName,
+          email: adminUser.email,
+          phone: adminUser.phone || null,
+          role: adminUser.role,
+          createdAt: adminUser.createdAt,
+        } : null;
+        lab.staff = users.map((u) => ({
+          userId: u.userId,
+          fullName: u.fullName,
+          email: u.email,
+          role: u.role,
+          department: u.department,
+          phone: u.phone,
+          isActive: u.isActive,
+          createdAt: u.createdAt,
+        }));
+        lab.staffCount = users.length;
+      } catch {
+        lab.adminUser = null;
+        lab.staff = [];
+        lab.staffCount = 0;
+      }
     }
-    return tenant;
+
+    return lab;
   }
 
   /**

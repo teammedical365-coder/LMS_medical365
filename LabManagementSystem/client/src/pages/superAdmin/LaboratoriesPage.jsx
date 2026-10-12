@@ -240,11 +240,13 @@ export function LaboratoriesPage() {
               <thead>
                 <tr>
                   <th>Laboratory & Code</th>
+                  <th>Lab Administrator</th>
+                  <th>Staff Team</th>
                   <th>Tenant Identifier</th>
-                  <th>Whitelabel Portal URL</th>
-                  <th>Contact Information</th>
-                  <th>Lifecycle Status</th>
-                  <th>Tenant DB State</th>
+                  <th>Portal Login URL</th>
+                  <th>Contact Info</th>
+                  <th>Status</th>
+                  <th>Database State</th>
                   <th>Registered</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -254,7 +256,7 @@ export function LaboratoriesPage() {
                   const provStatus = lab.database?.provisioningStatus || lab.provisioningStatus || 'NOT_STARTED';
                   const primaryDomain = lab.domainMappings?.find((d) => d.isPrimary)?.domain || lab.domainMappings?.[0]?.domain;
                   const labSlug = (lab.code || lab.tenantId || '').toLowerCase();
-                  const portalUrl = `${window.location.origin}/lab/${labSlug}`;
+                  const portalUrl = `${window.location.origin}/lab/${lab.code.toLowerCase()}`;
 
                   return (
                     <tr key={lab.tenantId || lab._id}>
@@ -275,6 +277,27 @@ export function LaboratoriesPage() {
                       </td>
 
                       <td>
+                        {lab.adminUser ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--slate-900)', fontSize: '0.8125rem' }}>
+                              {lab.adminUser.fullName}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)' }}>
+                              {lab.adminUser.email}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>—</span>
+                        )}
+                      </td>
+
+                      <td>
+                        <Badge variant="blue">
+                          {(lab.staffCount ?? lab.staff?.length ?? 0)} Staff
+                        </Badge>
+                      </td>
+
+                      <td>
                         <code style={{ fontSize: '0.75rem', color: 'var(--slate-600)', background: 'var(--slate-100)', padding: '2px 6px', borderRadius: '4px' }}>
                           {lab.tenantId}
                         </code>
@@ -283,7 +306,7 @@ export function LaboratoriesPage() {
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <a
-                            href={`/lab/${labSlug}`}
+                            href={`/lab/${lab.code.toLowerCase()}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
@@ -300,9 +323,9 @@ export function LaboratoriesPage() {
                               gap: '4px',
                               fontWeight: 600,
                             }}
-                            title="Open Whitelabel Laboratory Portal in new tab"
+                            title="Open Laboratory Login Portal in new tab"
                           >
-                            <span>/lab/{labSlug}</span>
+                            <span>/lab/{lab.code.toLowerCase()}</span>
                             <ExternalLink size={11} />
                           </a>
                           <button
@@ -310,7 +333,7 @@ export function LaboratoriesPage() {
                             className="btn btn-secondary btn-sm"
                             style={{ padding: '2px 8px', fontSize: '0.72rem', height: '24px' }}
                             onClick={() => copyPortalUrl(portalUrl, lab.tenantId || lab._id)}
-                            title="Copy Whitelabel Portal URL"
+                            title="Copy Login Portal URL"
                           >
                             {copiedId === (lab.tenantId || lab._id) ? (
                               <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
@@ -326,9 +349,9 @@ export function LaboratoriesPage() {
 
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.8125rem' }}>
-                          <span style={{ color: 'var(--slate-700)' }}>{lab.contactEmail}</span>
-                          {lab.contactPhone && (
-                            <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)' }}>{lab.contactPhone}</span>
+                          <span style={{ color: 'var(--slate-700)' }}>{lab.contactEmail || lab.email}</span>
+                          {(lab.contactPhone || lab.phone) && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)' }}>{lab.contactPhone || lab.phone}</span>
                           )}
                         </div>
                       </td>

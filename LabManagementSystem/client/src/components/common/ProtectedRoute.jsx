@@ -32,9 +32,11 @@ export function ProtectedRoute({ children, requireSuperAdmin = false, requiredPe
     );
   }
 
-  // Unauthenticated user -> redirect to login
+  // Unauthenticated user -> redirect to appropriate portal
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const savedLab = typeof window !== 'undefined' ? localStorage.getItem('lms_active_lab_code') : null;
+    const redirectTarget = savedLab ? `/lab/${savedLab.toLowerCase()}` : '/login';
+    return <Navigate to={redirectTarget} state={{ from: location }} replace />;
   }
 
   // Super Admin privilege requirement

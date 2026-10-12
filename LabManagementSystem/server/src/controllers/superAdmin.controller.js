@@ -69,6 +69,22 @@ export class SuperAdminController {
   }
 
   /**
+   * GET /api/v1/super-admin/laboratories/:id/staff
+   */
+  static async getLaboratoryStaff(req, res, next) {
+    try {
+      const { id } = req.params;
+      const lab = await laboratoryManagementService.getLaboratoryById(id);
+      return ApiResponse.success(res, lab.staff || [], 'Laboratory staff list retrieved successfully');
+    } catch (err) {
+      if (err instanceof LaboratoryManagementError) {
+        return ApiResponse.error(res, err.message, err.statusCode);
+      }
+      next(err);
+    }
+  }
+
+  /**
    * POST /api/v1/super-admin/laboratories
    */
   static async registerLaboratory(req, res, next) {

@@ -22,23 +22,11 @@ const DEFAULT_BRANDING = {
   loginBannerText: 'Welcome to the Diagnostic Cloud Portal',
 };
 
-const DEFAULT_TENANT = {
-  tenantId: 'tenant_demo_central',
-  code: 'CENTRAL-01',
-  name: 'Central Diagnostics Laboratory',
-  type: 'Clinical Reference Laboratory',
-  tier: 'Enterprise Multi-Site',
-  branding: DEFAULT_BRANDING,
-  settings: {
-    orderPrefix: 'ORD-',
-    samplePrefix: 'SMP-',
-    timezone: 'UTC',
-  },
-};
+const DEFAULT_TENANT = null;
 
 export function TenantProvider({ children }) {
   const { tenant: authTenant, isSuperAdmin } = useAuth();
-  const [currentTenant, setCurrentTenant] = useState(DEFAULT_TENANT);
+  const [currentTenant, setCurrentTenant] = useState(null);
   const [branding, setBranding] = useState(DEFAULT_BRANDING);
   const [isBrandingLoaded, setIsBrandingLoaded] = useState(false);
 

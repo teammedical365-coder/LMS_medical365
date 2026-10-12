@@ -2510,13 +2510,14 @@ class TenantClinicalService {
   async getDashboardSummary(tenantId, role = 'lab_admin', options = {}) {
     await tenantUserService.assertTenantReady(tenantId);
 
-    const [patients, orders, samples, reports, billing, todaySummary] = await Promise.all([
+    const [patients, orders, samples, reports, billing, todaySummary, staffList] = await Promise.all([
       this.listPatients(tenantId, { limit: 10 }),
       this.listOrders(tenantId, { limit: 10 }),
       this.listSamples(tenantId, { limit: 10 }),
       this.listReports(tenantId, { limit: 10 }),
       this.getBillingSummary(tenantId),
       this.getTodayOrderSummary(tenantId, options),
+      tenantUserService.listUsers(tenantId).catch(() => []),
     ]);
 
     const metrics = {
@@ -2530,6 +2531,7 @@ class TenantClinicalService {
       tat: todaySummary.formattedTat,
       totalPatients: patients.length,
       totalOrders: orders.length,
+      totalStaff: staffList.length,
       pendingCollectionSamples: samples.filter((s) => s.collectionStatus === 'pending').length,
       inAnalysisSamples: samples.filter((s) => s.processingStatus === 'in_analysis').length,
       pendingReviewReports: reports.filter((r) => r.status === 'draft' || r.status === 'pending_review').length,
@@ -2542,6 +2544,16 @@ class TenantClinicalService {
       role,
       todaySummary,
       metrics,
+      staff: staffList.map((u) => ({
+        userId: u.userId,
+        fullName: u.fullName,
+        email: u.email,
+        role: u.role,
+        department: u.department,
+        phone: u.phone,
+        isActive: u.isActive,
+        createdAt: u.createdAt,
+      })),
       recentPatients: patients.slice(0, 5),
       recentOrders: orders.slice(0, 5),
       recentSamples: samples.slice(0, 5),

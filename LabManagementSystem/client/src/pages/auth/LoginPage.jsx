@@ -36,6 +36,17 @@ export function LoginPage() {
 
   const from = location.state?.from?.pathname || '/super-admin';
 
+  // If a laboratory identifier is provided in query params (?lab= or ?code=),
+  // immediately route to the facility's dedicated white-label portal
+  const searchParams = new URLSearchParams(location.search);
+  const labParam = searchParams.get('lab') || searchParams.get('code') || searchParams.get('org');
+
+  React.useEffect(() => {
+    if (labParam) {
+      navigate(`/lab/${encodeURIComponent(labParam.trim().toLowerCase())}`, { replace: true });
+    }
+  }, [labParam, navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage(null);

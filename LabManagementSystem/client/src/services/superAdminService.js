@@ -69,6 +69,14 @@ export const superAdminService = {
   },
 
   /**
+   * Get laboratory staff list
+   */
+  async getLaboratoryStaff(id) {
+    const res = await api.get(`/super-admin/laboratories/${id}/staff`, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
    * Register a new laboratory
    */
   async registerLaboratory(labData) {

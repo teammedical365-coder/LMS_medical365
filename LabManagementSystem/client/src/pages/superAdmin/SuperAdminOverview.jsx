@@ -195,6 +195,8 @@ export function SuperAdminOverview() {
                 <tr>
                   <th>Laboratory</th>
                   <th>Lab Code</th>
+                  <th>Lab Administrator</th>
+                  <th>Staff Team</th>
                   <th>Dedicated Portal URL</th>
                   <th>Status</th>
                   <th>Database</th>
@@ -203,7 +205,7 @@ export function SuperAdminOverview() {
               </thead>
               <tbody>
                 {laboratories.map((lab) => {
-                  const portalUrl = `${originUrl}/login?lab=${lab.code}`;
+                  const portalUrl = `${originUrl}/lab/${lab.code.toLowerCase()}`;
                   const isCopied = copiedCode === lab.code;
 
                   return (
@@ -252,6 +254,25 @@ export function SuperAdminOverview() {
                         </span>
                       </td>
                       <td>
+                        {lab.adminUser ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.85rem' }}>
+                              {lab.adminUser.fullName}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              {lab.adminUser.email}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        <Badge variant="blue">
+                          {(lab.staffCount ?? lab.staff?.length ?? 0)} Staff
+                        </Badge>
+                      </td>
+                      <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <code
                             style={{
@@ -268,7 +289,7 @@ export function SuperAdminOverview() {
                             }}
                             title={portalUrl}
                           >
-                            {`/login?lab=${lab.code}`}
+                            {`/lab/${lab.code.toLowerCase()}`}
                           </code>
                           <button
                             type="button"

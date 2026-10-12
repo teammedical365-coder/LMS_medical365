@@ -26,6 +26,9 @@ import {
   XCircle,
   Server,
   Copy,
+  Users,
+  UserCheck,
+  ExternalLink,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
@@ -229,7 +232,28 @@ export function LaboratoryDetailsPage() {
       case 'IN_PROGRESS': return <Badge variant="blue">In Progress</Badge>;
       case 'FAILED': return <Badge variant="danger">Failed</Badge>;
       case 'NOT_STARTED':
-      default: return <Badge variant="slate">Not Started</Badge>;
+    }
+  };
+
+  const getStaffRoleBadge = (role = '') => {
+    const r = String(role).toLowerCase();
+    switch (r) {
+      case 'lab_admin':
+        return <Badge variant="purple">Lab Administrator</Badge>;
+      case 'pathologist':
+      case 'report_reviewer':
+        return <Badge variant="blue">Pathologist</Badge>;
+      case 'lab_technician':
+        return <Badge variant="cyan">Lab Technician</Badge>;
+      case 'receptionist':
+        return <Badge variant="teal">Receptionist</Badge>;
+      case 'phlebotomist':
+        return <Badge variant="warning">Phlebotomist</Badge>;
+      case 'billing_clerk':
+      case 'accountant':
+        return <Badge variant="info">Billing Clerk</Badge>;
+      default:
+        return <Badge variant="slate">{role ? role.replace(/_/g, ' ') : 'Staff'}</Badge>;
     }
   };
 
@@ -439,6 +463,158 @@ export function LaboratoryDetailsPage() {
             </span>
           </div>
         )}
+      </div>
+
+      {/* Laboratory Staff & Administrative Team Section */}
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Users size={18} style={{ color: 'var(--primary-blue, #2563eb)' }} />
+            <h2 className="card-title">
+              Laboratory Staff & Administrative Team ({lab.staff?.length || 0})
+            </h2>
+          </div>
+          <span className="badge badge-blue">
+            {lab.adminUser ? `Admin: ${lab.adminUser.fullName}` : 'No Admin Configured'}
+          </span>
+        </div>
+
+        {/* Lab Administrator Spotlight Banner */}
+        {lab.adminUser && (
+          <div
+            style={{
+              padding: '1rem',
+              marginBottom: '1rem',
+              background: '#f8fafc',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: 'var(--radius-md, 8px)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--purple-100, #f3e8ff)',
+                  color: 'var(--purple-700, #7e22ce)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: '1.1rem',
+                }}
+              >
+                {(lab.adminUser.fullName || 'A').charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <strong style={{ fontSize: '0.95rem', color: 'var(--slate-900, #0f172a)' }}>
+                    {lab.adminUser.fullName}
+                  </strong>
+                  <Badge variant="purple">Lab Administrator</Badge>
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600, #475569)', marginTop: '2px' }}>
+                  <span>Email: <strong>{lab.adminUser.email}</strong></span>
+                  {lab.adminUser.phone && <span> • Phone: {lab.adminUser.phone}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <a
+                href={`${window.location.origin}/lab/${lab.code.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Open login portal in new tab"
+              >
+                <span>Admin Login Portal</span>
+                <ExternalLink size={13} />
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* All Staff Members Table */}
+        <div className="table-container">
+          <table className="lms-table">
+            <thead>
+              <tr>
+                <th>Staff Name</th>
+                <th>Email Address</th>
+                <th>Assigned Role</th>
+                <th>Department / Contact</th>
+                <th>Status</th>
+                <th>Created At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!lab.staff || lab.staff.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
+                    No staff members registered in this laboratory's database yet.
+                  </td>
+                </tr>
+              ) : (
+                lab.staff.map((member) => (
+                  <tr key={member.userId || member.email}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '8px',
+                            backgroundColor: member.role === 'lab_admin' ? '#f3e8ff' : '#eff6ff',
+                            color: member.role === 'lab_admin' ? '#7e22ce' : '#2563eb',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          {(member.fullName || 'S').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{member.fullName}</span>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+                            {member.userId || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--slate-800)' }}>{member.email}</span>
+                    </td>
+                    <td>{getStaffRoleBadge(member.role)}</td>
+                    <td>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                        {member.department ? `${member.department} ` : ''}
+                        {member.phone ? `(${member.phone})` : (!member.department ? '—' : '')}
+                      </span>
+                    </td>
+                    <td>
+                      <Badge variant={member.isActive !== false ? 'success' : 'slate'}>
+                        {member.isActive !== false ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </td>
+                    <td style={{ fontSize: '0.75rem', color: 'var(--slate-500)', whiteSpace: 'nowrap' }}>
+                      {member.createdAt ? new Date(member.createdAt).toLocaleDateString() : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>

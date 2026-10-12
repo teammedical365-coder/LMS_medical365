@@ -30,6 +30,8 @@ import {
   Sparkles,
   Calendar,
   Timer,
+  ArrowRight,
+  UserCheck,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
@@ -271,18 +273,25 @@ export function DashboardPage() {
     return (
       <>
         <StatCard
+          title="Total Staff"
+          value={metrics.totalStaff ?? dashboardData?.staff?.length ?? 0}
+          subtitle="Registered team members"
+          icon={Users}
+          colorScheme="blue"
+        />
+        <StatCard
           title="Total Patients"
           value={metrics.totalPatients}
           subtitle="Directory records"
           icon={Users}
-          colorScheme="blue"
+          colorScheme="cyan"
         />
         <StatCard
           title="Lab Orders"
           value={metrics.totalOrders}
           subtitle="All requisitions"
           icon={ClipboardList}
-          colorScheme="cyan"
+          colorScheme="purple"
         />
         <StatCard
           title="Pending Specimen"
@@ -343,6 +352,28 @@ export function DashboardPage() {
       case 'stat': return <Badge variant="danger">STAT</Badge>;
       case 'urgent': return <Badge variant="warning">Urgent</Badge>;
       default: return <Badge variant="slate">Routine</Badge>;
+    }
+  };
+
+  const getStaffRoleBadge = (role = '') => {
+    const r = String(role).toLowerCase();
+    switch (r) {
+      case 'lab_admin':
+        return <Badge variant="purple">Lab Administrator</Badge>;
+      case 'pathologist':
+      case 'report_reviewer':
+        return <Badge variant="blue">Pathologist</Badge>;
+      case 'lab_technician':
+        return <Badge variant="cyan">Lab Technician</Badge>;
+      case 'receptionist':
+        return <Badge variant="teal">Receptionist</Badge>;
+      case 'phlebotomist':
+        return <Badge variant="warning">Phlebotomist</Badge>;
+      case 'billing_clerk':
+      case 'accountant':
+        return <Badge variant="info">Billing Clerk</Badge>;
+      default:
+        return <Badge variant="slate">{role.replace(/_/g, ' ')}</Badge>;
     }
   };
 
@@ -580,6 +611,104 @@ export function DashboardPage() {
           </table>
         </div>
       </section>
+
+      {/* Laboratory Staff & Team Members Section for Lab Admin */}
+      {userRole === 'lab_admin' && (
+        <section className="card" style={{ marginTop: '1.25rem' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Users size={18} style={{ color: 'var(--primary-blue, #2563eb)' }} />
+              <h2 className="card-title">
+                Laboratory Staff & Team Directory ({dashboardData?.staff?.length || 0})
+              </h2>
+            </div>
+            <Link to="/users" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span>Manage Staff & Roles</span>
+              <ArrowRight size={13} />
+            </Link>
+          </div>
+
+          <div className="table-container">
+            <table className="lms-table">
+              <thead>
+                <tr>
+                  <th>Staff Member</th>
+                  <th>Email</th>
+                  <th>Assigned Role</th>
+                  <th>Department / Phone</th>
+                  <th>Status</th>
+                  <th>Joined Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!dashboardData?.staff || dashboardData.staff.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
+                      No staff members registered for this laboratory yet. Use "Manage Staff & Roles" to add new team members.
+                    </td>
+                  </tr>
+                ) : (
+                  dashboardData.staff.map((member) => (
+                    <tr key={member.userId || member.email}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--primary-subtle, #eff6ff)',
+                              color: 'var(--primary-blue, #2563eb)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 600,
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            {(member.fullName || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main, #1e293b)', fontSize: '0.9rem' }}>
+                              {member.fullName}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #64748b)', fontFamily: 'monospace' }}>
+                              {member.userId || '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-main, #334155)' }}>
+                          {member.email}
+                        </span>
+                      </td>
+                      <td>
+                        {getStaffRoleBadge(member.role)}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted, #64748b)' }}>
+                          {member.department ? <span style={{ fontWeight: 500, color: 'var(--text-main)' }}>{member.department}</span> : null}
+                          {member.department && member.phone ? ' • ' : ''}
+                          {member.phone || (!member.department ? '—' : '')}
+                        </div>
+                      </td>
+                      <td>
+                        <Badge variant={member.isActive !== false ? 'success' : 'slate'}>
+                          {member.isActive !== false ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--text-muted, #64748b)', whiteSpace: 'nowrap' }}>
+                        {member.createdAt ? new Date(member.createdAt).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Order Details Modal */}
       <Modal

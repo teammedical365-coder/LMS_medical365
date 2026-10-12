@@ -34,6 +34,10 @@ export function AuthProvider({ children }) {
         setTenant(profileData.tenant || null);
         setAccountType(profileData.accountType);
         setIsAuthenticated(true);
+        const savedCode = profileData.tenant?.code || profileData.tenant?.tenantId || profileData.user?.tenantId;
+        if (savedCode && profileData.accountType !== 'PLATFORM_SUPER_ADMIN') {
+          localStorage.setItem('lms_active_lab_code', savedCode.toLowerCase());
+        }
       } else {
         // Invalid or expired token
         await authService.logout();
@@ -77,6 +81,7 @@ export function AuthProvider({ children }) {
       setTenant(null);
       setAccountType(res.accountType);
       setIsAuthenticated(true);
+      localStorage.removeItem('lms_active_lab_code');
       return { success: true, user: res.user };
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error?.message || err.message || 'Login failed';
@@ -99,6 +104,10 @@ export function AuthProvider({ children }) {
       setTenant(res.tenant);
       setAccountType(res.accountType);
       setIsAuthenticated(true);
+      const code = res.tenant?.code || res.tenant?.tenantId || organizationCode;
+      if (code) {
+        localStorage.setItem('lms_active_lab_code', code.toLowerCase());
+      }
       return { success: true, user: res.user, tenant: res.tenant };
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error?.message || err.message || 'Login failed';
@@ -111,9 +120,18 @@ export function AuthProvider({ children }) {
 
   /**
    * Terminate session
+   * When a laboratory user logs out, redirect back to that laboratory's dedicated login URL.
+   * Only Super Admin logs out to /login.
    */
   const logout = async () => {
     setIsLoading(true);
+    const labCode =
+      tenant?.code ||
+      tenant?.tenantId ||
+      user?.tenantCode ||
+      user?.tenantId ||
+      (typeof window !== 'undefined' ? localStorage.getItem('lms_active_lab_code') : null);
+    const wasSuperAdmin = isSuperAdmin;
     try {
       await authService.logout();
     } finally {
@@ -122,6 +140,15 @@ export function AuthProvider({ children }) {
       setAccountType(null);
       setIsAuthenticated(false);
       setIsLoading(false);
+
+      if (!wasSuperAdmin && labCode) {
+        window.location.href = `/lab/${labCode.toLowerCase()}`;
+      } else {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('lms_active_lab_code');
+        }
+        window.location.href = '/login';
+      }
     }
   };
 

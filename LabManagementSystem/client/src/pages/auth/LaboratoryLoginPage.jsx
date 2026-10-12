@@ -59,6 +59,13 @@ export function LaboratoryLoginPage() {
     }
   }, [isAuthenticated, activeTenant, labId, navigate]);
 
+  // Persist active laboratory context for sign-in & sign-out lifecycle
+  useEffect(() => {
+    if (labId && typeof window !== 'undefined') {
+      localStorage.setItem('lms_active_lab_code', labId.trim().toLowerCase());
+    }
+  }, [labId]);
+
   // Resolve laboratory branding & verification
   useEffect(() => {
     let isMounted = true;
