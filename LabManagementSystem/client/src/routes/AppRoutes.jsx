@@ -35,6 +35,7 @@ import SuperAdminOverview from '../pages/superAdmin/SuperAdminOverview';
 import LaboratoriesPage from '../pages/superAdmin/LaboratoriesPage';
 import RegisterLaboratoryPage from '../pages/superAdmin/RegisterLaboratoryPage';
 import LaboratoryDetailsPage from '../pages/superAdmin/LaboratoryDetailsPage';
+import SuperAdminRolesPage from '../pages/superAdmin/SuperAdminRolesPage';
 
 // Public Unauthenticated Pages
 import PublicVerifyReportPage from '../pages/public/PublicVerifyReportPage';
@@ -155,6 +156,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireSuperAdmin>
               <LaboratoriesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/super-admin/roles"
+          element={
+            <ProtectedRoute requireSuperAdmin>
+              <SuperAdminRolesPage />
             </ProtectedRoute>
           }
         />

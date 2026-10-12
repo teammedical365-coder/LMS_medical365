@@ -41,6 +41,7 @@ export function Sidebar({ isOpen, onClose }) {
         items: [
           { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server },
           { key: 'sa_labs', name: 'Laboratories', path: '/super-admin/laboratories', icon: Building2 },
+          { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck },
           { key: 'sa_register', name: 'Register Laboratory', path: '/super-admin/laboratories/new', icon: PlusCircle },
         ],
       },

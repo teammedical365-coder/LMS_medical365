@@ -309,14 +309,20 @@ export function UsersPage() {
   return (
     <>
       <PageHeader
-        title="Laboratory Personnel, Roles & Access Control"
-        description="Dynamic tenant role builder, custom permission matrices, and departmental staff identity management."
+        title={isSuperAdmin ? "Laboratory Personnel, Roles & Access Control" : "Laboratory Personnel Directory"}
+        description={
+          isSuperAdmin
+            ? "Dynamic tenant role builder, custom permission matrices, and departmental staff identity management."
+            : "Manage laboratory team members, assign pre-configured roles governed by Super Admin, and monitor departmental accounts."
+        }
         actions={
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={() => handleOpenRoleModal(null)}>
-              <Key size={15} />
-              <span>Create Custom Role</span>
-            </button>
+            {isSuperAdmin && (
+              <button className="btn btn-secondary" onClick={() => handleOpenRoleModal(null)}>
+                <Key size={15} />
+                <span>Create Custom Role</span>
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => setCreateUserModalOpen(true)}>
               <UserPlus size={15} />
               <span>Add Staff Member</span>
@@ -324,6 +330,15 @@ export function UsersPage() {
           </div>
         }
       />
+
+      {/* Lab Admin Role Governance Notice */}
+      {!isSuperAdmin && (
+        <StatusBanner
+          type="info"
+          badgeText="Role Governance"
+          message="Roles and clinical permissions are centrally managed by Platform Super Admin. Simply select the desired role from the dropdown when creating or updating laboratory staff."
+        />
+      )}
 
       {/* Success / Error Alerts */}
       {errorBanner && (
@@ -382,56 +397,58 @@ export function UsersPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '8px',
-          borderBottom: '1px solid var(--border-subtle)',
-          marginBottom: '1.25rem',
-          paddingBottom: '2px',
-        }}
-      >
-        <button
-          onClick={() => setActiveTab('users')}
+      {/* Tabs (Only visible if viewing as Super Admin) */}
+      {isSuperAdmin && (
+        <div
           style={{
-            padding: '8px 16px',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-            border: 'none',
-            background: 'none',
-            color: activeTab === 'users' ? 'var(--primary-blue)' : 'var(--slate-500)',
-            borderBottom: activeTab === 'users' ? '2px solid var(--primary-blue)' : '2px solid transparent',
-            cursor: 'pointer',
             display: 'flex',
-            alignItems: 'center',
             gap: '8px',
+            borderBottom: '1px solid var(--border-subtle)',
+            marginBottom: '1.25rem',
+            paddingBottom: '2px',
           }}
         >
-          <UsersIcon size={16} />
-          <span>Laboratory Staff ({users.length})</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              border: 'none',
+              background: 'none',
+              color: activeTab === 'users' ? 'var(--primary-blue)' : 'var(--slate-500)',
+              borderBottom: activeTab === 'users' ? '2px solid var(--primary-blue)' : '2px solid transparent',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <UsersIcon size={16} />
+            <span>Laboratory Staff ({users.length})</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('roles')}
-          style={{
-            padding: '8px 16px',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-            border: 'none',
-            background: 'none',
-            color: activeTab === 'roles' ? 'var(--primary-blue)' : 'var(--slate-500)',
-            borderBottom: activeTab === 'roles' ? '2px solid var(--primary-blue)' : '2px solid transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <Key size={16} />
-          <span>Role & Permission Builder ({roles.length})</span>
-        </button>
-      </div>
+          <button
+            onClick={() => setActiveTab('roles')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              border: 'none',
+              background: 'none',
+              color: activeTab === 'roles' ? 'var(--primary-blue)' : 'var(--slate-500)',
+              borderBottom: activeTab === 'roles' ? '2px solid var(--primary-blue)' : '2px solid transparent',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Key size={16} />
+            <span>Role & Permission Builder ({roles.length})</span>
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--slate-500)' }}>

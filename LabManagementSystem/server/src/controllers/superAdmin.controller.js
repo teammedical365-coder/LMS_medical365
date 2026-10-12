@@ -7,6 +7,7 @@
 
 import laboratoryManagementService, { LaboratoryManagementError } from '../services/laboratoryManagement.service.js';
 import auditLogService from '../services/auditLog.service.js';
+import roleService, { RoleServiceError } from '../services/role.service.js';
 import ApiResponse from '../utils/apiResponse.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -214,6 +215,133 @@ export class SuperAdminController {
       return ApiResponse.success(res, data.items, 'Audit logs retrieved', HTTP_STATUS.OK, {
         pagination: { total: data.total, page: data.page, limit: data.limit },
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/super-admin/roles/matrix
+   * Retrieve module actions & navigation items matrix
+   */
+  static async getPermissionsMatrix(req, res, next) {
+    try {
+      const matrix = roleService.getPermissionsMatrix();
+      return ApiResponse.success(res, matrix, 'Permissions matrix metadata retrieved successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/super-admin/roles
+   * List all platform master roles
+   */
+  static async listRoles(req, res, next) {
+    try {
+      const roles = await roleService.listMasterRoles(req.query);
+      return ApiResponse.success(res, roles, 'Platform master roles retrieved successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/super-admin/roles/:id
+   */
+  static async getRole(req, res, next) {
+    try {
+      const { id } = req.params;
+      const role = await roleService.getMasterRoleById(id);
+      return ApiResponse.success(res, role, 'Role definition retrieved successfully');
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/super-admin/roles
+   * Create custom master role and propagate to all laboratories
+   */
+  static async createRole(req, res, next) {
+    try {
+      const actor = req.platformAdmin || { id: 'super_admin', sub: 'super_admin' };
+      const role = await roleService.createMasterRole(req.body, actor);
+      return ApiResponse.success(res, role, 'Role created and synchronized to all laboratories', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * PUT /api/v1/super-admin/roles/:id
+   * Update master role and propagate updates to all laboratories
+   */
+  static async updateRole(req, res, next) {
+    try {
+      const { id } = req.params;
+      const actor = req.platformAdmin || { id: 'super_admin', sub: 'super_admin' };
+      const role = await roleService.updateMasterRole(id, req.body, actor);
+      return ApiResponse.success(res, role, 'Role updated and synchronized across all laboratories');
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * PATCH /api/v1/super-admin/roles/:id/status
+   * Toggle master role active status across all laboratories
+   */
+  static async updateRoleStatus(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
+      const actor = req.platformAdmin || { id: 'super_admin', sub: 'super_admin' };
+      const role = await roleService.updateMasterRoleStatus(id, isActive, actor);
+      return ApiResponse.success(res, role, `Role status updated to ${isActive ? 'active' : 'inactive'}`);
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * DELETE /api/v1/super-admin/roles/:id
+   * Delete custom master role across platform
+   */
+  static async deleteRole(req, res, next) {
+    try {
+      const { id } = req.params;
+      const actor = req.platformAdmin || { id: 'super_admin', sub: 'super_admin' };
+      const result = await roleService.deleteMasterRole(id, actor);
+      return ApiResponse.success(res, result, result.message);
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/super-admin/roles/sync
+   * Explicitly synchronize all platform master roles to all laboratories
+   */
+  static async syncRoles(req, res, next) {
+    try {
+      const result = await roleService.syncMasterRolesToAllTenants();
+      return ApiResponse.success(res, result, `Synchronized ${result.totalMasterRoles} roles across ${result.syncedTenants} laboratories`);
     } catch (err) {
       next(err);
     }

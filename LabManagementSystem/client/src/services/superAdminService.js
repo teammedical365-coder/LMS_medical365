@@ -143,6 +143,74 @@ export const superAdminService = {
       pagination: res.data.meta?.pagination || { total: res.data.data.length, page: 1, limit: 20 },
     };
   },
+
+  /**
+   * Get role permissions matrix and navigation items
+   */
+  async getPermissionsMatrix() {
+    const res = await api.get('/super-admin/roles/matrix', { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * List platform master roles
+   */
+  async listRoles(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (typeof params.isActive !== 'undefined') query.append('isActive', params.isActive);
+
+    const res = await api.get(`/super-admin/roles?${query.toString()}`, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Get single master role
+   */
+  async getRole(roleId) {
+    const res = await api.get(`/super-admin/roles/${roleId}`, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Create new master role
+   */
+  async createRole(roleData) {
+    const res = await api.post('/super-admin/roles', roleData, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Update master role
+   */
+  async updateRole(roleId, roleData) {
+    const res = await api.put(`/super-admin/roles/${roleId}`, roleData, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Toggle master role active status
+   */
+  async updateRoleStatus(roleId, isActive) {
+    const res = await api.patch(`/super-admin/roles/${roleId}/status`, { isActive }, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Delete master role
+   */
+  async deleteRole(roleId) {
+    const res = await api.delete(`/super-admin/roles/${roleId}`, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
+   * Force sync master roles to all laboratories
+   */
+  async syncRolesToLabs() {
+    const res = await api.post('/super-admin/roles/sync', {}, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
 };
 
 export default superAdminService;

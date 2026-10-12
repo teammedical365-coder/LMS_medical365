@@ -33,6 +33,16 @@ router.post('/laboratories/:id/provisioning/retry', SuperAdminController.retryPr
 // Domain Verification
 router.post('/laboratories/:id/domains/:domain/verify', SuperAdminController.verifyDomain);
 
+// Platform Role & Permission Management (Super Admin Platform-Wide)
+router.get('/roles/matrix', SuperAdminController.getPermissionsMatrix);
+router.get('/roles', SuperAdminController.listRoles);
+router.post('/roles', SuperAdminController.createRole);
+router.post('/roles/sync', SuperAdminController.syncRoles);
+router.get('/roles/:id', SuperAdminController.getRole);
+router.put('/roles/:id', SuperAdminController.updateRole);
+router.patch('/roles/:id/status', SuperAdminController.updateRoleStatus);
+router.delete('/roles/:id', SuperAdminController.deleteRole);
+
 // Platform Audit Logs
 router.get('/audit-logs', SuperAdminController.getAuditLogs);
 
