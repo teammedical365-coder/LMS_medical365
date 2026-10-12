@@ -58,6 +58,14 @@ export const roleService = {
   },
 
   /**
+   * Delete custom role
+   */
+  async deleteRole(tenantId, roleId) {
+    const res = await api.delete(`/tenants/${tenantId}/roles/${roleId}`);
+    return res.data.data;
+  },
+
+  /**
    * List users in tenant
    */
   async listUsers(tenantId, query = {}) {

@@ -114,28 +114,28 @@ export function Sidebar({ isOpen, onClose }) {
     );
   }
 
-  // Determine authorized navigation keys for tenant user
-  const roleNavKeys = user?.roleDefinition?.navigationItems || (() => {
+  // Determine authorized navigation keys dynamically from custom role and granted permissions
+  const roleNavKeys = (() => {
+    if (user?.roleDefinition?.navigationItems && Array.isArray(user.roleDefinition.navigationItems) && user.roleDefinition.navigationItems.length > 0) {
+      return user.roleDefinition.navigationItems;
+    }
+    const perms = user?.permissions || user?.roleDefinition?.permissions || [];
     const r = (user?.role || '').toLowerCase();
-    if (r === 'lab_admin' || r === 'lab_director') {
+    if (r === 'lab_admin' || r === 'lab_director' || perms.includes('*')) {
       return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'audit', 'settings'];
     }
-    if (r === 'receptionist') {
-      return ['dashboard', 'patients', 'orders'];
-    }
-    if (r === 'billing_clerk' || r === 'accountant') {
-      return ['dashboard', 'orders', 'billing'];
-    }
-    if (r === 'lab_technician') {
-      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports'];
-    }
-    if (r === 'pathologist' || r === 'report_reviewer') {
-      return ['dashboard', 'patients', 'orders', 'samples', 'reports'];
-    }
-    if (r === 'phlebotomist') {
-      return ['dashboard', 'patients', 'orders', 'samples'];
-    }
-    return ['dashboard'];
+    // Derive navigation items directly from granted module permissions
+    const derived = ['dashboard'];
+    if (perms.some((p) => p.startsWith('patients:'))) derived.push('patients');
+    if (perms.some((p) => p.startsWith('orders:'))) derived.push('orders');
+    if (perms.some((p) => p.startsWith('samples:'))) derived.push('samples');
+    if (perms.some((p) => p.startsWith('tests:'))) derived.push('tests');
+    if (perms.some((p) => p.startsWith('reports:'))) derived.push('reports');
+    if (perms.some((p) => p.startsWith('billing:'))) derived.push('billing');
+    if (perms.some((p) => p.startsWith('users:') || p.startsWith('roles:'))) derived.push('users');
+    if (perms.some((p) => p.startsWith('audit:'))) derived.push('audit');
+    if (perms.some((p) => p.startsWith('settings:'))) derived.push('settings');
+    return derived;
   })();
 
   const allSections = [

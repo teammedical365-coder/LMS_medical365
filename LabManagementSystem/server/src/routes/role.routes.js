@@ -32,4 +32,7 @@ roleRouter.patch('/:roleId', requirePermission('roles:manage'), roleController.u
 // Deactivate / activate role
 roleRouter.patch('/:roleId/status', requirePermission('roles:manage'), roleController.updateRoleStatus);
 
+// Delete custom role
+roleRouter.delete('/:roleId', requirePermission('roles:manage'), roleController.deleteRole);
+
 export default roleRouter;

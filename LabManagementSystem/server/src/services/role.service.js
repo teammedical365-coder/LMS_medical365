@@ -409,6 +409,70 @@ class RoleService {
     return typeof roleDoc.toSafeJSON === 'function' ? roleDoc.toSafeJSON() : roleDoc;
   }
 
+  /**
+   * Delete a custom role from the tenant
+   */
+  async deleteRole(tenantId, roleId, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+
+    const RoleModel = tenantConnectionService.getTenantRoleModel(tenantId);
+    const UserModel = tenantConnectionService.getTenantUserModel(tenantId);
+
+    if (RoleModel) {
+      const roleDoc = await RoleModel.findOne({ tenantId, roleId });
+      if (!roleDoc) {
+        throw new RoleServiceError('Role not found in this laboratory', 'ROLE_NOT_FOUND', 404);
+      }
+
+      if (roleDoc.code === 'lab_admin') {
+        throw new RoleServiceError('The primary Laboratory Administrator role cannot be deleted', 'CANNOT_DELETE_ADMIN', 400);
+      }
+
+      // Check if any active staff members currently have this role assigned
+      if (UserModel) {
+        const assignedCount = await UserModel.countDocuments({
+          tenantId,
+          role: { $in: [roleDoc.code, roleDoc.roleId] },
+        });
+        if (assignedCount > 0) {
+          throw new RoleServiceError(
+            `Cannot delete role '${roleDoc.name}' because ${assignedCount} staff member(s) are currently assigned to it. Please reassign their roles first.`,
+            'ROLE_IN_USE',
+            400
+          );
+        }
+      }
+
+      await RoleModel.deleteOne({ tenantId, roleId });
+
+      await auditLogService.recordEvent({
+        action: 'ROLE_DELETED',
+        targetTenantId: tenantId,
+        actorType: actor.accountType || 'TENANT_USER',
+        actorId: actor.sub || actor.userId || 'unknown',
+        actorEmail: actor.email,
+        resource: 'role',
+        details: { roleId, code: roleDoc.code, name: roleDoc.name },
+      });
+
+      return { success: true, message: `Role '${roleDoc.name}' deleted successfully.` };
+    }
+
+    // In-memory test store mode
+    const tenantRoles = this.memoryStore.get(tenantId);
+    const roleDoc = tenantRoles?.get(roleId);
+    if (!roleDoc) {
+      throw new RoleServiceError('Role not found in this laboratory', 'ROLE_NOT_FOUND', 404);
+    }
+
+    if (roleDoc.code === 'lab_admin') {
+      throw new RoleServiceError('The primary Laboratory Administrator role cannot be deleted', 'CANNOT_DELETE_ADMIN', 400);
+    }
+
+    tenantRoles.delete(roleId);
+    return { success: true, message: `Role '${roleDoc.name}' deleted successfully.` };
+  }
+
   clearMemoryStore() {
     this.memoryStore.clear();
   }

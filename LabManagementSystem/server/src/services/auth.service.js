@@ -269,8 +269,19 @@ class AuthService {
       details: { ipAddress, userAgent },
     });
 
+    // 9. Resolve full dynamic role definition for tenant user
+    let roleDefinition = null;
+    try {
+      roleDefinition = await roleService.getRoleById(tenant.tenantId, user.role);
+    } catch {
+      // Fallback if role is not seeded yet or deleted
+    }
+
+    const safeUser = user.toSafeJSON();
+    safeUser.roleDefinition = roleDefinition;
+
     return {
-      user: user.toSafeJSON(),
+      user: safeUser,
       tenant: {
         tenantId: tenant.tenantId,
         code: tenant.code,

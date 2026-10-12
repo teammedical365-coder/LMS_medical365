@@ -53,6 +53,23 @@ export function DashboardPage() {
 
   const tenantId = user?.tenantId || tenant?.tenantId;
   const userRole = (user?.role || 'lab_admin').toLowerCase();
+  const roleDef = user?.roleDefinition || null;
+  const rolePermissions = user?.permissions || roleDef?.permissions || [];
+  const isLabAdmin =
+    userRole === 'lab_admin' ||
+    userRole === 'lab_director' ||
+    rolePermissions.includes('*') ||
+    isSuperAdmin;
+
+  // Dynamic permission checker helper
+  const hasPermission = (required) => {
+    if (isLabAdmin) return true;
+    if (rolePermissions.includes('*')) return true;
+    if (Array.isArray(required)) {
+      return required.some((perm) => rolePermissions.includes(perm));
+    }
+    return rolePermissions.includes(required);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -116,227 +133,197 @@ export function DashboardPage() {
 
   const recentOrders = dashboardData?.recentOrders || [];
 
-  // Determine role-tailored view title and cards
+  // Determine role-tailored view title, description & badge
   const getRoleHeaderInfo = () => {
-    if (userRole === 'receptionist') {
-      return {
-        title: 'Patient Intake & Reception Desk',
-        description: 'Accession incoming patients, register requisitions, and track order specimen status.',
-        badge: 'Receptionist Desk',
-      };
-    }
-    if (userRole === 'billing_clerk' || userRole === 'accountant') {
-      return {
-        title: 'Billing & Financial Accounts',
-        description: 'Manage diagnostic invoicing, record copays & payments, and inspect balances.',
-        badge: 'Accountant Station',
-      };
-    }
-    if (userRole === 'lab_technician') {
-      return {
-        title: 'Specimen Bench & Analyzer Queue',
-        description: 'Track collected tubes, run analyzer batches, and input diagnostic findings.',
-        badge: 'Laboratory Bench',
-      };
-    }
-    if (userRole === 'pathologist' || userRole === 'report_reviewer') {
-      return {
-        title: 'Diagnostic Review & Pathology Sign-off',
-        description: 'Examine drafted findings, verify abnormal flags, and approve released reports.',
-        badge: 'Pathologist Station',
-      };
-    }
+    const roleDisplayName = roleDef?.name || (user?.role ? user.role.replace(/_/g, ' ') : 'Laboratory Operations');
+    const roleDescription = roleDef?.description || (
+      isLabAdmin
+        ? 'Real-time multi-department operational overview, specimen throughput, and clinical metrics.'
+        : `Role-scoped clinical and operational workspace for ${roleDisplayName}.`
+    );
+    const labName = branding?.displayName || tenant?.name || 'Laboratory';
+
     return {
-      title: `${branding?.displayName || tenant?.name || 'Laboratory'} Executive Operations`,
-      description: 'Real-time multi-department operational overview, specimen throughput, and clinical metrics.',
-      badge: 'Lab Administrator',
+      title: `${labName} • ${roleDisplayName}`,
+      description: roleDescription,
+      badge: roleDisplayName,
     };
   };
 
   const headerInfo = getRoleHeaderInfo();
 
-  // Role-specific Metric Cards
+  // Role-specific Metric Cards dynamically tailored to granted permissions
   const renderRoleCards = () => {
-    if (userRole === 'receptionist') {
-      return (
-        <>
-          <StatCard
-            title="Total Registered Patients"
-            value={metrics.totalPatients}
-            subtitle="Accessioned directory profiles"
-            icon={Users}
-            colorScheme="blue"
-          />
-          <StatCard
-            title="Total Laboratory Orders"
-            value={metrics.totalOrders}
-            subtitle="Intake orders logged"
-            icon={ClipboardList}
-            colorScheme="cyan"
-          />
-          <StatCard
-            title="Samples Awaiting Draw"
-            value={metrics.pendingCollectionSamples}
-            subtitle="Pending phlebotomy intake"
-            icon={FlaskConical}
-            colorScheme="amber"
-          />
-        </>
-      );
-    }
+    const cards = [];
 
-    if (userRole === 'billing_clerk' || userRole === 'accountant') {
-      return (
-        <>
-          <StatCard
-            title="Total Billed Invoices"
-            value={metrics.totalOrders}
-            subtitle="Clinical requisition charges"
-            icon={CreditCard}
-            colorScheme="teal"
-          />
-          <StatCard
-            title="Settled Revenue"
-            value={`$${metrics.totalRevenue.toLocaleString()}`}
-            subtitle="Recorded patient & insurer receipts"
-            icon={CheckCircle2}
-            colorScheme="green"
-          />
-          <StatCard
-            title="Outstanding Balance"
-            value={`$${metrics.totalOutstanding.toLocaleString()}`}
-            subtitle="Accounts receivable"
-            icon={AlertTriangle}
-            colorScheme="amber"
-          />
-        </>
-      );
-    }
-
-    if (userRole === 'lab_technician') {
-      return (
-        <>
-          <StatCard
-            title="Pending Collection"
-            value={metrics.pendingCollectionSamples}
-            subtitle="Tubes to accession"
-            icon={FlaskConical}
-            colorScheme="amber"
-          />
-          <StatCard
-            title="In Analyzer Analysis"
-            value={metrics.inAnalysisSamples}
-            subtitle="Active instrument runs"
-            icon={TestTube2}
-            colorScheme="purple"
-          />
-          <StatCard
-            title="Drafted Findings"
-            value={metrics.pendingReviewReports}
-            subtitle="Ready for pathologist review"
-            icon={FileText}
-            colorScheme="cyan"
-          />
-        </>
-      );
-    }
-
-    if (userRole === 'pathologist' || userRole === 'report_reviewer') {
-      return (
-        <>
-          <StatCard
-            title="Pending Verification"
-            value={metrics.pendingReviewReports}
-            subtitle="Awaiting physician signature"
-            icon={FileText}
-            colorScheme="amber"
-          />
-          <StatCard
-            title="Signed & Released"
-            value={metrics.releasedReports}
-            subtitle="Dispatched diagnostic reports"
-            icon={FileCheck2}
-            colorScheme="green"
-          />
-          <StatCard
-            title="Specimens in Processing"
-            value={metrics.inAnalysisSamples}
-            subtitle="Under technician investigation"
-            icon={Microscope}
-            colorScheme="blue"
-          />
-        </>
-      );
-    }
-
-    // Default: Lab Admin (Full Scope)
-    return (
-      <>
+    // Staff metric (if role has users:view)
+    if (hasPermission('users:view')) {
+      cards.push(
         <StatCard
+          key="staff"
           title="Total Staff"
           value={metrics.totalStaff ?? dashboardData?.staff?.length ?? 0}
           subtitle="Registered team members"
           icon={Users}
           colorScheme="blue"
         />
+      );
+    }
+
+    // Patient metric (if role has patients:view)
+    if (hasPermission('patients:view')) {
+      cards.push(
         <StatCard
-          title="Total Patients"
+          key="patients"
+          title="Total Registered Patients"
           value={metrics.totalPatients}
-          subtitle="Directory records"
+          subtitle="Accessioned directory profiles"
           icon={Users}
           colorScheme="cyan"
         />
+      );
+    }
+
+    // Lab Orders metrics (if role has orders:view)
+    if (hasPermission('orders:view')) {
+      cards.push(
         <StatCard
-          title="Lab Orders"
+          key="orders"
+          title="Total Lab Orders"
           value={metrics.totalOrders}
-          subtitle="All requisitions"
+          subtitle="Requisitions logged"
           icon={ClipboardList}
           colorScheme="purple"
         />
+      );
+      cards.push(
         <StatCard
-          title="Pending Specimen"
+          key="today-pending-orders"
+          title="Pending Orders"
+          value={todaySummary.pendingOrders ?? metrics.pendingOrders ?? 0}
+          subtitle="Awaiting sample or processing"
+          icon={Clock}
+          colorScheme="amber"
+        />
+      );
+    }
+
+    // Specimen / Sample metrics (if role has samples:view, samples:collect, or samples:process)
+    if (hasPermission(['samples:view', 'samples:collect', 'samples:process'])) {
+      cards.push(
+        <StatCard
+          key="pending-samples"
+          title="Samples Awaiting Draw"
           value={metrics.pendingCollectionSamples}
-          subtitle="Uncollected tubes"
+          subtitle="Pending phlebotomy intake"
           icon={FlaskConical}
           colorScheme="amber"
         />
+      );
+      cards.push(
         <StatCard
-          title="Active Runs"
+          key="analysis-samples"
+          title="In Analyzer Analysis"
           value={metrics.inAnalysisSamples}
-          subtitle="Analyzer runs"
+          subtitle="Active instrument runs"
           icon={TestTube2}
           colorScheme="purple"
         />
+      );
+    }
+
+    // Reports / Review metrics (if role has reports:view, reports:create, reports:verify, or reports:release)
+    if (hasPermission(['reports:view', 'reports:create', 'reports:verify', 'reports:release'])) {
+      cards.push(
         <StatCard
+          key="pending-reports"
           title="Pending Sign-off"
           value={metrics.pendingReviewReports}
-          subtitle="Pathologist review"
+          subtitle="Pathologist review queue"
           icon={FileText}
           colorScheme="red"
         />
+      );
+      cards.push(
         <StatCard
+          key="released-reports"
           title="Released Reports"
           value={metrics.releasedReports}
-          subtitle="Signed findings"
+          subtitle="Signed diagnostic findings"
           icon={FileCheck2}
           colorScheme="green"
         />
+      );
+    }
+
+    // Billing / Financial metrics (if role has billing:view)
+    if (hasPermission('billing:view')) {
+      cards.push(
         <StatCard
-          title="Total Revenue"
+          key="revenue"
+          title="Settled Revenue"
           value={`$${metrics.totalRevenue.toLocaleString()}`}
-          subtitle="Settled receipts"
+          subtitle="Recorded receipts"
           icon={CreditCard}
           colorScheme="teal"
         />
+      );
+      cards.push(
         <StatCard
-          title="Outstanding"
+          key="outstanding"
+          title="Outstanding Balance"
           value={`$${metrics.totalOutstanding.toLocaleString()}`}
-          subtitle="Unpaid claims"
+          subtitle="Accounts receivable"
           icon={AlertTriangle}
           colorScheme="slate"
         />
-      </>
-    );
+      );
+    }
+
+    // If no clinical metrics cards match this custom role, show clean workstation banner
+    if (cards.length === 0) {
+      return (
+        <div
+          style={{
+            gridColumn: '1 / -1',
+            background: 'white',
+            borderRadius: 'var(--radius-lg)',
+            padding: '1.75rem',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'var(--shadow-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+          }}
+        >
+          <div
+            style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: 'var(--primary-50)',
+              color: 'var(--primary-blue)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <ShieldCheck size={26} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--slate-900)', margin: '0 0 4px 0' }}>
+              Laboratory Workstation • {headerInfo.badge}
+            </h3>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--slate-600)', margin: 0 }}>
+              Your workspace is active. Use the sidebar navigation to access your authorized laboratory functions ({roleDef?.navigationItems?.join(', ') || 'dashboard'}).
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return cards;
   };
 
   const workflowSteps = [
@@ -394,8 +381,8 @@ export function DashboardPage() {
         title={headerInfo.title}
         description={headerInfo.description}
         actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {(userRole === 'receptionist' || userRole === 'lab_admin') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {hasPermission(['patients:create', 'orders:create']) && (
               <Link
                 to="/patients?register=true"
                 className="btn btn-primary btn-sm"
@@ -403,6 +390,26 @@ export function DashboardPage() {
               >
                 <Users size={14} />
                 <span>New Patient Intake & Order</span>
+              </Link>
+            )}
+            {hasPermission(['samples:collect', 'samples:process']) && (
+              <Link
+                to="/samples"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <FlaskConical size={14} />
+                <span>Specimens</span>
+              </Link>
+            )}
+            {hasPermission(['reports:create', 'reports:verify']) && (
+              <Link
+                to="/reports"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <FileText size={14} />
+                <span>Diagnostic Reports</span>
               </Link>
             )}
             <span
@@ -441,7 +448,8 @@ export function DashboardPage() {
       )}
 
       {/* Today's Lab Orders Summary Section */}
-      <section style={{ marginBottom: '1.5rem' }}>
+      {hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
+        <section style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Calendar size={18} style={{ color: 'var(--primary-blue)' }} />
@@ -498,6 +506,7 @@ export function DashboardPage() {
           />
         </div>
       </section>
+      )}
 
       {/* Role-Specific Metrics Grid */}
       <section>
@@ -507,113 +516,117 @@ export function DashboardPage() {
       </section>
 
       {/* Laboratory Workflow Pipeline Summary */}
-      <section className="card">
-        <div className="card-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Microscope size={18} style={{ color: 'var(--primary-600)' }} />
-            <h2 className="card-title">Laboratory Specimen Pipeline</h2>
-          </div>
-          <span className="badge badge-teal">Live Tenant Pipeline</span>
-        </div>
-
-        <div className="workflow-pipeline">
-          {workflowSteps.map((step) => (
-            <div
-              key={step.name}
-              className={`workflow-step ${step.status === 'completed' ? 'completed' : ''} ${step.status === 'current' ? 'current' : ''}`}
-            >
-              <div className="workflow-icon-bubble">
-                {step.status === 'completed' ? (
-                  <CheckCircle2 size={20} />
-                ) : step.status === 'current' ? (
-                  <FlaskConical size={20} />
-                ) : (
-                  <Clock size={20} />
-                )}
-              </div>
-              <span className="workflow-step-name">{step.name}</span>
-              <span className="workflow-step-count">{step.count}</span>
+      {hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
+        <section className="card">
+          <div className="card-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Microscope size={18} style={{ color: 'var(--primary-600)' }} />
+              <h2 className="card-title">Laboratory Specimen Pipeline</h2>
             </div>
-          ))}
-        </div>
-      </section>
+            <span className="badge badge-teal">Live Tenant Pipeline</span>
+          </div>
+
+          <div className="workflow-pipeline">
+            {workflowSteps.map((step) => (
+              <div
+                key={step.name}
+                className={`workflow-step ${step.status === 'completed' ? 'completed' : ''} ${step.status === 'current' ? 'current' : ''}`}
+              >
+                <div className="workflow-icon-bubble">
+                  {step.status === 'completed' ? (
+                    <CheckCircle2 size={20} />
+                  ) : step.status === 'current' ? (
+                    <FlaskConical size={20} />
+                  ) : (
+                    <Clock size={20} />
+                  )}
+                </div>
+                <span className="workflow-step-name">{step.name}</span>
+                <span className="workflow-step-count">{step.count}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Recent Activity Table */}
-      <section className="card">
-        <div className="card-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ClipboardList size={18} style={{ color: 'var(--primary-600)' }} />
-            <h2 className="card-title">Recent Laboratory Activity</h2>
+      {hasPermission('orders:view') && (
+        <section className="card">
+          <div className="card-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ClipboardList size={18} style={{ color: 'var(--primary-600)' }} />
+              <h2 className="card-title">Recent Laboratory Activity</h2>
+            </div>
+            <span className="badge badge-blue">
+              {recentOrders.length} {recentOrders.length === 1 ? 'Record' : 'Records'}
+            </span>
           </div>
-          <span className="badge badge-blue">
-            {recentOrders.length} {recentOrders.length === 1 ? 'Record' : 'Records'}
-          </span>
-        </div>
 
-        <div className="table-container">
-          <table className="lms-table">
-            <thead>
-              <tr>
-                <th>Order #</th>
-                <th>Patient / MRN</th>
-                <th>Diagnostic Tests</th>
-                <th>Priority</th>
-                <th>Status</th>
-                <th>Payment</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentOrders.length === 0 ? (
+          <div className="table-container">
+            <table className="lms-table">
+              <thead>
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
-                    No recent orders in this laboratory yet. Use the sidebar to create new requisitions.
-                  </td>
+                  <th>Order #</th>
+                  <th>Patient / MRN</th>
+                  <th>Diagnostic Tests</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Payment</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              ) : (
-                recentOrders.map((order) => (
-                  <tr key={order.orderId || order.orderNumber}>
-                    <td>
-                      <strong style={{ color: 'var(--primary-700)', fontFamily: 'monospace' }}>
-                        {order.orderNumber}
-                      </strong>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 600 }}>{order.patientName}</span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{order.patientMrn}</span>
-                      </div>
-                    </td>
-                    <td style={{ maxWidth: '240px' }}>
-                      {order.tests?.map((t) => t.name || t.testCode).join(', ') || 'Diagnostic Panel'}
-                    </td>
-                    <td>{getPriorityBadge(order.priority)}</td>
-                    <td>{getStatusBadge(order.status)}</td>
-                    <td>
-                      <span className={`badge ${order.paymentStatus === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                        {order.paymentStatus || 'unpaid'}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="btn btn-secondary btn-sm"
-                        title="Inspect order details"
-                      >
-                        <Eye size={13} />
-                        <span>View</span>
-                      </button>
+              </thead>
+              <tbody>
+                {recentOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
+                      No recent orders in this laboratory yet. Use the sidebar to create new requisitions.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                ) : (
+                  recentOrders.map((order) => (
+                    <tr key={order.orderId || order.orderNumber}>
+                      <td>
+                        <strong style={{ color: 'var(--primary-700)', fontFamily: 'monospace' }}>
+                          {order.orderNumber}
+                        </strong>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 600 }}>{order.patientName}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{order.patientMrn}</span>
+                        </div>
+                      </td>
+                      <td style={{ maxWidth: '240px' }}>
+                        {order.tests?.map((t) => t.name || t.testCode).join(', ') || 'Diagnostic Panel'}
+                      </td>
+                      <td>{getPriorityBadge(order.priority)}</td>
+                      <td>{getStatusBadge(order.status)}</td>
+                      <td>
+                        <span className={`badge ${order.paymentStatus === 'paid' ? 'badge-success' : 'badge-warning'}`}>
+                          {order.paymentStatus || 'unpaid'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() => setSelectedOrder(order)}
+                          className="btn btn-secondary btn-sm"
+                          title="Inspect order details"
+                        >
+                          <Eye size={13} />
+                          <span>View</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-      {/* Laboratory Staff & Team Members Section for Lab Admin */}
-      {userRole === 'lab_admin' && (
+      {/* Laboratory Staff & Team Members Section */}
+      {hasPermission('users:view') && (
         <section className="card" style={{ marginTop: '1.25rem' }}>
           <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

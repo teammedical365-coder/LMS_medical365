@@ -110,6 +110,23 @@ class RoleController {
       next(err);
     }
   }
+
+  /**
+   * Delete custom role
+   * DELETE /api/v1/tenants/:tenantId/roles/:roleId
+   */
+  async deleteRole(req, res, next) {
+    try {
+      const { tenantId, roleId } = req.params;
+      const result = await roleService.deleteRole(tenantId, roleId, req.user);
+      return ApiResponse.success(res, result, 'Role deleted successfully');
+    } catch (err) {
+      if (err instanceof RoleServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
 }
 
 export const roleController = new RoleController();

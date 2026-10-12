@@ -28,6 +28,7 @@ import {
   FileCheck,
   Users as UsersIcon,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
@@ -212,6 +213,42 @@ export function UsersPage() {
     } catch (err) {
       setErrorBanner(err.response?.data?.message || err.message || 'Failed to update role status.');
     }
+  };
+
+  // Delete Custom Role
+  const handleDeleteRole = async (role) => {
+    if (role.code === 'lab_admin') {
+      alert('The primary Laboratory Administrator role cannot be deleted.');
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the role "${role.name}" (${role.code})? Staff assigned to this role must be reassigned first.`)) {
+      return;
+    }
+    try {
+      await roleService.deleteRole(tenantId, role.roleId);
+      setSuccessBanner(`Role "${role.name}" deleted successfully.`);
+      await loadData();
+    } catch (err) {
+      setErrorBanner(err.response?.data?.message || err.message || 'Failed to delete role.');
+    }
+  };
+
+  // Master Permission Select / Clear All
+  const handleSelectAllPermissions = () => {
+    const all = [];
+    Object.entries(matrixData.modules || {}).forEach(([mod, def]) => {
+      (def.actions || []).forEach((act) => all.push(`${mod}:${act}`));
+    });
+    setRoleForm((prev) => ({ ...prev, permissions: all }));
+  };
+
+  const handleClearAllPermissions = () => {
+    setRoleForm((prev) => ({ ...prev, permissions: [] }));
+  };
+
+  const handleSelectAllNavItems = () => {
+    const all = (matrixData.navigationItems || []).map((n) => n.key);
+    setRoleForm((prev) => ({ ...prev, navigationItems: all }));
   };
 
   // Create Staff User
@@ -576,22 +613,34 @@ export function UsersPage() {
                     </div>
                   </div>
 
-                  <div style={{ borderTop: '1px solid var(--slate-100)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ borderTop: '1px solid var(--slate-100)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     <button
                       className="btn btn-secondary btn-sm"
                       onClick={() => handleOpenRoleModal(r)}
                     >
                       <Edit2 size={13} />
-                      <span>Edit Permissions</span>
+                      <span>Edit Role & Permissions</span>
                     </button>
                     {r.code !== 'lab_admin' && (
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ color: r.isActive ? 'var(--danger-600)' : 'var(--mint-text)' }}
-                        onClick={() => handleToggleRoleStatus(r)}
-                      >
-                        {r.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: r.isActive ? 'var(--warning-700, #b45309)' : 'var(--mint-text)' }}
+                          onClick={() => handleToggleRoleStatus(r)}
+                          title={r.isActive ? 'Deactivate role' : 'Activate role'}
+                        >
+                          {r.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: 'var(--danger-600)' }}
+                          onClick={() => handleDeleteRole(r)}
+                          title="Delete custom role"
+                        >
+                          <Trash2 size={13} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -694,9 +743,19 @@ export function UsersPage() {
               </div>
 
               <div>
-                <label className="form-label" style={{ marginBottom: '0.5rem' }}>
-                  Visible Sidebar Navigation Items
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '6px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    Visible Sidebar Navigation Items
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                    onClick={handleSelectAllNavItems}
+                  >
+                    Select All Modules
+                  </button>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
                   {(matrixData.navigationItems || []).map((nav) => (
                     <label
@@ -727,12 +786,30 @@ export function UsersPage() {
 
             {/* Granular Permission Matrix */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
                 <h4 style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--slate-900)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <FileCheck size={18} style={{ color: 'var(--primary-blue)' }} />
                   <span>Module Permission Matrix</span>
                 </h4>
-                <span className="badge badge-teal">{roleForm.permissions.length} Actions Granted</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={handleSelectAllPermissions}
+                  >
+                    Select All Actions
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={handleClearAllPermissions}
+                  >
+                    Clear All
+                  </button>
+                  <span className="badge badge-teal">{roleForm.permissions.length} Actions Granted</span>
+                </div>
               </div>
 
               <div
