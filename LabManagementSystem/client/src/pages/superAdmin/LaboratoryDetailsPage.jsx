@@ -1,6 +1,6 @@
 /**
  * Lab Management System (LMS) - Platform Super Admin Laboratory Details & Provisioning Control
- * Medical365 Aesthetic: White rounded cards, light borders, crisp typography, and lifecycle controls
+ * Medical365 Aesthetic: 3D Soft Light Hero Banner, Integrated Profile Details, Portal Controls, Staff Directory
  */
 
 import React, { useState, useEffect } from 'react';
@@ -22,16 +22,12 @@ import {
   Mail,
   Phone,
   Edit,
-  History,
   XCircle,
-  Server,
   Copy,
   Users,
-  UserCheck,
   UserPlus,
   ExternalLink,
 } from 'lucide-react';
-import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
 import StatusBanner from '../../components/common/StatusBanner';
 import LoadingState from '../../components/common/LoadingState';
@@ -44,7 +40,6 @@ export function LaboratoryDetailsPage() {
   const { id } = useParams();
 
   const [lab, setLab] = useState(null);
-  const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -77,7 +72,6 @@ export function LaboratoryDetailsPage() {
 
   // Staff Modal State
   const [staffModalOpen, setStaffModalOpen] = useState(false);
-  const [availableRoles, setAvailableRoles] = useState([]);
   const [staffFormData, setStaffFormData] = useState({
     fullName: '',
     email: '',
@@ -124,24 +118,8 @@ export function LaboratoryDetailsPage() {
         timezone: data.timezone || 'UTC',
         locale: data.locale || 'en-US',
       });
-
-      // Also fetch audit logs for this tenant
-      try {
-        const auditRes = await superAdminService.getAuditLogs({ tenantId: data.tenantId, limit: 10 });
-        setAuditLogs(auditRes.items || []);
-      } catch (err) {
-        console.warn('Could not load tenant audit logs:', err);
-      }
-
-      // Load master roles catalog for staff provisioning dropdown
-      try {
-        const rolesRes = await superAdminService.listRoles().catch(() => []);
-        setAvailableRoles(rolesRes || []);
-      } catch (err) {
-        console.warn('Could not load master roles:', err);
-      }
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Failed to load laboratory details';
+      const msg = err.response?.data?.message || err.message || 'Failed to load laboratory';
       const status = err.response?.status;
       setError({ message: msg, status });
     } finally {
@@ -153,112 +131,85 @@ export function LaboratoryDetailsPage() {
     fetchLabDetails();
   }, [id]);
 
-  // Handle Lifecycle Status Transition
   const handleOpenStatusModal = (status) => {
     setTargetStatus(status);
     setStatusReason('');
     setStatusModalOpen(true);
   };
 
-  const handleConfirmStatusTransition = async () => {
+  const handleStatusSubmit = async (e) => {
+    e.preventDefault();
     setActionLoading(true);
     setActionFeedback(null);
     try {
-      const updated = await superAdminService.transitionStatus(lab.tenantId, targetStatus, statusReason);
-      setLab(updated);
+      await superAdminService.updateLaboratoryStatus(lab.tenantId, {
+        status: targetStatus,
+        reason: statusReason,
+      });
       setStatusModalOpen(false);
       setActionFeedback({
         type: 'success',
         message: `Laboratory status successfully transitioned to ${targetStatus}.`,
       });
-      // Refresh audit logs
-      const auditRes = await superAdminService.getAuditLogs({ tenantId: lab.tenantId, limit: 10 });
-      setAuditLogs(auditRes.items || []);
-    } catch (err) {
-      setActionFeedback({
-        type: 'warning',
-        message: err.response?.data?.message || err.message || 'Status transition failed',
-      });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Handle Idempotent Database Provisioning Retry
-  const handleRetryProvisioning = async () => {
-    setActionLoading(true);
-    setActionFeedback(null);
-    try {
-      const result = await superAdminService.retryProvisioning(lab.tenantId);
-      setActionFeedback({
-        type: 'success',
-        message: `Tenant logical database provisioning succeeded: ${result.provisioningStatus}. Database: ${result.databaseName}`,
-      });
       fetchLabDetails();
     } catch (err) {
       setActionFeedback({
         type: 'warning',
-        message: err.response?.data?.message || err.message || 'Provisioning retry failed',
+        message: err.response?.data?.message || err.message || 'Failed to transition status',
       });
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Handle Domain Verification
-  const handleVerifyDomain = async (domain) => {
-    setActionLoading(true);
-    setActionFeedback(null);
-    try {
-      await superAdminService.verifyDomain(lab.tenantId, domain);
-      setActionFeedback({
-        type: 'success',
-        message: `Domain ${domain} has been verified for tenant resolution.`,
-      });
-      fetchLabDetails();
-    } catch (err) {
-      setActionFeedback({
-        type: 'warning',
-        message: err.response?.data?.message || err.message || 'Domain verification failed',
-      });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Handle Profile Update
-  const handleSaveProfile = async (e) => {
+  const handleEditSubmit = async (e) => {
     e.preventDefault();
     setActionLoading(true);
     setActionFeedback(null);
     try {
-      const updated = await superAdminService.updateLaboratory(lab.tenantId, editFormData);
-      setLab(updated);
+      await superAdminService.updateLaboratory(lab.tenantId, editFormData);
       setEditModalOpen(false);
       setActionFeedback({
         type: 'success',
-        message: 'Laboratory profile successfully updated.',
+        message: 'Laboratory profile details updated successfully.',
       });
+      fetchLabDetails();
     } catch (err) {
       setActionFeedback({
         type: 'warning',
-        message: err.response?.data?.message || err.message || 'Profile update failed',
+        message: err.response?.data?.message || err.message || 'Failed to update profile',
       });
     } finally {
       setActionLoading(false);
     }
   };
 
-  if (loading) return <LoadingState message="Loading laboratory profile and database status..." />;
+  const handleVerifyDomain = async (domain) => {
+    setActionLoading(true);
+    setActionFeedback(null);
+    try {
+      await superAdminService.verifyDomainMapping(lab.tenantId, domain);
+      setActionFeedback({
+        type: 'success',
+        message: `Hostname ${domain} verified and activated.`,
+      });
+      fetchLabDetails();
+    } catch (err) {
+      setActionFeedback({
+        type: 'warning',
+        message: err.response?.data?.message || err.message || 'Domain verification check failed',
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  if (loading) return <LoadingState message="Loading laboratory profile and portal access..." />;
   if (error && (error.status === 401 || error.status === 403)) {
     return <AdminSecurityBoundary errorDetails={error.message} />;
   }
   if (error) return <ErrorState title="Laboratory Not Found" message={error.message} onRetry={fetchLabDetails} />;
   if (!lab) return null;
-
-  const dbState = lab.database || {};
-  const isProvReady = dbState.provisioningStatus === 'READY';
-  const isProvFailed = dbState.provisioningStatus === 'FAILED';
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -267,15 +218,6 @@ export function LaboratoryDetailsPage() {
       case 'SUSPENDED': return <Badge variant="purple">Suspended</Badge>;
       case 'INACTIVE': return <Badge variant="slate">Inactive</Badge>;
       default: return <Badge variant="slate">{status}</Badge>;
-    }
-  };
-
-  const getProvisioningBadge = (status) => {
-    switch (status) {
-      case 'READY': return <Badge variant="teal">Ready</Badge>;
-      case 'IN_PROGRESS': return <Badge variant="blue">In Progress</Badge>;
-      case 'FAILED': return <Badge variant="danger">Failed</Badge>;
-      case 'NOT_STARTED':
     }
   };
 
@@ -301,31 +243,352 @@ export function LaboratoryDetailsPage() {
     }
   };
 
+  const portalUrl = `${window.location.origin}/lab/${(lab.code || lab.tenantId).toLowerCase()}`;
+
   return (
-    <>
-      <PageHeader
-        title={lab.name}
-        description={`Master Tenant ID: ${lab.tenantId} | Unique Clinical Code: ${lab.code}`}
-        actions={
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Link to="/super-admin/laboratories" className="btn btn-secondary">
-              <ArrowLeft size={14} />
-              <span>Laboratories</span>
-            </Link>
-            <button className="btn btn-secondary" onClick={fetchLabDetails} title="Refresh details">
-              <RefreshCw size={14} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* 3D-Styled Soft Eye-Friendly Hero Banner with Laboratory Profile Details */}
+      <div
+        className="lab-details-hero-banner"
+        style={{
+          background: 'linear-gradient(135deg, #ffffff 0%, #f0f7ff 45%, #e0f2fe 100%)',
+          borderRadius: '16px',
+          border: '1.5px solid #bae6fd',
+          padding: '1.5rem 1.75rem',
+          boxShadow: '0 12px 28px -6px rgba(2, 132, 199, 0.12), 0 4px 12px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.95)',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Soft 3D ambient lighting orbs */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '-30%',
+            right: '-10%',
+            width: '320px',
+            height: '320px',
+            background: 'radial-gradient(circle, rgba(186, 230, 253, 0.5) 0%, rgba(224, 242, 254, 0) 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '-35%',
+            left: '20%',
+            width: '280px',
+            height: '280px',
+            background: 'radial-gradient(circle, rgba(224, 231, 255, 0.4) 0%, rgba(255, 255, 255, 0) 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Top Action & Navigation Row inside Banner */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            marginBottom: '1.25rem',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          <Link
+            to="/super-admin/laboratories"
+            className="btn btn-secondary btn-sm"
+            style={{
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)',
+              fontWeight: 600,
+              color: 'var(--slate-700)',
+            }}
+          >
+            <ArrowLeft size={14} />
+            <span>Laboratories</span>
+          </Link>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Lifecycle Action Button */}
+            {lab.status === 'ACTIVE' && (
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ color: '#b45309', borderColor: '#fde68a', background: '#ffffff', boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)' }}
+                disabled={actionLoading}
+                onClick={() => handleOpenStatusModal('SUSPENDED')}
+              >
+                <Pause size={14} />
+                <span>Suspend Laboratory</span>
+              </button>
+            )}
+
+            {lab.status === 'SUSPENDED' && (
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={actionLoading}
+                onClick={() => handleOpenStatusModal('ACTIVE')}
+              >
+                <Play size={14} />
+                <span>Reactivate Laboratory</span>
+              </button>
+            )}
+
+            {lab.status === 'PENDING' && (
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={actionLoading}
+                onClick={() => handleOpenStatusModal('ACTIVE')}
+              >
+                <CheckCircle2 size={14} />
+                <span>Activate Laboratory</span>
+              </button>
+            )}
+
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ background: '#ffffff', border: '1px solid #cbd5e1', boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)' }}
+              onClick={fetchLabDetails}
+              title="Refresh details"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               <span>Refresh</span>
             </button>
-            <button className="btn btn-secondary" onClick={() => setEditModalOpen(true)}>
+
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ background: '#ffffff', border: '1px solid #cbd5e1', boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)' }}
+              onClick={() => setEditModalOpen(true)}
+            >
               <Edit size={14} />
               <span>Edit Profile</span>
             </button>
           </div>
-        }
-      />
+        </div>
+
+        {/* Laboratory Title & Primary Identification */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            marginBottom: '1.25rem',
+            position: 'relative',
+            zIndex: 1,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div
+            style={{
+              width: '50px',
+              height: '50px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.3rem',
+              fontWeight: 800,
+              boxShadow: '0 6px 14px rgba(37, 99, 235, 0.22)',
+            }}
+          >
+            {(lab.name || 'L').charAt(0).toUpperCase()}
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <h1
+                style={{
+                  fontSize: '1.6rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  margin: 0,
+                  letterSpacing: '-0.02em',
+                  lineHeight: 1.2,
+                }}
+              >
+                {lab.name}
+              </h1>
+              {getStatusBadge(lab.status)}
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  background: '#e0f2fe',
+                  color: '#0369a1',
+                  padding: '2px 8px',
+                  borderRadius: '5px',
+                  border: '1px solid #bae6fd',
+                }}
+              >
+                {lab.code}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '4px',
+                fontSize: '0.785rem',
+                color: '#64748b',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>Master Tenant ID: <code style={{ color: '#0f172a', fontWeight: 600 }}>{lab.tenantId}</code></span>
+              <span>•</span>
+              <span>Plan: <strong style={{ color: '#0284c7' }}>{lab.subscriptionPlan ? lab.subscriptionPlan.toUpperCase() : 'STANDARD'}</strong></span>
+              <span>•</span>
+              <span>Registered: <strong>{new Date(lab.createdAt || Date.now()).toLocaleDateString()}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {/* Laboratory Profile Details Grid (Embedded directly inside this 3D Banner) */}
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '0.75rem',
+            paddingTop: '1rem',
+            borderTop: '1px solid rgba(186, 230, 253, 0.65)',
+          }}
+        >
+          {/* Facility Name */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Full Facility Name
+            </div>
+            <div
+              style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.875rem', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              title={lab.name}
+            >
+              {lab.name}
+            </div>
+          </div>
+
+          {/* Legal Registered Entity */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Legal Registered Entity
+            </div>
+            <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem', marginTop: '3px' }}>
+              {lab.legalName || 'N/A'}
+            </div>
+          </div>
+
+          {/* Primary Email */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Primary Email
+            </div>
+            <div
+              style={{ fontWeight: 600, color: '#0284c7', fontSize: '0.85rem', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              title={lab.contactEmail || lab.email}
+            >
+              {lab.contactEmail || lab.email || 'N/A'}
+            </div>
+          </div>
+
+          {/* Contact Phone */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Contact Phone
+            </div>
+            <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem', marginTop: '3px' }}>
+              {lab.contactPhone || 'N/A'}
+            </div>
+          </div>
+
+          {/* Timezone & Locale */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Timezone & Locale
+            </div>
+            <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem', marginTop: '3px' }}>
+              {lab.timezone || 'UTC'} ({lab.locale || 'en-US'})
+            </div>
+          </div>
+
+          {/* Physical Address */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(186, 230, 253, 0.75)',
+              borderRadius: '10px',
+              padding: '0.75rem 0.95rem',
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.04)',
+            }}
+          >
+            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Physical Location
+            </div>
+            <div
+              style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              title={[lab.address?.street, lab.address?.city, lab.address?.state, lab.address?.postalCode, lab.address?.country].filter(Boolean).join(', ')}
+            >
+              {[lab.address?.street, lab.address?.city, lab.address?.state, lab.address?.postalCode, lab.address?.country].filter(Boolean).join(', ') || 'N/A'}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {actionFeedback && (
-        <div style={{ marginBottom: '1.25rem' }}>
+        <div>
           <StatusBanner
             type={actionFeedback.type}
             badgeText="Super Admin Action"
@@ -335,211 +598,93 @@ export function LaboratoryDetailsPage() {
       )}
 
       {/* Dedicated Whitelabel Portal & Staff Sign-In Card */}
-      {lab && (
-        <div
-          className="card"
-          style={{
-            marginBottom: '1.25rem',
-            background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #eff6ff 100%)',
-            border: '1px solid #bae6fd',
-          }}
-        >
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'linear-gradient(135deg, var(--primary-blue), #0284c7)',
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)',
-                }}
-              >
-                <Globe size={22} />
-              </div>
-              <div>
-                <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#0369a1' }}>
-                  Dedicated Whitelabel Portal URL
-                </div>
-                <div style={{ fontSize: '0.8125rem', color: '#0c4a6e' }}>
-                  Laboratory Administrators, pathologists, technicians, and accessioners sign in directly through this isolated URL.
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                readOnly
-                value={`${window.location.origin}/lab/${(lab.code || lab.tenantId).toLowerCase()}`}
-                className="form-input"
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: '0.8125rem',
-                  minWidth: '290px',
-                  background: 'white',
-                  fontWeight: 600,
-                  color: 'var(--primary-800)',
-                }}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => copyPortalUrl(`${window.location.origin}/lab/${(lab.code || lab.tenantId).toLowerCase()}`)}
-                title="Copy Portal URL to Clipboard"
-              >
-                {copiedPortal ? (
-                  <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
-                ) : (
-                  <>
-                    <Copy size={14} />
-                    <span>Copy URL</span>
-                  </>
-                )}
-              </button>
-              <a
-                href={`/lab/${(lab.code || lab.tenantId).toLowerCase()}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary"
-                title="Open Whitelabel Portal in a new tab"
-              >
-                <span>Launch Portal</span>
-                <Globe size={14} />
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Primary Lifecycle & Controls Header Card */}
-      <div className="card" style={{ marginBottom: '1.25rem' }}>
+      <div
+        className="card"
+        style={{
+          background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #eff6ff 100%)',
+          border: '1px solid #bae6fd',
+          borderRadius: '14px',
+          padding: '1.25rem 1.5rem',
+          boxShadow: '0 4px 12px rgba(2, 132, 199, 0.06)',
+        }}
+      >
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Operational Lifecycle
-              </div>
-              <div style={{ marginTop: '4px' }}>{getStatusBadge(lab.status)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, var(--primary-blue), #0284c7)',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)',
+              }}
+            >
+              <Globe size={22} />
             </div>
-
-            <div style={{ height: '36px', width: '1px', background: 'var(--border-subtle)' }} />
-
             <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Tenant DB Provisioning
+              <div style={{ fontSize: '0.925rem', fontWeight: 700, color: '#0369a1' }}>
+                Dedicated Whitelabel Portal URL
               </div>
-              <div style={{ marginTop: '4px' }}>{getProvisioningBadge(dbState.provisioningStatus)}</div>
-            </div>
-
-            <div style={{ height: '36px', width: '1px', background: 'var(--border-subtle)' }} />
-
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Logical DB Name
-              </div>
-              <div style={{ marginTop: '4px', fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary-700)', fontSize: '0.8125rem' }}>
-                {dbState.databaseName || `lms_lab_${lab.tenantId}`}
+              <div style={{ fontSize: '0.8rem', color: '#0c4a6e' }}>
+                Laboratory Administrators, pathologists, technicians, and accessioners sign in directly through this isolated URL.
               </div>
             </div>
           </div>
 
-          {/* Action Buttons based on state machine */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {/* Retry Database Provisioning button if not ready */}
-            {(!isProvReady || isProvFailed) && (
-              <button
-                className="btn btn-secondary"
-                style={{ color: '#dc2626', borderColor: '#fca5a5' }}
-                disabled={actionLoading}
-                onClick={handleRetryProvisioning}
-                title="Retry tenant logical database provisioning"
-              >
-                <RefreshCw size={15} className={actionLoading ? 'animate-spin' : ''} />
-                <span>Retry DB Provisioning</span>
-              </button>
-            )}
-
-            {lab.status === 'PENDING' && (
-              <button
-                className="btn btn-primary"
-                disabled={actionLoading || !isProvReady}
-                onClick={() => handleOpenStatusModal('ACTIVE')}
-                title={!isProvReady ? 'Database provisioning must be READY before activating laboratory' : 'Activate laboratory'}
-              >
-                <CheckCircle2 size={16} />
-                <span>Activate Laboratory</span>
-              </button>
-            )}
-
-            {lab.status === 'ACTIVE' && (
-              <button
-                className="btn btn-secondary"
-                style={{ color: '#b45309', borderColor: '#fde68a' }}
-                disabled={actionLoading}
-                onClick={() => handleOpenStatusModal('SUSPENDED')}
-              >
-                <Pause size={16} />
-                <span>Suspend Laboratory</span>
-              </button>
-            )}
-
-            {lab.status === 'SUSPENDED' && (
-              <button
-                className="btn btn-primary"
-                disabled={actionLoading}
-                onClick={() => handleOpenStatusModal('ACTIVE')}
-              >
-                <Play size={16} />
-                <span>Reactivate Laboratory</span>
-              </button>
-            )}
-
-            {(lab.status === 'SUSPENDED' || lab.status === 'PENDING') && (
-              <button
-                className="btn btn-secondary"
-                style={{ color: 'var(--slate-600)' }}
-                disabled={actionLoading}
-                onClick={() => handleOpenStatusModal('INACTIVE')}
-              >
-                <XCircle size={16} />
-                <span>Deactivate</span>
-              </button>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              readOnly
+              value={portalUrl}
+              className="form-input"
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '0.8125rem',
+                minWidth: '280px',
+                background: 'white',
+                fontWeight: 600,
+                color: 'var(--primary-800)',
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => copyPortalUrl(portalUrl)}
+              title="Copy Portal URL to Clipboard"
+            >
+              {copiedPortal ? (
+                <span style={{ color: '#059669', fontWeight: 600 }}>Copied!</span>
+              ) : (
+                <>
+                  <Copy size={14} />
+                  <span>Copy URL</span>
+                </>
+              )}
+            </button>
+            <a
+              href={`/lab/${(lab.code || lab.tenantId).toLowerCase()}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary"
+              title="Open Whitelabel Portal in a new tab"
+            >
+              <span>Launch Portal</span>
+              <Globe size={14} />
+            </a>
           </div>
         </div>
-
-        {lab.status === 'PENDING' && !isProvReady && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertTriangle size={16} />
-              <span>
-                <strong>Activation Guard:</strong> This laboratory cannot be activated until its dedicated logical database has finished provisioning successfully.
-              </span>
-            </div>
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={actionLoading}
-              onClick={handleRetryProvisioning}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              <RefreshCw size={13} className={actionLoading ? 'animate-spin' : ''} />
-              <span>Retry Database Provisioning</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Laboratory Staff & Administrative Team Section */}
-      <div className="card" style={{ marginBottom: '1.25rem' }}>
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+      <div className="card" style={{ padding: '1.25rem' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Users size={18} style={{ color: 'var(--primary-blue, #2563eb)' }} />
-            <h2 className="card-title">
+            <h2 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>
               Laboratory Staff & Administrative Team ({lab.staff?.length || 0})
             </h2>
           </div>
@@ -562,11 +707,11 @@ export function LaboratoryDetailsPage() {
         {lab.adminUser && (
           <div
             style={{
-              padding: '1rem',
+              padding: '0.85rem 1rem',
               marginBottom: '1rem',
               background: '#f8fafc',
               border: '1px solid var(--border-subtle, #e2e8f0)',
-              borderRadius: 'var(--radius-md, 8px)',
+              borderRadius: '8px',
               display: 'flex',
               flexWrap: 'wrap',
               justifyContent: 'space-between',
@@ -577,8 +722,8 @@ export function LaboratoryDetailsPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div
                 style={{
-                  width: '42px',
-                  height: '42px',
+                  width: '40px',
+                  height: '40px',
                   borderRadius: '10px',
                   backgroundColor: 'var(--purple-100, #f3e8ff)',
                   color: 'var(--purple-700, #7e22ce)',
@@ -586,19 +731,19 @@ export function LaboratoryDetailsPage() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontWeight: 700,
-                  fontSize: '1.1rem',
+                  fontSize: '1rem',
                 }}
               >
                 {(lab.adminUser.fullName || 'A').charAt(0).toUpperCase()}
               </div>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <strong style={{ fontSize: '0.95rem', color: 'var(--slate-900, #0f172a)' }}>
+                  <strong style={{ fontSize: '0.925rem', color: 'var(--slate-900, #0f172a)' }}>
                     {lab.adminUser.fullName}
                   </strong>
                   <Badge variant="purple">Lab Administrator</Badge>
                 </div>
-                <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600, #475569)', marginTop: '2px' }}>
+                <div style={{ fontSize: '0.785rem', color: 'var(--slate-600, #475569)', marginTop: '2px' }}>
                   <span>Email: <strong>{lab.adminUser.email}</strong></span>
                   {lab.adminUser.phone && <span> • Phone: {lab.adminUser.phone}</span>}
                 </div>
@@ -607,7 +752,7 @@ export function LaboratoryDetailsPage() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <a
-                href={`${window.location.origin}/lab/${lab.code.toLowerCase()}`}
+                href={portalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-secondary btn-sm"
@@ -696,241 +841,65 @@ export function LaboratoryDetailsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>
-        {/* Database Provisioning Card */}
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Database size={18} style={{ color: 'var(--primary-600)' }} />
-              <h2 className="card-title">Dedicated Tenant Database</h2>
-            </div>
-            {getProvisioningBadge(dbState.provisioningStatus)}
-          </div>
-
-          <p style={{ fontSize: '0.8125rem', color: 'var(--slate-600)', marginBottom: '1rem' }}>
-            Sovereign multi-tenant logical database isolation. No patient data, test orders, or clinical records are stored in the platform master database.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8125rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Logical Database Name:</span>
-              <code style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{dbState.databaseName || `lms_lab_${lab.tenantId}`}</code>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Provisioning Mode:</span>
-              <span style={{ fontWeight: 600 }}>
-                {dbState.isLiveDatabase ? (
-                  <span style={{ color: '#059669' }}>● LIVE MONGODB CLUSTER</span>
-                ) : (
-                  <span style={{ color: '#d97706' }}>● OFFLINE SIMULATED STORAGE</span>
-                )}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Strategy:</span>
-              <span style={{ fontWeight: 500 }}>{dbState.provisioningStrategy || 'OFFLINE_SIMULATED_DB'}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Provisioned Collections:</span>
-              <span style={{ fontWeight: 500 }}>
-                {dbState.provisionedCollections?.length || 0} collections initialized
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Last Provisioned:</span>
-              <span style={{ color: 'var(--slate-700)' }}>
-                {dbState.lastProvisionedAt ? new Date(dbState.lastProvisionedAt).toLocaleString() : 'N/A'}
-              </span>
-            </div>
-
-            {dbState.errorMessage && (
-              <div style={{ padding: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)', color: '#b91c1c' }}>
-                <div style={{ fontWeight: 600, marginBottom: '2px' }}>Provisioning Error:</div>
-                <div>{dbState.errorMessage}</div>
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              className="btn btn-secondary btn-sm"
-              disabled={actionLoading}
-              onClick={handleRetryProvisioning}
-            >
-              <RefreshCw size={13} />
-              <span>Retry Database Provisioning (Idempotent)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Domain Mappings Card */}
-        <div className="card">
-          <div className="card-header">
+      {/* Verified Domain Mappings (Rendered only if domains exist) */}
+      {lab.domainMappings && lab.domainMappings.length > 0 && (
+        <div className="card" style={{ padding: '1.25rem' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Globe size={18} style={{ color: 'var(--primary-600)' }} />
-              <h2 className="card-title">Verified Domain Mappings</h2>
+              <h2 className="card-title" style={{ fontSize: '1rem', margin: 0 }}>Verified Domain Mappings</h2>
             </div>
-            <Badge variant="blue">{lab.domainMappings?.length || 0} Domains</Badge>
+            <Badge variant="blue">{lab.domainMappings.length} Domains</Badge>
           </div>
 
           <p style={{ fontSize: '0.8125rem', color: 'var(--slate-600)', marginBottom: '1rem' }}>
             Strict hostname-to-tenant resolution. Arbitrary client tenant headers are explicitly rejected by tenant resolution middleware.
           </p>
 
-          {lab.domainMappings && lab.domainMappings.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {lab.domainMappings.map((dm) => (
-                <div
-                  key={dm.domain}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.75rem',
-                    background: '#f8fafc',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--slate-900)' }}>
-                      {dm.domain}
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', marginTop: '2px' }}>
-                      {dm.isPrimary ? 'Primary Tenant Hostname' : 'Alternate Hostname'}
-                    </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {lab.domainMappings.map((dm) => (
+              <div
+                key={dm.domain}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem',
+                  background: '#f8fafc',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--slate-900)' }}>
+                    {dm.domain}
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {dm.isVerified ? (
-                      <Badge variant="success">Verified</Badge>
-                    ) : (
-                      <>
-                        <Badge variant="amber">Pending Verification</Badge>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          disabled={actionLoading}
-                          onClick={() => handleVerifyDomain(dm.domain)}
-                        >
-                          Verify
-                        </button>
-                      </>
-                    )}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                    {dm.isPrimary ? 'Primary Tenant Hostname' : 'Alternate Hostname'}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--slate-500)', fontSize: '0.8125rem' }}>
-              No custom domain mappings registered for this tenant.
-            </div>
-          )}
-        </div>
 
-        {/* Laboratory Profile Details */}
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Building2 size={18} style={{ color: 'var(--primary-600)' }} />
-              <h2 className="card-title">Laboratory Profile</h2>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8125rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Full Facility Name:</span>
-              <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{lab.name}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Legal Registered Entity:</span>
-              <span style={{ color: 'var(--slate-700)' }}>{lab.legalName || 'N/A'}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Primary Email:</span>
-              <span style={{ color: 'var(--slate-900)' }}>{lab.contactEmail}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Contact Phone:</span>
-              <span style={{ color: 'var(--slate-700)' }}>{lab.contactPhone || 'N/A'}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Time Zone:</span>
-              <span style={{ color: 'var(--slate-700)' }}>{lab.timezone || 'UTC'}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Reporting Locale:</span>
-              <span style={{ color: 'var(--slate-700)' }}>{lab.locale || 'en-US'}</span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ color: 'var(--slate-500)' }}>Subscription Plan:</span>
-              <Badge variant="blue">{lab.subscriptionPlan || 'standard'}</Badge>
-            </div>
-
-            {lab.address && (
-              <div style={{ paddingTop: '0.25rem' }}>
-                <span style={{ color: 'var(--slate-500)' }}>Physical Address:</span>
-                <div style={{ color: 'var(--slate-800)', marginTop: '2px' }}>
-                  {[lab.address.street, lab.address.city, lab.address.state, lab.address.postalCode, lab.address.country]
-                    .filter(Boolean)
-                    .join(', ')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {dm.isVerified ? (
+                    <Badge variant="success">Verified</Badge>
+                  ) : (
+                    <>
+                      <Badge variant="amber">Pending Verification</Badge>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={actionLoading}
+                        onClick={() => handleVerifyDomain(dm.domain)}
+                      >
+                        Verify
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
-
-        {/* Tenant Audit Trail */}
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <History size={18} style={{ color: 'var(--primary-600)' }} />
-              <h2 className="card-title">Tenant Audit Trail</h2>
-            </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Master DB Events</span>
-          </div>
-
-          {auditLogs.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {auditLogs.map((log, idx) => (
-                <div
-                  key={log._id || idx}
-                  style={{
-                    padding: '0.6rem 0.75rem',
-                    borderRadius: 'var(--radius-md)',
-                    background: '#f8fafc',
-                    border: '1px solid var(--border-subtle)',
-                    fontSize: '0.75rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <code style={{ fontWeight: 600, color: 'var(--primary-700)' }}>{log.action}</code>
-                    <span style={{ color: 'var(--slate-400)' }}>
-                      {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div style={{ color: 'var(--slate-600)', marginTop: '3px' }}>
-                    Actor: <strong>{log.actorEmail || 'platform-admin'}</strong> | Status: <strong>{log.status}</strong>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--slate-500)', fontSize: '0.8125rem' }}>
-              No audit events recorded for this laboratory yet.
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Lifecycle Transition Modal */}
       <Modal
@@ -948,21 +917,23 @@ export function LaboratoryDetailsPage() {
           {targetStatus === 'SUSPENDED' && (
             <div className="form-group">
               <label className="form-label" htmlFor="suspendReason">
-                Suspension Reason (Required for compliance)
+                Suspension Reason (Required for Audit Compliance):
               </label>
               <textarea
                 id="suspendReason"
                 className="form-textarea"
                 rows={3}
-                placeholder="e.g. Administrative hold pending regulatory renewal..."
+                placeholder="e.g. Compliance review hold, outstanding billing, or security review..."
                 value={statusReason}
                 onChange={(e) => setStatusReason(e.target.value)}
+                required
               />
             </div>
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '1.25rem' }}>
             <button
+              type="button"
               className="btn btn-secondary"
               onClick={() => setStatusModalOpen(false)}
               disabled={actionLoading}
@@ -970,11 +941,12 @@ export function LaboratoryDetailsPage() {
               Cancel
             </button>
             <button
-              className="btn btn-primary"
-              onClick={handleConfirmStatusTransition}
-              disabled={actionLoading}
+              type="button"
+              className={`btn ${targetStatus === 'SUSPENDED' ? 'btn-danger' : 'btn-primary'}`}
+              disabled={actionLoading || (targetStatus === 'SUSPENDED' && !statusReason.trim())}
+              onClick={handleStatusSubmit}
             >
-              {actionLoading ? 'Transitioning...' : `Confirm ${targetStatus}`}
+              {actionLoading ? 'Processing...' : `Confirm ${targetStatus}`}
             </button>
           </div>
         </div>
@@ -984,22 +956,22 @@ export function LaboratoryDetailsPage() {
       <Modal
         isOpen={editModalOpen}
         onClose={() => setEditModalOpen(false)}
-        title="Update Laboratory Profile"
+        title="Edit Laboratory Profile"
       >
-        <form onSubmit={handleSaveProfile} style={{ padding: '0.5rem 0' }}>
+        <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '0.5rem 0' }}>
           <div className="form-group">
-            <label className="form-label">Laboratory Name</label>
+            <label className="form-label">Laboratory Name *</label>
             <input
               type="text"
               className="form-input"
-              required
               value={editFormData.name}
               onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+              required
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Legal Name</label>
+            <label className="form-label">Legal Registered Entity</label>
             <input
               type="text"
               className="form-input"
@@ -1009,13 +981,13 @@ export function LaboratoryDetailsPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Contact Email</label>
+            <label className="form-label">Primary Contact Email *</label>
             <input
               type="email"
               className="form-input"
-              required
               value={editFormData.contactEmail}
               onChange={(e) => setEditFormData({ ...editFormData, contactEmail: e.target.value })}
+              required
             />
           </div>
 
@@ -1029,9 +1001,9 @@ export function LaboratoryDetailsPage() {
             />
           </div>
 
-          <div className="grid-2">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div className="form-group">
-              <label className="form-label">Time Zone</label>
+              <label className="form-label">Timezone</label>
               <input
                 type="text"
                 className="form-input"
@@ -1050,7 +1022,7 @@ export function LaboratoryDetailsPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '0.5rem' }}>
             <button
               type="button"
               className="btn btn-secondary"
@@ -1060,95 +1032,97 @@ export function LaboratoryDetailsPage() {
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={actionLoading}>
-              {actionLoading ? 'Saving...' : 'Save Profile Changes'}
+              {actionLoading ? 'Saving...' : 'Save Profile'}
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Create Staff / Administrator Modal */}
+      {/* Add Staff Modal */}
       <Modal
         isOpen={staffModalOpen}
         onClose={() => setStaffModalOpen(false)}
         title={lab.adminUser ? 'Add Laboratory Staff Member' : 'Configure Initial Laboratory Administrator'}
       >
-        <form onSubmit={handleCreateStaff} style={{ padding: '0.5rem 0' }}>
+        <form onSubmit={handleCreateStaff} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '0.5rem 0' }}>
           <div className="form-group">
-            <label className="form-label">Full Name *</label>
+            <label className="form-label">Staff Full Name *</label>
             <input
               type="text"
               className="form-input"
-              required
-              placeholder="e.g. Dr. John Doe"
+              placeholder="e.g. Dr. Rajesh Kumar"
               value={staffFormData.fullName}
               onChange={(e) => setStaffFormData({ ...staffFormData, fullName: e.target.value })}
+              required
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Email Address *</label>
+            <label className="form-label">Email Address (Login Username) *</label>
             <input
               type="email"
               className="form-input"
-              required
-              placeholder="e.g. admin@lab.com"
+              placeholder="staff@laboratory.com"
               value={staffFormData.email}
               onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
+              required
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Password * (Min 8 characters, Upper, Lower & Number)</label>
+            <label className="form-label">Temporary Password *</label>
             <input
               type="password"
               className="form-input"
-              required
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               value={staffFormData.password}
               onChange={(e) => setStaffFormData({ ...staffFormData, password: e.target.value })}
+              minLength={8}
+              required
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Assigned Role</label>
+            <label className="form-label">Assigned Role *</label>
             <select
               className="form-select"
               value={staffFormData.role}
               onChange={(e) => setStaffFormData({ ...staffFormData, role: e.target.value })}
+              required
             >
               <option value="lab_admin">Laboratory Administrator (Full Lab Access)</option>
-              {availableRoles.filter((r) => r.code !== 'lab_admin' && r.isActive).length > 0 ? (
-                availableRoles
-                  .filter((r) => r.code !== 'lab_admin' && r.isActive)
-                  .map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.name} ({r.code})
-                    </option>
-                  ))
-              ) : (
-                <>
-                  <option value="receptionist">Receptionist (Intake & Registration)</option>
-                  <option value="pathologist">Pathologist (Review & Verification)</option>
-                  <option value="lab_technician">Lab Technician (Testing & Results)</option>
-                  <option value="phlebotomist">Phlebotomist (Sample Collection)</option>
-                  <option value="billing_clerk">Billing Clerk (Invoices & Payments)</option>
-                </>
-              )}
+              <option value="pathologist">Pathologist / Medical Reviewer</option>
+              <option value="lab_technician">Laboratory Technician</option>
+              <option value="receptionist">Receptionist / Front Desk</option>
+              <option value="phlebotomist">Phlebotomist / Sample Collector</option>
+              <option value="billing_clerk">Billing Clerk / Accountant</option>
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Phone Number</label>
-            <input
-              type="tel"
-              className="form-input"
-              placeholder="+91 98765 43210"
-              value={staffFormData.phone}
-              onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div className="form-group">
+              <label className="form-label">Phone</label>
+              <input
+                type="tel"
+                className="form-input"
+                placeholder="+91 98765 43210"
+                value={staffFormData.phone}
+                onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Department</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Hematology"
+                value={staffFormData.department}
+                onChange={(e) => setStaffFormData({ ...staffFormData, department: e.target.value })}
+              />
+            </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '0.5rem' }}>
             <button
               type="button"
               className="btn btn-secondary"
@@ -1158,12 +1132,12 @@ export function LaboratoryDetailsPage() {
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={actionLoading}>
-              {actionLoading ? 'Creating...' : (staffFormData.role === 'lab_admin' ? 'Create Administrator' : 'Create Staff Member')}
+              {actionLoading ? 'Creating...' : 'Create Staff Member'}
             </button>
           </div>
         </form>
       </Modal>
-    </>
+    </div>
   );
 }
 
