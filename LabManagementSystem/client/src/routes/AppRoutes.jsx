@@ -27,7 +27,6 @@ import ReportsPage from '../pages/reports/ReportsPage';
 import BillingPage from '../pages/billing/BillingPage';
 import UsersPage from '../pages/users/UsersPage';
 import SettingsPage from '../pages/settings/SettingsPage';
-import AuditLogsPage from '../pages/audit/AuditLogsPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 // Super Admin Pages (Phase 2)
@@ -122,14 +121,6 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requiredPermission="users:view">
               <UsersPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/audit-logs"
-          element={
-            <ProtectedRoute requiredPermission="audit:view">
-              <AuditLogsPage />
             </ProtectedRoute>
           }
         />

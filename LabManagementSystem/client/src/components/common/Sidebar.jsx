@@ -20,7 +20,6 @@ import {
   CreditCard,
   ShieldCheck,
   Settings,
-  History,
   X,
   Server,
   Building2,
@@ -123,7 +122,7 @@ export function Sidebar({ isOpen, onClose }) {
     const perms = user?.permissions || user?.roleDefinition?.permissions || [];
     const r = (user?.role || '').toLowerCase();
     if (r === 'lab_admin' || r === 'lab_director' || perms.includes('*')) {
-      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'audit', 'settings'];
+      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'settings'];
     }
     // Derive navigation items directly from granted module permissions
     const derived = ['dashboard'];
@@ -134,7 +133,6 @@ export function Sidebar({ isOpen, onClose }) {
     if (perms.some((p) => p.startsWith('reports:'))) derived.push('reports');
     if (perms.some((p) => p.startsWith('billing:'))) derived.push('billing');
     if (perms.some((p) => p.startsWith('users:') || p.startsWith('roles:'))) derived.push('users');
-    if (perms.some((p) => p.startsWith('audit:'))) derived.push('audit');
     if (perms.some((p) => p.startsWith('settings:'))) derived.push('settings');
     return derived;
   })();
@@ -161,7 +159,6 @@ export function Sidebar({ isOpen, onClose }) {
       items: [
         { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard },
         { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck },
-        { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History },
         { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings },
       ],
     },

@@ -130,7 +130,7 @@ export function OrdersPage() {
       });
 
       if (res.success) {
-        setSuccessMsg(`Order ${res.data.orderNumber} created successfully! (Total: $${res.data.totalAmount})`);
+        setSuccessMsg(`Order ${res.data.orderNumber} created successfully! (Total: ₹${res.data.totalAmount})`);
         setIsCreateOpen(false);
         setSelectedPatientId('');
         setSelectedTestCodes([]);
@@ -542,7 +542,7 @@ export function OrdersPage() {
                     <td>{getOrderStatusBadge(ord.orderStatus)}</td>
                     <td>
                       <div>
-                        <div style={{ fontWeight: 600 }}>${ord.totalAmount?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontWeight: 600 }}>₹{ord.totalAmount?.toFixed(2) || '0.00'}</div>
                         <div>{getPaymentStatusBadge(ord.paymentStatus)}</div>
                       </div>
                     </td>
@@ -649,7 +649,7 @@ export function OrdersPage() {
                             </div>
                           )}
                         </td>
-                        <td>${Number(it.price || 0).toFixed(2)}</td>
+                        <td>₹{Number(it.price || 0).toFixed(2)}</td>
                         <td>{it.status === 'completed' ? <Badge variant="success">Completed</Badge> : <Badge variant="slate">{it.status}</Badge>}</td>
                         <td>
                           {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
@@ -708,7 +708,7 @@ export function OrdersPage() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)' }}>
               <span>Total Invoice Amount:</span>
-              <strong style={{ fontSize: '1rem', color: 'var(--primary-blue)' }}>${Number(selectedOrder.totalAmount || 0).toFixed(2)}</strong>
+              <strong style={{ fontSize: '1rem', color: 'var(--primary-blue)' }}>₹{Number(selectedOrder.totalAmount || 0).toFixed(2)}</strong>
             </div>
           </div>
         )}
@@ -1095,7 +1095,7 @@ export function OrdersPage() {
                   <span>Submitting...</span>
                 </>
               ) : (
-                <span>Submit Requisition (${calculatedTotal.toFixed(2)})</span>
+                <span>Submit Requisition (₹{calculatedTotal.toFixed(2)})</span>
               )}
             </button>
           </>
@@ -1190,7 +1190,7 @@ export function OrdersPage() {
                           [{t.code}]
                         </span>
                       </div>
-                      <span style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>${Number(t.price).toFixed(2)}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>₹{Number(t.price).toFixed(2)}</span>
                     </label>
                   );
                 })
@@ -1212,7 +1212,7 @@ export function OrdersPage() {
               Selected Tests: <strong>{selectedTestCodes.length}</strong>
             </span>
             <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary-blue)' }}>
-              Total: ${calculatedTotal.toFixed(2)}
+              Total: ₹{calculatedTotal.toFixed(2)}
             </span>
           </div>
         </form>
