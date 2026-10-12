@@ -8,6 +8,7 @@
 import laboratoryManagementService, { LaboratoryManagementError } from '../services/laboratoryManagement.service.js';
 import auditLogService from '../services/auditLog.service.js';
 import roleService, { RoleServiceError } from '../services/role.service.js';
+import tenantUserService, { TenantUserError } from '../services/tenantUser.service.js';
 import ApiResponse from '../utils/apiResponse.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -80,6 +81,24 @@ export class SuperAdminController {
     } catch (err) {
       if (err instanceof LaboratoryManagementError) {
         return ApiResponse.error(res, err.message, err.statusCode);
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/super-admin/laboratories/:id/staff
+   */
+  static async createLaboratoryStaff(req, res, next) {
+    try {
+      const { id } = req.params;
+      const actor = req.platformAdmin || { type: 'api_key', id: 'system' };
+      const lab = await laboratoryManagementService.getLaboratoryById(id);
+      const user = await tenantUserService.createUser(lab.tenantId, req.body, actor);
+      return ApiResponse.success(res, user, 'Laboratory user created successfully', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof LaboratoryManagementError || err instanceof TenantUserError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
       }
       next(err);
     }

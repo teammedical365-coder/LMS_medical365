@@ -28,6 +28,7 @@ import {
   Copy,
   Users,
   UserCheck,
+  UserPlus,
   ExternalLink,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
@@ -73,6 +74,40 @@ export function LaboratoryDetailsPage() {
     timezone: 'UTC',
     locale: 'en-US',
   });
+
+  // Staff Modal State
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [staffFormData, setStaffFormData] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    role: 'lab_admin',
+    phone: '',
+    department: '',
+  });
+
+  const handleCreateStaff = async (e) => {
+    e.preventDefault();
+    setActionLoading(true);
+    setActionFeedback(null);
+    try {
+      await superAdminService.createLaboratoryStaff(lab.tenantId, staffFormData);
+      setStaffModalOpen(false);
+      setStaffFormData({ fullName: '', email: '', password: '', role: 'lab_admin', phone: '', department: '' });
+      setActionFeedback({
+        type: 'success',
+        message: `Staff member ${staffFormData.fullName} (${staffFormData.email}) created successfully with role ${staffFormData.role}.`,
+      });
+      fetchLabDetails();
+    } catch (err) {
+      setActionFeedback({
+        type: 'warning',
+        message: err.response?.data?.message || err.message || 'Failed to create staff member',
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const fetchLabDetails = async () => {
     setLoading(true);
@@ -406,6 +441,20 @@ export function LaboratoryDetailsPage() {
 
           {/* Action Buttons based on state machine */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Retry Database Provisioning button if not ready */}
+            {(!isProvReady || isProvFailed) && (
+              <button
+                className="btn btn-secondary"
+                style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+                disabled={actionLoading}
+                onClick={handleRetryProvisioning}
+                title="Retry tenant logical database provisioning"
+              >
+                <RefreshCw size={15} className={actionLoading ? 'animate-spin' : ''} />
+                <span>Retry DB Provisioning</span>
+              </button>
+            )}
+
             {lab.status === 'PENDING' && (
               <button
                 className="btn btn-primary"
@@ -456,27 +505,48 @@ export function LaboratoryDetailsPage() {
         </div>
 
         {lab.status === 'PENDING' && !isProvReady && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle size={16} />
-            <span>
-              <strong>Activation Guard:</strong> This laboratory cannot be activated until its dedicated logical database has finished provisioning successfully.
-            </span>
+          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertTriangle size={16} />
+              <span>
+                <strong>Activation Guard:</strong> This laboratory cannot be activated until its dedicated logical database has finished provisioning successfully.
+              </span>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={actionLoading}
+              onClick={handleRetryProvisioning}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              <RefreshCw size={13} className={actionLoading ? 'animate-spin' : ''} />
+              <span>Retry Database Provisioning</span>
+            </button>
           </div>
         )}
       </div>
 
       {/* Laboratory Staff & Administrative Team Section */}
       <div className="card" style={{ marginBottom: '1.25rem' }}>
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Users size={18} style={{ color: 'var(--primary-blue, #2563eb)' }} />
             <h2 className="card-title">
               Laboratory Staff & Administrative Team ({lab.staff?.length || 0})
             </h2>
           </div>
-          <span className="badge badge-blue">
-            {lab.adminUser ? `Admin: ${lab.adminUser.fullName}` : 'No Admin Configured'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span className="badge badge-blue">
+              {lab.adminUser ? `Admin: ${lab.adminUser.fullName}` : 'No Admin Configured'}
+            </span>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setStaffModalOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <UserPlus size={14} />
+              <span>{lab.adminUser ? 'Add Staff Member' : 'Configure Administrator'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Lab Administrator Spotlight Banner */}
@@ -982,6 +1052,92 @@ export function LaboratoryDetailsPage() {
             </button>
             <button type="submit" className="btn btn-primary" disabled={actionLoading}>
               {actionLoading ? 'Saving...' : 'Save Profile Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Create Staff / Administrator Modal */}
+      <Modal
+        isOpen={staffModalOpen}
+        onClose={() => setStaffModalOpen(false)}
+        title={lab.adminUser ? 'Add Laboratory Staff Member' : 'Configure Initial Laboratory Administrator'}
+      >
+        <form onSubmit={handleCreateStaff} style={{ padding: '0.5rem 0' }}>
+          <div className="form-group">
+            <label className="form-label">Full Name *</label>
+            <input
+              type="text"
+              className="form-input"
+              required
+              placeholder="e.g. Dr. John Doe"
+              value={staffFormData.fullName}
+              onChange={(e) => setStaffFormData({ ...staffFormData, fullName: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Email Address *</label>
+            <input
+              type="email"
+              className="form-input"
+              required
+              placeholder="e.g. admin@lab.com"
+              value={staffFormData.email}
+              onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Password * (Min 8 characters, Upper, Lower & Number)</label>
+            <input
+              type="password"
+              className="form-input"
+              required
+              placeholder="••••••••"
+              value={staffFormData.password}
+              onChange={(e) => setStaffFormData({ ...staffFormData, password: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Assigned Role</label>
+            <select
+              className="form-select"
+              value={staffFormData.role}
+              onChange={(e) => setStaffFormData({ ...staffFormData, role: e.target.value })}
+            >
+              <option value="lab_admin">Laboratory Administrator (Full Lab Access)</option>
+              <option value="pathologist">Pathologist (Review & Verification)</option>
+              <option value="lab_technician">Lab Technician (Testing & Results)</option>
+              <option value="receptionist">Receptionist (Intake & Registration)</option>
+              <option value="phlebotomist">Phlebotomist (Sample Collection)</option>
+              <option value="billing_clerk">Billing Clerk (Invoices & Payments)</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Phone Number</label>
+            <input
+              type="tel"
+              className="form-input"
+              placeholder="+91 98765 43210"
+              value={staffFormData.phone}
+              onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '1.25rem' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setStaffModalOpen(false)}
+              disabled={actionLoading}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={actionLoading}>
+              {actionLoading ? 'Creating...' : (staffFormData.role === 'lab_admin' ? 'Create Administrator' : 'Create Staff Member')}
             </button>
           </div>
         </form>
