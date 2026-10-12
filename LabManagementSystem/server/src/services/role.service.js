@@ -56,60 +56,12 @@ class RoleService {
 
   /**
    * Seed platform master roles into the master database if not present
+   * MANUAL MODE: Automatic default roles seeding is disabled.
+   * Super Admin defines and creates all roles and permissions manually.
    */
   async seedMasterRoles() {
-    if (tenantConnectionService.isLiveMongoConnected()) {
-      const count = await RoleModel.countDocuments({ tenantId: 'platform_master' });
-      if (count === 0) {
-        for (const def of DEFAULT_LAB_ROLES) {
-          const roleId = this.generateRoleId();
-          const roleDoc = new RoleModel({
-            roleId,
-            tenantId: 'platform_master',
-            code: def.code,
-            name: def.name,
-            description: def.description,
-            dashboardPath: def.dashboardPath,
-            navigationItems: def.navigationItems,
-            permissions: def.permissions,
-            isSystemDefault: true,
-            isActive: true,
-          });
-          await roleDoc.save();
-        }
-        logger.info('[MASTER ROLES] Initialized default platform master roles.');
-      }
-      return;
-    }
-
-    // In-memory test store fallback
-    if (!this.memoryStore.has('platform_master')) {
-      this.memoryStore.set('platform_master', new Map());
-    }
-    const masterRoles = this.memoryStore.get('platform_master');
-    if (masterRoles.size === 0) {
-      for (const def of DEFAULT_LAB_ROLES) {
-        const roleId = this.generateRoleId();
-        masterRoles.set(roleId, {
-          id: roleId,
-          roleId,
-          tenantId: 'platform_master',
-          code: def.code,
-          name: def.name,
-          description: def.description,
-          dashboardPath: def.dashboardPath,
-          navigationItems: def.navigationItems,
-          permissions: def.permissions,
-          isSystemDefault: true,
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          toSafeJSON: function () {
-            return { ...this };
-          },
-        });
-      }
-    }
+    // Intentionally no-op: user creates roles manually.
+    return;
   }
 
   /**
@@ -377,8 +329,6 @@ class RoleService {
    * Delete a custom master role from master registry and all laboratory databases
    */
   async deleteMasterRole(roleId, actor = {}) {
-    await this.seedMasterRoles();
-
     let targetCode = '';
     let targetName = '';
 
@@ -386,9 +336,6 @@ class RoleService {
       const roleDoc = await RoleModel.findOne({ tenantId: 'platform_master', roleId });
       if (!roleDoc) {
         throw new RoleServiceError('Master role not found', 'ROLE_NOT_FOUND', 404);
-      }
-      if (roleDoc.code === 'lab_admin') {
-        throw new RoleServiceError('The primary Laboratory Administrator role cannot be deleted', 'CANNOT_DELETE_ADMIN', 400);
       }
       targetCode = roleDoc.code;
       targetName = roleDoc.name;
@@ -502,8 +449,10 @@ class RoleService {
    */
   async seedDefaultRoles(tenantId) {
     const RoleModel = tenantConnectionService.getTenantRoleModel(tenantId);
-    const masterRoles = await this.listMasterRoles().catch(() => DEFAULT_LAB_ROLES);
-    const rolesToSeed = masterRoles && masterRoles.length > 0 ? masterRoles : DEFAULT_LAB_ROLES;
+    const masterRoles = await this.listMasterRoles().catch(() => []);
+    const rolesToSeed = masterRoles && masterRoles.length > 0 ? masterRoles : [];
+
+    if (rolesToSeed.length === 0) return; // No custom roles defined yet by Super Admin
 
     if (RoleModel) {
       const existingCount = await RoleModel.countDocuments({ tenantId });

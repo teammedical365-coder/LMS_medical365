@@ -117,7 +117,8 @@ export class MongoTenantProvisioningAdapter {
 
     try {
       logger.info(`[PROVISIONING] Connecting to tenant database: ${databaseName}`);
-      connection = await mongoose.createConnection(tenantUri, {
+      connection = await mongoose.createConnection(this.baseUri, {
+        dbName: databaseName,
         serverSelectionTimeoutMS: 15000,
       }).asPromise();
 
@@ -179,10 +180,19 @@ export class MongoTenantProvisioningAdapter {
   }
 
   getTenantConnectionUri(databaseName) {
-    // Safely substitute the database path in the connection string
-    const parsed = new URL(this.baseUri);
-    parsed.pathname = `/${databaseName}`;
-    return parsed.toString();
+    const raw = String(this.baseUri || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      parsed.pathname = `/${databaseName}`;
+      return parsed.toString();
+    } catch {
+      if (raw.includes('?')) {
+        const [base, query] = raw.split('?');
+        return `${base.replace(/\/+$/, '')}/${databaseName}?${query}`;
+      }
+      return `${raw.replace(/\/+$/, '')}/${databaseName}`;
+    }
   }
 }
 

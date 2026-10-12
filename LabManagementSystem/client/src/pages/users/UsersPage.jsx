@@ -1022,13 +1022,20 @@ export function UsersPage() {
                 onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
                 required
               >
-                {roles
-                  .filter((r) => r.isActive)
-                  .map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.name} ({r.code})
-                    </option>
-                  ))}
+                {roles.filter((r) => r.isActive).length === 0 ? (
+                  <option value="" disabled>No roles created yet. Please define roles in Super Admin first.</option>
+                ) : (
+                  <>
+                    <option value="" disabled>Select a laboratory role...</option>
+                    {roles
+                      .filter((r) => r.isActive)
+                      .map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.name} ({r.code})
+                        </option>
+                      ))}
+                  </>
+                )}
               </select>
             </div>
 

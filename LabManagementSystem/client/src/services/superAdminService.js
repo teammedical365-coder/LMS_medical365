@@ -77,6 +77,14 @@ export const superAdminService = {
   },
 
   /**
+   * Create staff member or administrator in laboratory
+   */
+  async createLaboratoryStaff(id, staffData) {
+    const res = await api.post(`/super-admin/laboratories/${id}/staff`, staffData, { headers: getAdminHeaders() });
+    return res.data.data;
+  },
+
+  /**
    * Register a new laboratory
    */
   async registerLaboratory(labData) {
