@@ -67,9 +67,15 @@ export function UsersPage() {
     password: '',
     department: '',
     phone: '',
-    role: 'lab_technician',
+    role: '',
   });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Helper to resolve standard/first active staff role
+  const getAvailableStaffRole = useCallback((roleList = []) => {
+    const active = roleList.filter((r) => r.isActive);
+    return active.find((r) => r.code !== 'lab_admin')?.code || active[0]?.code || '';
+  }, []);
 
   // Role Builder Modal
   const [roleModalOpen, setRoleModalOpen] = useState(false);
@@ -95,15 +101,23 @@ export function UsersPage() {
         roleService.listUsers(tenantId).catch(() => []),
       ]);
 
+      const fetchedRoles = rolesRes || [];
       setMatrixData(matrixRes);
-      setRoles(rolesRes || []);
+      setRoles(fetchedRoles);
       setUsers(usersRes || []);
+
+      setNewUserForm((prev) => ({
+        ...prev,
+        role: prev.role && fetchedRoles.some((r) => r.code === prev.role && r.isActive)
+          ? prev.role
+          : getAvailableStaffRole(fetchedRoles),
+      }));
     } catch (err) {
       setErrorBanner(err.response?.data?.message || err.message || 'Failed to load laboratory RBAC configuration.');
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, getAvailableStaffRole]);
 
   useEffect(() => {
     loadData();
@@ -251,6 +265,20 @@ export function UsersPage() {
     setRoleForm((prev) => ({ ...prev, navigationItems: all }));
   };
 
+  // Open Create Staff Modal with dynamic default role
+  const handleOpenCreateUserModal = () => {
+    const defaultRole = getAvailableStaffRole(roles);
+    setNewUserForm({
+      fullName: '',
+      email: '',
+      password: '',
+      department: '',
+      phone: '',
+      role: defaultRole,
+    });
+    setCreateUserModalOpen(true);
+  };
+
   // Create Staff User
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -260,13 +288,14 @@ export function UsersPage() {
       await roleService.createUser(tenantId, newUserForm);
       setSuccessBanner(`Staff user '${newUserForm.fullName}' created successfully.`);
       setCreateUserModalOpen(false);
+      const defaultRole = getAvailableStaffRole(roles);
       setNewUserForm({
         fullName: '',
         email: '',
         password: '',
         department: '',
         phone: '',
-        role: 'lab_technician',
+        role: defaultRole,
       });
       await loadData();
     } catch (err) {
@@ -274,6 +303,15 @@ export function UsersPage() {
     } finally {
       setIsCreatingUser(false);
     }
+  };
+
+  // Open Role Assignment Modal with resolved active role
+  const handleOpenRoleAssignModal = (u) => {
+    setRoleAssignModalUser(u);
+    const activeRoles = roles.filter((r) => r.isActive);
+    const matched = activeRoles.find((r) => r.code === u.role || r.roleId === u.roleId);
+    const fallback = getAvailableStaffRole(activeRoles);
+    setSelectedAssignRoleId(matched ? matched.code : fallback);
   };
 
   // Assign Role to User
@@ -323,7 +361,7 @@ export function UsersPage() {
                 <span>Create Custom Role</span>
               </button>
             )}
-            <button className="btn btn-primary" onClick={() => setCreateUserModalOpen(true)}>
+            <button className="btn btn-primary" onClick={handleOpenCreateUserModal}>
               <UserPlus size={15} />
               <span>Add Staff Member</span>
             </button>
@@ -521,10 +559,7 @@ export function UsersPage() {
                           <div style={{ display: 'inline-flex', gap: '6px' }}>
                             <button
                               className="btn btn-secondary btn-sm"
-                              onClick={() => {
-                                setRoleAssignModalUser(u);
-                                setSelectedAssignRoleId(matchedRole?.code || u.role);
-                              }}
+                              onClick={() => handleOpenRoleAssignModal(u)}
                               title="Assign custom role"
                             >
                               <Key size={13} />
@@ -1081,13 +1116,17 @@ export function UsersPage() {
                 onChange={(e) => setSelectedAssignRoleId(e.target.value)}
                 required
               >
-                {roles
-                  .filter((r) => r.isActive)
-                  .map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.name} — {r.permissions?.length || 0} permissions
-                    </option>
-                  ))}
+                {roles.filter((r) => r.isActive).length === 0 ? (
+                  <option value="" disabled>No active laboratory roles found.</option>
+                ) : (
+                  roles
+                    .filter((r) => r.isActive)
+                    .map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.name} — {r.permissions?.length || 0} permissions
+                      </option>
+                    ))
+                )}
               </select>
             </div>
 

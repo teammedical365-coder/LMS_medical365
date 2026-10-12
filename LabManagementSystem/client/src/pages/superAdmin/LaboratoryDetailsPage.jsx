@@ -77,6 +77,7 @@ export function LaboratoryDetailsPage() {
 
   // Staff Modal State
   const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [availableRoles, setAvailableRoles] = useState([]);
   const [staffFormData, setStaffFormData] = useState({
     fullName: '',
     email: '',
@@ -130,6 +131,14 @@ export function LaboratoryDetailsPage() {
         setAuditLogs(auditRes.items || []);
       } catch (err) {
         console.warn('Could not load tenant audit logs:', err);
+      }
+
+      // Load master roles catalog for staff provisioning dropdown
+      try {
+        const rolesRes = await superAdminService.listRoles().catch(() => []);
+        setAvailableRoles(rolesRes || []);
+      } catch (err) {
+        console.warn('Could not load master roles:', err);
       }
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to load laboratory details';
@@ -1108,11 +1117,23 @@ export function LaboratoryDetailsPage() {
               onChange={(e) => setStaffFormData({ ...staffFormData, role: e.target.value })}
             >
               <option value="lab_admin">Laboratory Administrator (Full Lab Access)</option>
-              <option value="pathologist">Pathologist (Review & Verification)</option>
-              <option value="lab_technician">Lab Technician (Testing & Results)</option>
-              <option value="receptionist">Receptionist (Intake & Registration)</option>
-              <option value="phlebotomist">Phlebotomist (Sample Collection)</option>
-              <option value="billing_clerk">Billing Clerk (Invoices & Payments)</option>
+              {availableRoles.filter((r) => r.code !== 'lab_admin' && r.isActive).length > 0 ? (
+                availableRoles
+                  .filter((r) => r.code !== 'lab_admin' && r.isActive)
+                  .map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name} ({r.code})
+                    </option>
+                  ))
+              ) : (
+                <>
+                  <option value="receptionist">Receptionist (Intake & Registration)</option>
+                  <option value="pathologist">Pathologist (Review & Verification)</option>
+                  <option value="lab_technician">Lab Technician (Testing & Results)</option>
+                  <option value="phlebotomist">Phlebotomist (Sample Collection)</option>
+                  <option value="billing_clerk">Billing Clerk (Invoices & Payments)</option>
+                </>
+              )}
             </select>
           </div>
 
