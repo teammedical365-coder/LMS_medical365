@@ -503,6 +503,7 @@
   .app-main {
     margin-left: 0;
     width: 100%;
+    max-width: 100%;
     min-width: 0;
   }
 
@@ -525,6 +526,36 @@
   .app-header {
     padding: 0 1rem;
     height: 58px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .header-left {
+    min-width: 0;
+    gap: 0.75rem;
+    flex: 1;
+  }
+
+  .header-portal-title-block {
+    min-width: 0;
+    gap: 0.5rem;
+  }
+
+  .header-portal-name {
+    font-size: 1.05rem;
+    white-space: nowrap;
+  }
+
+  .header-portal-pill {
+    font-size: 0.625rem;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+
+  .header-right {
+    gap: 0.75rem;
+    flex-shrink: 0;
   }
 
   .breadcrumbs-bar {
@@ -534,6 +565,14 @@
   .app-content {
     padding: 1rem;
     gap: 1.25rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .app-content > * {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .user-info-text {
@@ -544,6 +583,17 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.85rem;
+    width: 100%;
+  }
+
+  .page-header-title {
+    font-size: 1.25rem;
+    line-height: 1.3;
+  }
+
+  .page-header-desc {
+    font-size: 0.8125rem;
+    line-height: 1.4;
   }
 
   .page-header-actions {
