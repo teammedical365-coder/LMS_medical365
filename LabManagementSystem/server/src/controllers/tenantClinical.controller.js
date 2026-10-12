@@ -115,7 +115,8 @@ export class TenantClinicalController {
 
   static async updateSampleStatus(req, res, next) {
     try {
-      const { tenantId, sampleId } = req.params;
+      const { tenantId } = req.params;
+      const sampleId = req.params.sampleId || req.body?.sampleId || req.query?.sampleId;
       const sample = await tenantClinicalService.updateSampleStatus(tenantId, sampleId, req.body, req.user);
       return ApiResponse.success(res, sample, 'Sample status updated successfully');
     } catch (err) {

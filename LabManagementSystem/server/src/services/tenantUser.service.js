@@ -110,6 +110,9 @@ class TenantUserService {
       report_reviewer: USER_ROLES.PATHOLOGIST,
       approver: USER_ROLES.PATHOLOGIST,
       reviewer: USER_ROLES.PATHOLOGIST,
+      sample_collection: USER_ROLES.SAMPLE_COLLECTION,
+      sample_collector: USER_ROLES.SAMPLE_COLLECTION,
+      phlebotomy: USER_ROLES.PHLEBOTOMIST,
     };
     if (ROLE_ALIASES[cleanRoleInput]) {
       cleanRoleInput = ROLE_ALIASES[cleanRoleInput];
@@ -365,6 +368,9 @@ class TenantUserService {
       report_reviewer: USER_ROLES.PATHOLOGIST,
       approver: USER_ROLES.PATHOLOGIST,
       reviewer: USER_ROLES.PATHOLOGIST,
+      sample_collection: USER_ROLES.SAMPLE_COLLECTION,
+      sample_collector: USER_ROLES.SAMPLE_COLLECTION,
+      phlebotomy: USER_ROLES.PHLEBOTOMIST,
     };
     if (ROLE_ALIASES[cleanRoleInput]) {
       cleanRoleInput = ROLE_ALIASES[cleanRoleInput];

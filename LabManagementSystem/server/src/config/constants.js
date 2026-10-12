@@ -32,6 +32,7 @@ export const USER_ROLES = {
   PATHOLOGIST: 'pathologist',
   LAB_TECHNICIAN: 'lab_technician',
   PHLEBOTOMIST: 'phlebotomist',
+  SAMPLE_COLLECTION: 'sample_collection',
   RECEPTIONIST: 'receptionist',
   BILLING_CLERK: 'billing_clerk',
 };
