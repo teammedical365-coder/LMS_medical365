@@ -71,7 +71,19 @@ class TenantUserService {
   async createUser(tenantId, userData, actor = {}) {
     await this.assertTenantReady(tenantId);
 
-    const { email, password, fullName, role = USER_ROLES.LAB_TECHNICIAN, department, phone } = userData;
+    let rawRole = userData.role;
+    if (!rawRole) {
+      try {
+        const tenantRoles = await roleService.listRoles(tenantId, { isActive: true });
+        const nonAdmin = tenantRoles.find((r) => r.code !== 'lab_admin') || tenantRoles[0];
+        rawRole = nonAdmin ? nonAdmin.code : USER_ROLES.LAB_TECHNICIAN;
+      } catch {
+        rawRole = USER_ROLES.LAB_TECHNICIAN;
+      }
+    }
+
+    const { email, password, fullName, department, phone } = userData;
+    const role = rawRole;
 
     if (!email || typeof email !== 'string') {
       throw new TenantUserError('User email is required', 'VALIDATION_ERROR', 400);
@@ -103,19 +115,18 @@ class TenantUserService {
       cleanRoleInput = ROLE_ALIASES[cleanRoleInput];
     }
 
-    // Resolve role definition (built-in or dynamic custom role)
+    // Resolve role definition (check tenant custom/active role first, fallback to standard role)
     let resolvedRoleCode = cleanRoleInput;
     let resolvedRoleId = null;
 
-    if (Object.values(USER_ROLES).includes(cleanRoleInput)) {
-      resolvedRoleCode = cleanRoleInput;
-    } else {
-      // Check dynamic role in tenant
-      try {
-        const customRole = await roleService.getRoleById(tenantId, cleanRoleInput);
-        resolvedRoleCode = customRole.code;
-        resolvedRoleId = customRole.roleId;
-      } catch {
+    try {
+      const customRole = await roleService.getRoleById(tenantId, cleanRoleInput);
+      resolvedRoleCode = customRole.code;
+      resolvedRoleId = customRole.roleId;
+    } catch {
+      if (Object.values(USER_ROLES).includes(cleanRoleInput)) {
+        resolvedRoleCode = cleanRoleInput;
+      } else {
         throw new TenantUserError(
           `Invalid role: ${role}. Must be a valid standard or custom role in this laboratory.`,
           'INVALID_ROLE',
