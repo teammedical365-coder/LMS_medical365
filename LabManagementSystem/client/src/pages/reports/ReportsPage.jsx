@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, CheckCircle2, AlertTriangle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck } from 'lucide-react';
+import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
@@ -33,6 +33,8 @@ export function ReportsPage() {
 
   // Verification Modal State
   const [verifyReport, setVerifyReport] = useState(null);
+  const [verifyReviewStep, setVerifyReviewStep] = useState('review'); // 'review' | 'confirm_approve' | 'confirm_reject'
+  const [isDoctorConfirmed, setIsDoctorConfirmed] = useState(false);
   const [verificationNotes, setVerificationNotes] = useState('');
   const [verificationFindings, setVerificationFindings] = useState('');
   const [verifyError, setVerifyError] = useState(null);
@@ -46,9 +48,8 @@ export function ReportsPage() {
   const [printReport, setPrintReport] = useState(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
-  // Batch Selection States
-  const [selectedReleaseIds, setSelectedReleaseIds] = useState(new Set());
-  const [selectedDownloadIds, setSelectedDownloadIds] = useState(new Set());
+  // Batch Selection State
+  const [selectedReportIds, setSelectedReportIds] = useState(new Set());
   const [filterStatus, setFilterStatus] = useState('all');
 
   // Batch PDF Export Modal State
@@ -66,8 +67,66 @@ export function ReportsPage() {
   const draftReports = reports.filter((r) => r.status === 'draft' || r.status === 'pending_review');
   const rejectedReports = reports.filter((r) => r.status === 'rejected');
 
-  const toggleSelectRelease = (reportId) => {
-    setSelectedReleaseIds((prev) => {
+  const visibleReports = filterStatus === 'all'
+    ? reports
+    : filterStatus === 'draft'
+    ? reports.filter((r) => r.status === 'draft' || r.status === 'pending_review')
+    : reports.filter((r) => r.status === filterStatus);
+
+  const visibleReleasedReports = visibleReports.filter((r) => r.status === 'released');
+
+  // Calculate eligible selected report counts for respective bulk operations
+  const eligibleDownloadReports = reports.filter(
+    (r) => selectedReportIds.has(r.reportId) && r.status === 'released'
+  );
+  const eligibleDownloadCount = eligibleDownloadReports.length;
+
+  const eligibleReleaseReports = reports.filter(
+    (r) => selectedReportIds.has(r.reportId) && r.status === 'approved'
+  );
+  const eligibleReleaseCount = eligibleReleaseReports.length;
+
+  // Helper to strictly evaluate whether all diagnostic tests in a report have recorded results
+  const checkReportCompleteness = (report) => {
+    const items = Array.isArray(report?.items) ? report.items : [];
+    if (items.length === 0) {
+      return { isComplete: false, totalItems: 0, completedCount: 0, missingItems: ['No test items'] };
+    }
+    const missing = [];
+    let completedCount = 0;
+    for (const it of items) {
+      const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+      if (hasParams) {
+        const hasBlank = it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
+        if (!hasBlank) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      } else {
+        const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+        if (hasSingle) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      }
+    }
+    return {
+      isComplete: missing.length === 0,
+      totalItems: items.length,
+      completedCount,
+      missingItems: missing,
+    };
+  };
+
+  const handleFilterChange = (tabId) => {
+    setFilterStatus(tabId);
+    setSelectedReportIds(new Set());
+  };
+
+  const toggleSelectReport = (reportId) => {
+    setSelectedReportIds((prev) => {
       const next = new Set(prev);
       if (next.has(reportId)) next.delete(reportId);
       else next.add(reportId);
@@ -75,46 +134,67 @@ export function ReportsPage() {
     });
   };
 
-  const toggleSelectAllApproved = () => {
-    if (selectedReleaseIds.size === approvedReports.length && approvedReports.length > 0) {
-      setSelectedReleaseIds(new Set());
-    } else {
-      setSelectedReleaseIds(new Set(approvedReports.map((r) => r.reportId)));
-    }
-  };
-
-  const toggleSelectDownload = (reportId) => {
-    setSelectedDownloadIds((prev) => {
+  // Select All Released toggle for the table header checkbox
+  const toggleSelectAllReleasedVisible = () => {
+    if (visibleReleasedReports.length === 0) return;
+    const allReleasedSelected = visibleReleasedReports.every((r) => selectedReportIds.has(r.reportId));
+    setSelectedReportIds((prev) => {
       const next = new Set(prev);
-      if (next.has(reportId)) next.delete(reportId);
-      else next.add(reportId);
+      if (allReleasedSelected) {
+        visibleReleasedReports.forEach((r) => next.delete(r.reportId));
+      } else {
+        visibleReleasedReports.forEach((r) => next.add(r.reportId));
+      }
       return next;
     });
   };
 
   const toggleSelectAllReleased = () => {
-    if (selectedDownloadIds.size === releasedReports.length && releasedReports.length > 0) {
-      setSelectedDownloadIds(new Set());
-    } else {
-      setSelectedDownloadIds(new Set(releasedReports.map((r) => r.reportId)));
-    }
+    const allReleasedSelected = releasedReports.length > 0 && releasedReports.every((r) => selectedReportIds.has(r.reportId));
+    setSelectedReportIds((prev) => {
+      const next = new Set(prev);
+      if (allReleasedSelected) {
+        releasedReports.forEach((r) => next.delete(r.reportId));
+      } else {
+        releasedReports.forEach((r) => next.add(r.reportId));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllApproved = () => {
+    const allApprovedSelected = approvedReports.length > 0 && approvedReports.every((r) => selectedReportIds.has(r.reportId));
+    setSelectedReportIds((prev) => {
+      const next = new Set(prev);
+      if (allApprovedSelected) {
+        approvedReports.forEach((r) => next.delete(r.reportId));
+      } else {
+        approvedReports.forEach((r) => next.add(r.reportId));
+      }
+      return next;
+    });
   };
 
   const handleBatchRelease = async () => {
-    if (selectedReleaseIds.size === 0) return;
-    if (!window.confirm(`Release ${selectedReleaseIds.size} selected approved report(s) to patient portal?`)) {
+    const eligible = reports.filter((r) => selectedReportIds.has(r.reportId) && r.status === 'approved');
+    if (eligible.length === 0) {
+      setError('No approved reports selected for release.');
+      return;
+    }
+    const targetIds = eligible.map((r) => r.reportId);
+    if (!window.confirm(`Release ${targetIds.length} selected approved report(s) to patient portal?`)) {
       return;
     }
     try {
       setActionLoading(true);
       setError(null);
-      const res = await clinicalService.batchReleaseReports(tenantId, Array.from(selectedReleaseIds));
+      const res = await clinicalService.batchReleaseReports(tenantId, targetIds);
       if (res.success) {
         const { releasedCount, failedCount } = res.data;
         setSuccessMsg(
           `Batch Release Completed: ${releasedCount} report(s) released successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}`
         );
-        setSelectedReleaseIds(new Set());
+        setSelectedReportIds(new Set());
         fetchReports();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
@@ -126,16 +206,42 @@ export function ReportsPage() {
   };
 
   const handleStartBatchDownload = async () => {
-    if (selectedDownloadIds.size === 0) return;
+    if (selectedReportIds.size === 0) return;
+
+    // 1. Re-validate eligibility against current reports state
+    const selected = reports.filter((r) => selectedReportIds.has(r.reportId));
+    const eligible = selected.filter((r) => r.status === 'released');
+    const ineligible = selected.filter((r) => r.status !== 'released');
+
+    if (eligible.length === 0) {
+      const reasons = ineligible
+        .map((r) => `${r.reportNumber || r.reportId} (${r.status})`)
+        .join(', ');
+      setError(
+        `Cannot download PDFs: No eligible released reports selected. ${
+          reasons ? `Selected report(s) are not in released status: ${reasons}. ` : ''
+        }Official PDF download is strictly permitted only for released reports.`
+      );
+      return;
+    }
 
     try {
       setActionLoading(true);
       setError(null);
-      const res = await clinicalService.batchDownloadReports(tenantId, Array.from(selectedDownloadIds));
+      // Submit ONLY eligible released report IDs to the backend
+      const eligibleIds = eligible.map((r) => r.reportId);
+      const res = await clinicalService.batchDownloadReports(tenantId, eligibleIds);
       if (res.success) {
         const { totalRequested, downloadedCount, failedCount, results } = res.data;
         if (downloadedCount === 0) {
-          setError(`No eligible released reports could be prepared for export (${failedCount} failed eligibility checks).`);
+          const failedItems = Array.isArray(results) ? results.filter((r) => !r.success) : [];
+          const failureDetails = failedItems
+            .map((r) => `${r.reportNumber || r.reportId}: ${r.error || 'Failed eligibility verification'}`)
+            .join('; ');
+          setError(
+            failureDetails ||
+              `No eligible released reports could be prepared for export (${failedCount} failed eligibility checks).`
+          );
           return;
         }
 
@@ -151,6 +257,12 @@ export function ReportsPage() {
           results,
         });
         setIsBatchExportOpen(true);
+
+        if (ineligible.length > 0) {
+          setSuccessMsg(
+            `Prepared ${queue.length} released report(s) for PDF export. (${ineligible.length} unreleased report(s) were excluded from download).`
+          );
+        }
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to authorize batch PDF export');
@@ -222,7 +334,7 @@ export function ReportsPage() {
         patientName: order?.patientName,
         patientMrn: order?.patientMrn,
         testName: order?.items?.[0]?.testName || 'Comprehensive Laboratory Panel',
-        findings: findings || 'Microscopic and analyzer examination findings within acceptable reference range.',
+        findings: findings.trim() || 'Awaiting analytical results and pathologist clinical impression.',
       });
       if (res.success) {
         setSuccessMsg(`Draft report ${res.data.reportNumber} generated successfully`);
@@ -241,21 +353,35 @@ export function ReportsPage() {
 
   const openVerifyModal = (r) => {
     setVerifyReport(r);
+    setVerifyReviewStep('review');
     setVerificationFindings(r.findings || '');
-    setVerificationNotes(r.verificationNotes || '');
+    setVerificationNotes(r.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
+    setRejectionReason('');
+    setIsDoctorConfirmed(false);
     setVerifyError(null);
   };
 
   const handleConfirmVerification = async (e) => {
     if (e) e.preventDefault();
     if (!verifyReport) return;
+    const comp = checkReportCompleteness(verifyReport);
+    if (!comp.isComplete) {
+      setVerifyError(`Cannot verify report: missing diagnostic results for ${comp.missingItems.join(', ')}.`);
+      return;
+    }
+    if (!isDoctorConfirmed) {
+      setVerifyError('Please confirm the pathologist digital authorization statement before signing.');
+      return;
+    }
 
     try {
       setActionLoading(true);
       setVerifyError(null);
       const res = await clinicalService.approveReport(tenantId, verifyReport.reportId, {
-        findings: verificationFindings,
-        verificationNotes,
+        findings: verificationFindings.trim(),
+        verificationNotes: verificationNotes.trim(),
+        notes: verificationNotes.trim(),
+        verifiedBy: user?.fullName || user?.email || 'Consultant Pathologist',
       });
       if (res.success) {
         setSuccessMsg(`Report ${res.data.reportNumber} reviewed and verified by Pathologist`);
@@ -282,48 +408,35 @@ export function ReportsPage() {
 
   const handleConfirmReject = async (e) => {
     if (e) e.preventDefault();
-    if (!rejectModalReport) return;
+    const target = verifyReport || rejectModalReport;
+    if (!target) return;
     const trimmed = rejectionReason.trim();
     if (!trimmed || trimmed.length < 5) {
-      setRejectError('Please provide a clinical justification for rejecting this report (minimum 5 characters)');
+      const msg = 'Please provide a clinical justification for rejecting this report (minimum 5 characters)';
+      setRejectError(msg);
+      setVerifyError(msg);
       return;
     }
 
     try {
       setActionLoading(true);
       setRejectError(null);
-      const res = await clinicalService.rejectReport(tenantId, rejectModalReport.reportId, { reason: trimmed });
+      setVerifyError(null);
+      const res = await clinicalService.rejectReport(tenantId, target.reportId, { reason: trimmed });
       if (res.success) {
-        setSuccessMsg(`Report ${res.data?.reportNumber || rejectModalReport.reportNumber} rejected and returned for technician correction`);
+        setSuccessMsg(`Report ${res.data?.reportNumber || target.reportNumber} rejected and returned for technician correction`);
         setRejectModalReport(null);
-        if (verifyReport) setVerifyReport(null);
+        setVerifyReport(null);
         await fetchReports();
-        if (selectedReport && selectedReport.reportId === rejectModalReport.reportId) {
+        if (selectedReport && selectedReport.reportId === target.reportId) {
           setSelectedReport(res.data);
         }
         setTimeout(() => setSuccessMsg(null), 3500);
       }
     } catch (err) {
-      setRejectError(err.response?.data?.message || err.message || 'Failed to reject report');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleApprove = async (reportId) => {
-    try {
-      setActionLoading(true);
-      const res = await clinicalService.approveReport(tenantId, reportId);
-      if (res.success) {
-        setSuccessMsg(`Report ${res.data.reportNumber} verified and approved`);
-        fetchReports();
-        if (selectedReport && selectedReport.reportId === reportId) {
-          setSelectedReport(res.data);
-        }
-        setTimeout(() => setSuccessMsg(null), 3000);
-      }
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to approve report');
+      const msg = err.response?.data?.message || err.message || 'Failed to reject report';
+      setRejectError(msg);
+      setVerifyError(msg);
     } finally {
       setActionLoading(false);
     }
@@ -416,28 +529,34 @@ export function ReportsPage() {
         description="Pathologist clinical result verification, diagnostic findings sign-off, and official report release."
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {releasedReports.length > 0 && (
-              <button
-                className="btn btn-secondary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                disabled={selectedDownloadIds.size === 0 || actionLoading}
-                onClick={handleStartBatchDownload}
-                title="Batch export selected released reports as PDFs"
-              >
-                <Download size={16} />
-                <span>Download Selected PDFs ({selectedDownloadIds.size})</span>
-              </button>
-            )}
+            <button
+              className="btn btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              disabled={eligibleDownloadCount === 0 || actionLoading}
+              onClick={handleStartBatchDownload}
+              title={
+                eligibleDownloadCount === 0
+                  ? 'Select released reports to download PDFs'
+                  : `Batch export ${eligibleDownloadCount} selected released report(s) as PDFs`
+              }
+            >
+              <Download size={16} />
+              <span>Download Selected PDFs ({eligibleDownloadCount})</span>
+            </button>
             {canRelease && approvedReports.length > 0 && (
               <button
                 className="btn btn-primary"
                 style={{ background: 'var(--teal-600)', borderColor: 'var(--teal-600)', display: 'flex', alignItems: 'center', gap: '6px' }}
-                disabled={selectedReleaseIds.size === 0 || actionLoading}
+                disabled={eligibleReleaseCount === 0 || actionLoading}
                 onClick={handleBatchRelease}
-                title="Batch release selected approved reports"
+                title={
+                  eligibleReleaseCount === 0
+                    ? 'Select approved reports to batch release'
+                    : `Batch release ${eligibleReleaseCount} selected approved report(s)`
+                }
               >
                 <CheckCircle2 size={16} />
-                <span>Release Selected ({selectedReleaseIds.size})</span>
+                <span>Release Selected ({eligibleReleaseCount})</span>
               </button>
             )}
             <button
@@ -484,14 +603,32 @@ export function ReportsPage() {
                 type="button"
                 className={`btn btn-sm ${filterStatus === tab.id ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '14px' }}
-                onClick={() => setFilterStatus(tab.id)}
+                onClick={() => handleFilterChange(tab.id)}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {selectedReportIds.size > 0 && eligibleDownloadCount === 0 && (
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  color: '#b45309',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 8px',
+                  background: '#fffbeb',
+                  border: '1px solid #fef3c7',
+                  borderRadius: '6px',
+                }}
+              >
+                <AlertCircle size={13} />
+                <span>Select released reports to download PDFs</span>
+              </span>
+            )}
             {releasedReports.length > 0 && (
               <button
                 type="button"
@@ -499,7 +636,7 @@ export function ReportsPage() {
                 style={{ fontSize: '0.75rem', padding: '4px 8px' }}
                 onClick={toggleSelectAllReleased}
               >
-                {selectedDownloadIds.size === releasedReports.length ? 'Clear Released' : `Select All Released (${releasedReports.length})`}
+                {releasedReports.length > 0 && releasedReports.every((r) => selectedReportIds.has(r.reportId)) ? 'Clear Released' : `Select All Released (${releasedReports.length})`}
               </button>
             )}
             {canRelease && approvedReports.length > 0 && (
@@ -509,7 +646,7 @@ export function ReportsPage() {
                 style={{ fontSize: '0.75rem', padding: '4px 8px' }}
                 onClick={toggleSelectAllApproved}
               >
-                {selectedReleaseIds.size === approvedReports.length ? 'Clear Approved' : `Select All Approved (${approvedReports.length})`}
+                {approvedReports.length > 0 && approvedReports.every((r) => selectedReportIds.has(r.reportId)) ? 'Clear Approved' : `Select All Approved (${approvedReports.length})`}
               </button>
             )}
           </div>
@@ -533,22 +670,19 @@ export function ReportsPage() {
             <table className="lms-table">
               <thead>
                 <tr>
-                  <th style={{ width: '40px', textAlign: 'center' }}>
+                  <th style={{ width: '48px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
-                      checked={
-                        filterStatus === 'released'
-                          ? releasedReports.length > 0 && selectedDownloadIds.size === releasedReports.length
-                          : filterStatus === 'approved'
-                          ? approvedReports.length > 0 && selectedReleaseIds.size === approvedReports.length
-                          : releasedReports.length > 0 && selectedDownloadIds.size === releasedReports.length
+                      checked={visibleReleasedReports.length > 0 && visibleReleasedReports.every((r) => selectedReportIds.has(r.reportId))}
+                      onChange={toggleSelectAllReleasedVisible}
+                      disabled={visibleReleasedReports.length === 0}
+                      title={
+                        visibleReleasedReports.length === 0
+                          ? 'No released reports in current view'
+                          : visibleReleasedReports.every((r) => selectedReportIds.has(r.reportId))
+                          ? 'Clear selection of released reports'
+                          : `Select All Released (${visibleReleasedReports.length} eligible)`
                       }
-                      onChange={() => {
-                        if (filterStatus === 'approved') toggleSelectAllApproved();
-                        else toggleSelectAllReleased();
-                      }}
-                      disabled={reports.length === 0}
-                      title="Toggle select all eligible reports"
                     />
                   </th>
                   <th>Report #</th>
@@ -562,44 +696,47 @@ export function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(filterStatus === 'all'
-                  ? reports
-                  : filterStatus === 'draft'
-                  ? reports.filter((r) => r.status === 'draft' || r.status === 'pending_review')
-                  : reports.filter((r) => r.status === filterStatus)).map((r) => (
+                {visibleReports.map((r) => (
                   <tr key={r.reportId || r._id}>
                     <td style={{ textAlign: 'center' }}>
-                      {r.status === 'released' ? (
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                         <input
                           type="checkbox"
-                          checked={selectedDownloadIds.has(r.reportId)}
-                          onChange={() => toggleSelectDownload(r.reportId)}
-                          title={`Select ${r.reportNumber} for batch PDF download`}
+                          checked={selectedReportIds.has(r.reportId)}
+                          onChange={() => toggleSelectReport(r.reportId)}
+                          disabled={r.status !== 'released' && !(canRelease && r.status === 'approved')}
+                          title={
+                            r.status === 'released'
+                              ? `Select ${r.reportNumber} for PDF download`
+                              : r.status === 'approved' && canRelease
+                              ? `Select ${r.reportNumber} for batch release (Ineligible for PDF download until released)`
+                              : `Cannot select ${r.reportNumber}: Report status is '${r.status}'. Only released reports can be downloaded as PDF.`
+                          }
                         />
-                      ) : r.status === 'approved' ? (
-                        canRelease ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedReleaseIds.has(r.reportId)}
-                            onChange={() => toggleSelectRelease(r.reportId)}
-                            title={`Select ${r.reportNumber} for batch release`}
-                          />
-                        ) : (
-                          <input
-                            type="checkbox"
-                            disabled
-                            title="Permission required to batch release"
-                            style={{ opacity: 0.25, cursor: 'not-allowed' }}
-                          />
-                        )
-                      ) : (
-                        <input
-                          type="checkbox"
-                          disabled
-                          title="Only released reports can be downloaded, and approved reports released"
-                          style={{ opacity: 0.25, cursor: 'not-allowed' }}
-                        />
-                      )}
+                        {r.status !== 'released' && (
+                          <span
+                            title={
+                              r.status === 'approved'
+                                ? 'Verified & Approved: Eligible for Release, ineligible for PDF download until released'
+                                : `Ineligible for PDF download: Report status is '${r.status}'. Official download requires 'released'.`
+                            }
+                            style={{
+                              fontSize: '0.625rem',
+                              fontWeight: 600,
+                              color: r.status === 'approved' ? 'var(--teal-700, #0f766e)' : 'var(--slate-500)',
+                              background: r.status === 'approved' ? 'var(--teal-50, #f0fdf4)' : 'var(--slate-100)',
+                              border: `1px solid ${r.status === 'approved' ? 'var(--teal-200, #99f6e4)' : 'var(--slate-200)'}`,
+                              borderRadius: '3px',
+                              padding: '1px 3px',
+                              lineHeight: 1,
+                              whiteSpace: 'nowrap',
+                              cursor: 'help',
+                            }}
+                          >
+                            {r.status === 'approved' ? 'Release only' : 'Ineligible'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary-blue)' }}>
@@ -625,15 +762,21 @@ export function ReportsPage() {
                       <div style={{ display: 'inline-flex', gap: '6px' }}>
                         {(r.status === 'draft' || r.status === 'pending_review') && isPathologist && (
                           <>
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => openVerifyModal(r)}
-                              disabled={actionLoading}
-                              title="Pathologist clinical review and verification"
-                            >
-                              <ShieldCheck size={14} />
-                              <span>Review & Verify</span>
-                            </button>
+                            {(() => {
+                              const comp = checkReportCompleteness(r);
+                              return (
+                                <button
+                                  className={comp.isComplete ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                                  onClick={() => openVerifyModal(r)}
+                                  disabled={actionLoading}
+                                  title={comp.isComplete ? 'Pathologist clinical review and verification' : `Review incomplete report (Missing: ${comp.missingItems.join(', ')})`}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                >
+                                  {comp.isComplete ? <ShieldCheck size={14} /> : <AlertTriangle size={14} style={{ color: '#c2410c' }} />}
+                                  <span>{comp.isComplete ? 'Review & Sign-Off' : `Review & Sign-Off (${comp.completedCount}/${comp.totalItems})`}</span>
+                                </button>
+                              );
+                            })()}
                             <button
                               className="btn btn-danger btn-sm"
                               style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none' }}
@@ -833,24 +976,29 @@ export function ReportsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {it.parameterResults.map((pr, pidx) => (
-                              <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : undefined }}>
-                                <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
-                                <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : 'inherit' }}>
-                                  {String(pr.value)} {pr.unit}
-                                </td>
-                                <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                  {pr.referenceRange || 'N/A'}
-                                </td>
-                                <td>
-                                  {pr.isAbnormal ? (
-                                    <Badge variant="danger">Abnormal</Badge>
-                                  ) : (
-                                    <Badge variant="success">Normal</Badge>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
+                            {it.parameterResults.map((pr, pidx) => {
+                              const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                              return (
+                                <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
+                                  <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
+                                  <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
+                                    {isBlank ? <span style={{ fontStyle: 'italic', fontWeight: 500 }}>Missing result</span> : `${pr.value}${pr.unit ? ' ' + pr.unit : ''}`}
+                                  </td>
+                                  <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                    {pr.referenceRange || 'N/A'}
+                                  </td>
+                                  <td>
+                                    {isBlank ? (
+                                      <Badge variant="warning">Missing</Badge>
+                                    ) : pr.isAbnormal ? (
+                                      <Badge variant="danger">Abnormal</Badge>
+                                    ) : (
+                                      <Badge variant="success">Normal</Badge>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       ) : (
@@ -950,180 +1098,325 @@ export function ReportsPage() {
       {/* Pathologist Review & Verification Modal */}
       <Modal
         isOpen={!!verifyReport}
-        onClose={() => setVerifyReport(null)}
-        title={verifyReport ? `Review & Verify Pathology Report: ${verifyReport.reportNumber}` : ''}
-        footer={
-          <>
-            <button className="btn btn-secondary" onClick={() => setVerifyReport(null)} disabled={actionLoading}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={() => {
-                const rep = verifyReport;
-                setVerifyReport(null);
-                openRejectModal(rep);
-              }}
-              disabled={actionLoading}
-              title="Reject report with clinical justification"
-            >
-              <AlertTriangle size={15} />
-              <span>Reject Report</span>
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleConfirmVerification}
-              disabled={
-                actionLoading ||
-                !verifyReport?.items ||
-                verifyReport.items.length === 0 ||
-                verifyReport.items.some(
-                  (it) => (!it.parameterResults || it.parameterResults.length === 0) && (!it.resultValue || String(it.resultValue).trim() === '')
-                )
-              }
-            >
-              {actionLoading ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  <span>Verifying Report...</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={16} />
-                  <span>Confirm Verification & Sign-off</span>
-                </>
-              )}
-            </button>
-          </>
-        }
+        onClose={() => {
+          setVerifyReport(null);
+          setVerifyError(null);
+        }}
+        title={verifyReport ? `Diagnostic Pathology Review: ${verifyReport.reportNumber}` : 'Report Review'}
+        size="lg"
       >
         {verifyReport && (() => {
+          const comp = checkReportCompleteness(verifyReport);
           const items = Array.isArray(verifyReport.items) ? verifyReport.items : [];
-          const hasMissingResults =
-            items.length === 0 ||
-            items.some(
-              (it) => (!it.parameterResults || it.parameterResults.length === 0) && (!it.resultValue || String(it.resultValue).trim() === '')
-            );
+          const hasMissingResults = !comp.isComplete;
           const hasAbnormal = items.some(
-            (it) => it.isAbnormal || it.parameterResults?.some((pr) => pr.isAbnormal)
+            (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((pr) => pr.isAbnormal))
           );
 
           return (
-            <form onSubmit={handleConfirmVerification} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
               {/* Patient / Requisition Context Banner */}
-              <div style={{ padding: '0.75rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8125rem' }}>
-                  <div>Patient: <strong>{verifyReport.patientName}</strong> ({verifyReport.patientMrn})</div>
-                  <div>Requisition: <strong>{verifyReport.orderNumber}</strong></div>
-                  <div>Diagnostic Panel: <strong>{verifyReport.testName}</strong></div>
-                  <div>Drafted By: <strong>{verifyReport.draftedBy}</strong></div>
+              <div style={{ padding: '0.875rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient</span>
+                  <div style={{ fontWeight: 700 }}>{verifyReport.patientName}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>MRN: {verifyReport.patientMrn}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Requisition Order</span>
+                  <div style={{ fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary-blue)' }}>{verifyReport.orderNumber}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Report: {verifyReport.reportNumber}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Diagnostic Panel</span>
+                  <div style={{ fontWeight: 600 }}>{verifyReport.testName}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Drafted by: {verifyReport.draftedBy}</div>
                 </div>
               </div>
 
               {/* Status and Clinical Warnings */}
               {verifyError && (
-                <div style={{ padding: '0.625rem 0.875rem', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-md)', color: '#be123c', fontSize: '0.8125rem' }}>
-                  <strong>Verification Error:</strong> {verifyError}
+                <div style={{ padding: '0.625rem 0.875rem', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-md)', color: '#be123c', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span><strong>Verification Error:</strong> {verifyError}</span>
                 </div>
               )}
 
               {hasMissingResults && (
-                <div style={{ padding: '0.625rem 0.875rem', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-md)', color: '#be123c', fontSize: '0.8125rem' }}>
-                  <strong>Incomplete Clinical Data:</strong> One or more tests in this requisition are missing diagnostic results. Pathologist verification is disabled until all results are entered.
+                <div style={{ padding: '0.625rem 0.875rem', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 'var(--radius-md)', color: '#9a3412', fontSize: '0.8125rem' }}>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertTriangle size={15} />
+                    <span>Incomplete Clinical Results — Approval Disabled</span>
+                  </div>
+                  <div style={{ marginTop: '4px' }}>
+                    One or more tests in this requisition are missing diagnostic results (
+                    <strong>{comp.missingItems.join(', ')}</strong>). Pathologist approval is blocked until all test results are recorded.
+                  </div>
                 </div>
               )}
 
               {hasAbnormal && !hasMissingResults && (
-                <div style={{ padding: '0.625rem 0.875rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 'var(--radius-md)', color: '#b45309', fontSize: '0.8125rem' }}>
-                  <strong>Pathological Alert:</strong> One or more analyte parameters are outside normal physiological reference ranges. Please evaluate clinical implications before approval.
+                <div style={{ padding: '0.625rem 0.875rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 'var(--radius-md)', color: '#b45309', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span><strong>Pathological Alert:</strong> One or more analyte parameters are outside normal physiological reference ranges. Please evaluate clinical implications before approval.</span>
                 </div>
               )}
 
-              {/* Structured Parameter Inspection Table */}
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginBottom: '6px', fontWeight: 600 }}>
-                  Diagnostic Parameter Results Review ({items.length} Test{items.length === 1 ? '' : 's'})
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '35vh', overflowY: 'auto' }}>
-                  {items.map((it, idx) => (
-                    <div key={idx} style={{ border: '1px solid var(--slate-200)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                      <div style={{ padding: '6px 12px', background: 'var(--slate-100)', fontWeight: 600, fontSize: '0.8125rem', color: 'var(--slate-700)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{it.testName} ({it.testCode})</span>
-                        {it.isAbnormal && <span style={{ color: '#e11d48', fontSize: '0.75rem', fontWeight: 700 }}>ABNORMAL FINDING</span>}
-                      </div>
-                      {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
-                        <table className="lms-table" style={{ margin: 0, fontSize: '0.8125rem' }}>
-                          <thead>
-                            <tr>
-                              <th>Parameter / Analyte</th>
-                              <th>Observed Result</th>
-                              <th>Reference Range</th>
-                              <th>Clinical Flag</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {it.parameterResults.map((pr, pidx) => (
-                              <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : undefined }}>
-                                <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
-                                <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : 'inherit' }}>
-                                  {String(pr.value)} {pr.unit}
-                                </td>
-                                <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                  {pr.referenceRange || 'N/A'}
-                                </td>
-                                <td>
-                                  {pr.isAbnormal ? (
-                                    <Badge variant="danger">Abnormal</Badge>
-                                  ) : (
-                                    <Badge variant="success">Normal</Badge>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <div style={{ padding: '8px 12px', fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
-                          Result: <strong>{it.resultValue || 'Awaiting entry'}</strong>
+              {/* VIEW 1: MAIN REPORT REVIEW */}
+              {verifyReviewStep === 'review' && (
+                <>
+                  {/* Structured Parameter Inspection Table */}
+                  <div>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--slate-600)', marginBottom: '6px', fontWeight: 700 }}>
+                      Diagnostic Parameter Results Review ({items.length} Test{items.length === 1 ? '' : 's'})
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '35vh', overflowY: 'auto' }}>
+                      {items.map((it, idx) => (
+                        <div key={idx} style={{ border: '1px solid var(--slate-200)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                          <div style={{ padding: '6px 12px', background: 'var(--slate-100)', fontWeight: 600, fontSize: '0.8125rem', color: 'var(--slate-700)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{it.testName} ({it.testCode})</span>
+                            {it.isAbnormal && <span style={{ color: '#e11d48', fontSize: '0.75rem', fontWeight: 700 }}>ABNORMAL FINDING</span>}
+                          </div>
+                          {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
+                            <table className="lms-table" style={{ margin: 0, fontSize: '0.8125rem' }}>
+                              <thead>
+                                <tr>
+                                  <th>Parameter / Analyte</th>
+                                  <th>Observed Result</th>
+                                  <th>Reference Range</th>
+                                  <th>Clinical Flag</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {it.parameterResults.map((pr, pidx) => {
+                                  const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                  return (
+                                    <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
+                                      <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
+                                      <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
+                                        {isBlank ? <span style={{ fontStyle: 'italic', fontWeight: 500 }}>Missing result</span> : `${pr.value}${pr.unit ? ' ' + pr.unit : ''}`}
+                                      </td>
+                                      <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                        {pr.referenceRange || 'N/A'}
+                                      </td>
+                                      <td>
+                                        {isBlank ? (
+                                          <Badge variant="warning">Missing</Badge>
+                                        ) : pr.isAbnormal ? (
+                                          <Badge variant="danger">Abnormal</Badge>
+                                        ) : (
+                                          <Badge variant="success">Normal</Badge>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div style={{ padding: '8px 12px', fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                              Result:{' '}
+                              {it.resultValue && String(it.resultValue).trim() !== '' ? (
+                                <strong>{it.resultValue}</strong>
+                              ) : (
+                                <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Awaiting analytical result entry</span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Pathologist Clinical Interpretation */}
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontWeight: 600 }}>Diagnostic Findings & Clinical Interpretation *</label>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      required
+                      placeholder="Enter or refine clinical impressions, morphology notes, or differential diagnoses..."
+                      value={verificationFindings}
+                      onChange={(e) => setVerificationFindings(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Pathologist Verification Notes */}
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontWeight: 600 }}>Pathologist Sign-off / Verification Notes (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Findings verified and approved under ISO 15189."
+                      value={verificationNotes}
+                      onChange={(e) => setVerificationNotes(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ padding: '0.5rem 0.75rem', background: 'var(--slate-100)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+                    <span>Verified By: <strong>{user?.fullName || user?.email || 'Pathologist'}</strong> (Pathology Consultant). </span>
+                    <span style={{ color: 'var(--slate-500)' }}>Verification moves report to Approved status. Official report release remains a separate step.</span>
+                  </div>
+
+                  {/* Review Footer Actions */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setVerifyReport(null)} disabled={actionLoading}>
+                      Cancel
+                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => {
+                          setVerifyError(null);
+                          setVerifyReviewStep('confirm_reject');
+                        }}
+                        disabled={actionLoading}
+                        title="Reject report with clinical justification"
+                      >
+                        <AlertTriangle size={15} />
+                        <span>Reject Report</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setVerifyError(null);
+                          setVerifyReviewStep('confirm_approve');
+                        }}
+                        disabled={actionLoading || !comp.isComplete}
+                        title={!comp.isComplete ? `Cannot approve: Missing results for ${comp.missingItems.join(', ')}` : 'Proceed to sign-off confirmation'}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <ShieldCheck size={16} />
+                        <span>Approve & Sign-Off</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* VIEW 2: CONFIRM APPROVAL STEP */}
+              {verifyReviewStep === 'confirm_approve' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '14px', color: '#1e40af' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                      <ShieldCheck size={18} />
+                      <span>Confirm Pathologist Approval & Sign-Off</span>
+                    </div>
+                    <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#1e3a8a' }}>
+                      You are about to authorize and digitally sign report <strong>{verifyReport.reportNumber}</strong> for patient <strong>{verifyReport.patientName}</strong>.
+                      This decision transitions the requisition into <strong>Approved</strong> status, locking verified analyte parameters under ISO 15189 accreditation standards.
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.8125rem', cursor: 'pointer', color: 'var(--slate-800)', background: 'var(--slate-50)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                    <input
+                      type="checkbox"
+                      required
+                      checked={isDoctorConfirmed}
+                      onChange={(e) => setIsDoctorConfirmed(e.target.checked)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Consultant Pathologist Authorization:</strong> I certify that I have clinically reviewed, validated, and authorized these analytical test findings for final report issuance under laboratory quality protocol.
+                    </span>
+                  </label>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setVerifyReviewStep('review')}
+                      disabled={actionLoading}
+                    >
+                      Back to Review
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleConfirmVerification}
+                      disabled={actionLoading || !isDoctorConfirmed}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      {actionLoading ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          <span>Signing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck size={16} />
+                          <span>Confirm Verification & Sign-off</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Pathologist Clinical Interpretation */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Diagnostic Findings & Clinical Interpretation *</label>
-                <textarea
-                  className="form-input"
-                  rows={3}
-                  required
-                  placeholder="Enter or refine clinical impressions, morphology notes, or differential diagnoses..."
-                  value={verificationFindings}
-                  onChange={(e) => setVerificationFindings(e.target.value)}
-                />
-              </div>
+              {/* VIEW 3: CONFIRM REJECTION STEP */}
+              {verifyReviewStep === 'confirm_reject' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', color: '#991b1b' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                      <AlertTriangle size={18} />
+                      <span>Confirm Clinical Rejection & Return for Revision</span>
+                    </div>
+                    <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#7f1d1d' }}>
+                      Rejecting this report will return it to the laboratory bench queue for technician rerun or result correction.
+                      This rejection justification will be permanently saved to the report's audit trail and displayed on the technician bench.
+                    </div>
+                  </div>
 
-              {/* Pathologist Verification Notes */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Pathologist Sign-off / Verification Notes (Optional)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Findings verified and approved. Cleared for release."
-                  value={verificationNotes}
-                  onChange={(e) => setVerificationNotes(e.target.value)}
-                />
-              </div>
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem' }}>
+                      Clinical Rejection Justification * (minimum 5 characters)
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      className="form-input"
+                      style={{ fontSize: '0.8125rem' }}
+                      placeholder="e.g. Inconsistent potassium readout; gross hemolysis suspected. Redraw or repeat bench analysis required."
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                    />
+                  </div>
 
-              <div style={{ padding: '0.5rem 0.75rem', background: 'var(--slate-100)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--slate-600)' }}>
-                <span>Verified By: <strong>{user?.fullName || user?.email || 'Pathologist'}</strong> (Pathology Consultant). </span>
-                <span style={{ color: 'var(--slate-500)' }}>Verification moves report to Approved status. Official report release remains a separate step.</span>
-              </div>
-            </form>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setVerifyReviewStep('review')}
+                      disabled={actionLoading}
+                    >
+                      Back to Review
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={handleConfirmReject}
+                      disabled={actionLoading || rejectionReason.trim().length < 5}
+                    >
+                      {actionLoading ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          <span>Rejecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={16} />
+                          <span>Confirm Clinical Rejection</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })()}
       </Modal>
@@ -1687,7 +1980,7 @@ export function ReportsPage() {
               className="btn btn-secondary"
               onClick={() => {
                 setIsBatchExportOpen(false);
-                setSelectedDownloadIds(new Set());
+                setSelectedReportIds(new Set());
               }}
             >
               Done & Close

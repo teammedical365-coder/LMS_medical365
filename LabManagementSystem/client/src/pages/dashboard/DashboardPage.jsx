@@ -44,13 +44,17 @@ import {
   Search,
   IndianRupee,
   Receipt,
-   X,
+  AlertCircle,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
 import Badge from '../../components/common/Badge';
 import StatusBanner from '../../components/common/StatusBanner';
 import Modal from '../../components/common/Modal';
+import ResultEntryModal from '../samples/ResultEntryModal';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
 import api from '../../services/api';
@@ -72,6 +76,10 @@ export function DashboardPage() {
   // Pathologist Workstation Sign-Off Modal State
   const [pathologistSignModalOpen, setPathologistSignModalOpen] = useState(false);
   const [selectedReviewReport, setSelectedReviewReport] = useState(null);
+  const [pathologistReviewStep, setPathologistReviewStep] = useState('review'); // 'review' | 'confirm_approve' | 'confirm_reject'
+  const [pathologistFindings, setPathologistFindings] = useState('');
+  const [pathologistRejectionReason, setPathologistRejectionReason] = useState('');
+  const [pathologistModalError, setPathologistModalError] = useState(null);
   const [verificationNotes, setVerificationNotes] = useState('');
   const [isDoctorConfirmed, setIsDoctorConfirmed] = useState(false);
   const [isVerifyingReport, setIsVerifyingReport] = useState(false);
@@ -82,6 +90,12 @@ export function DashboardPage() {
   const [targetProcessingStatus, setTargetProcessingStatus] = useState('in_analysis');
   const [selectedAnalyzer, setSelectedAnalyzer] = useState('Sysmex XN-550 Automated Hematology');
   const [isUpdatingSample, setIsUpdatingSample] = useState(false);
+  const [modalError, setModalError] = useState(null);
+  const [resultEntrySample, setResultEntrySample] = useState(null);
+  const [queueFilter, setQueueFilter] = useState('active'); // 'active' | 'all'
+  const [queuePage, setQueuePage] = useState(1);
+  const [reportQueueFilter, setReportQueueFilter] = useState('actionable'); // 'actionable' | 'pending' | 'approved' | 'rejected' | 'all'
+  const [reportQueuePage, setReportQueuePage] = useState(1);
 
   const tenantId = user?.tenantId || tenant?.tenantId;
   const userRole = (user?.role || 'lab_admin').toLowerCase();
@@ -92,6 +106,11 @@ export function DashboardPage() {
     userRole === 'lab_director' ||
     rolePermissions.includes('*') ||
     isSuperAdmin;
+  const canRelease =
+    isLabAdmin ||
+    rolePermissions.includes('*') ||
+    rolePermissions.includes('reports:release') ||
+    userRole === 'pathologist';
 
   // Dynamic permission checker helper
   const hasPermission = (required) => {
@@ -183,7 +202,10 @@ export function DashboardPage() {
     totalOrders: 0,
     pendingCollectionSamples: 0,
     inAnalysisSamples: 0,
+    activeQueueSamples: 0,
     pendingReviewReports: 0,
+    approvedReports: 0,
+    rejectedReports: 0,
     releasedReports: 0,
     totalRevenue: 0,
     totalOutstanding: 0,
@@ -204,6 +226,77 @@ export function DashboardPage() {
   const recentOrders = dashboardData?.recentOrders || [];
   const recentReports = dashboardData?.recentReports || [];
   const recentSamples = dashboardData?.recentSamples || [];
+
+  // Filter and prioritize reports for Pathologist Diagnostic Queue:
+  // 1. Pending review / drafts requiring Pathologist Sign-Off first
+  // 2. Approved reports awaiting release
+  // 3. Rejected reports (corrections)
+  // 4. Released reports
+  const pendingReportsList = recentReports.filter(
+    (r) => r.status === 'draft' || r.status === 'pending_review'
+  );
+  const approvedReportsList = recentReports.filter((r) => r.status === 'approved');
+  const rejectedReportsList = recentReports.filter((r) => r.status === 'rejected');
+  const releasedReportsList = recentReports.filter((r) => r.status === 'released');
+
+  const pendingReportsCount = metrics.pendingReviewReports ?? pendingReportsList.length;
+  const approvedReportsCount = metrics.approvedReports ?? approvedReportsList.length;
+  const rejectedReportsCount = metrics.rejectedReports ?? rejectedReportsList.length;
+  const releasedReportsCount = metrics.releasedReports ?? releasedReportsList.length;
+  const actionableReportsCount = pendingReportsList.length + approvedReportsList.length;
+
+  const filteredReports = recentReports.filter((r) => {
+    if (reportQueueFilter === 'actionable') {
+      return r.status === 'draft' || r.status === 'pending_review' || r.status === 'approved';
+    }
+    if (reportQueueFilter === 'pending') {
+      return r.status === 'draft' || r.status === 'pending_review';
+    }
+    if (reportQueueFilter === 'approved') {
+      return r.status === 'approved';
+    }
+    if (reportQueueFilter === 'rejected') {
+      return r.status === 'rejected';
+    }
+    return true; // 'all'
+  });
+
+  const prioritizedReports = [...filteredReports].sort((a, b) => {
+    const getStatusWeight = (st) => {
+      if (st === 'draft' || st === 'pending_review') return 1;
+      if (st === 'approved') return 2;
+      if (st === 'rejected') return 3;
+      if (st === 'released') return 4;
+      return 5;
+    };
+    const diff = getStatusWeight(a.status) - getStatusWeight(b.status);
+    if (diff !== 0) return diff;
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  });
+
+  const REPORT_QUEUE_PAGE_SIZE = 10;
+  const totalReportPages = Math.max(1, Math.ceil(prioritizedReports.length / REPORT_QUEUE_PAGE_SIZE));
+  const currentReportPage = Math.min(reportQueuePage, totalReportPages);
+  const startReportIndex = (currentReportPage - 1) * REPORT_QUEUE_PAGE_SIZE;
+  const displayedReports = prioritizedReports.slice(startReportIndex, startReportIndex + REPORT_QUEUE_PAGE_SIZE);
+
+  // Filter queue: 'active' shows specimens pending receipt, in analysis, or awaiting signoff (excludes completed and rejected)
+  const eligibleSamples = recentSamples.filter((s) => {
+    if (queueFilter === 'active') {
+      return s.processingStatus !== 'completed' && s.collectionStatus !== 'rejected';
+    }
+    return true;
+  });
+
+  const activeQueueCount = recentSamples.filter(
+    (s) => s.processingStatus !== 'completed' && s.collectionStatus !== 'rejected'
+  ).length;
+
+  const QUEUE_PAGE_SIZE = 10;
+  const totalQueuePages = Math.max(1, Math.ceil(eligibleSamples.length / QUEUE_PAGE_SIZE));
+  const currentPage = Math.min(queuePage, totalQueuePages);
+  const startIndex = (currentPage - 1) * QUEUE_PAGE_SIZE;
+  const displayedSamples = eligibleSamples.slice(startIndex, startIndex + QUEUE_PAGE_SIZE);
 
   // Determine role-tailored view title, description & badge
   const getRoleHeaderInfo = () => {
@@ -235,29 +328,86 @@ export function DashboardPage() {
 
   const headerInfo = getRoleHeaderInfo();
 
-  // Handle Quick Pathologist Report Sign-Off
+  // Handle Comprehensive Pathologist Report Review & Sign-Off
   const handleOpenPathologistModal = (report) => {
     setSelectedReviewReport(report);
-    setVerificationNotes('Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
+    setPathologistReviewStep('review');
+    setPathologistFindings(report.findings || 'All analyte test parameters correlated and within expected clinical limits.');
+    setVerificationNotes(report.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
+    setPathologistRejectionReason('');
     setIsDoctorConfirmed(false);
+    setPathologistModalError(null);
     setPathologistSignModalOpen(true);
   };
 
   const handleConfirmPathologistVerification = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!selectedReviewReport) return;
+    const comp = checkReportCompleteness(selectedReviewReport);
+    if (!comp.isComplete) {
+      setPathologistModalError(`Cannot verify report: missing diagnostic results for ${comp.missingItems.join(', ')}.`);
+      return;
+    }
+    if (!isDoctorConfirmed) {
+      setPathologistModalError('Please confirm the pathologist digital authorization statement before signing.');
+      return;
+    }
+
     setIsVerifyingReport(true);
-    setError(null);
+    setPathologistModalError(null);
     try {
       await clinicalService.approveReport(tenantId, selectedReviewReport.reportId || selectedReviewReport.id, {
-        notes: verificationNotes,
-        verifiedBy: user?.fullName || 'Consultant Pathologist',
+        findings: pathologistFindings.trim(),
+        verificationNotes: verificationNotes.trim(),
+        notes: verificationNotes.trim(),
+        verifiedBy: user?.fullName || user?.email || 'Consultant Pathologist',
       });
       setSuccessBanner(`Report for order ${selectedReviewReport.orderNumber || selectedReviewReport.orderId} successfully verified & signed.`);
       setPathologistSignModalOpen(false);
       await fetchDashboard();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to verify diagnostic report.');
+      setPathologistModalError(err.response?.data?.message || err.message || 'Failed to verify diagnostic report.');
+    } finally {
+      setIsVerifyingReport(false);
+    }
+  };
+
+  const handleConfirmPathologistRejection = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedReviewReport) return;
+    const reason = pathologistRejectionReason.trim();
+    if (!reason || reason.length < 5) {
+      setPathologistModalError('Please enter a clinical justification for rejecting this report (minimum 5 characters).');
+      return;
+    }
+
+    setIsVerifyingReport(true);
+    setPathologistModalError(null);
+    try {
+      await clinicalService.rejectReport(tenantId, selectedReviewReport.reportId || selectedReviewReport.id, {
+        reason,
+      });
+      setSuccessBanner(`Report for order ${selectedReviewReport.orderNumber || selectedReviewReport.orderId} rejected and returned to technician queue for revision.`);
+      setPathologistSignModalOpen(false);
+      await fetchDashboard();
+    } catch (err) {
+      setPathologistModalError(err.response?.data?.message || err.message || 'Failed to reject diagnostic report.');
+    } finally {
+      setIsVerifyingReport(false);
+    }
+  };
+
+  const handleReleaseReport = async (reportId) => {
+    if (!reportId) return;
+    try {
+      setIsVerifyingReport(true);
+      const res = await clinicalService.releaseReport(tenantId, reportId);
+      if (res.success) {
+        setSuccessBanner(`Report ${res.data?.reportNumber || reportId} officially released to patient portal.`);
+        await fetchDashboard();
+      }
+    } catch (err) {
+      setPathologistModalError(err.response?.data?.message || err.message || 'Failed to release report.');
     } finally {
       setIsVerifyingReport(false);
     }
@@ -266,7 +416,13 @@ export function DashboardPage() {
   // Handle Quick Technician Analyzer Bench Action
   const handleOpenTechnicianModal = (sample) => {
     setSelectedBenchSample(sample);
-    setTargetProcessingStatus(sample.processingStatus === 'in_analysis' ? 'completed' : 'in_analysis');
+    setModalError(null);
+    setError(null);
+    if (sample.collectionStatus === 'collected') {
+      setTargetProcessingStatus('received');
+    } else {
+      setTargetProcessingStatus('in_analysis');
+    }
     setTechnicianBenchModalOpen(true);
   };
 
@@ -275,20 +431,156 @@ export function DashboardPage() {
     if (!selectedBenchSample) return;
     setIsUpdatingSample(true);
     setError(null);
+    setModalError(null);
+    setSuccessBanner(null);
     try {
-      await clinicalService.updateSampleStatus(tenantId, selectedBenchSample.sampleId || selectedBenchSample.id, {
-        processingStatus: targetProcessingStatus,
-        analyzer: selectedAnalyzer,
-        notes: `Bench status updated on ${selectedAnalyzer}`,
-      });
-      setSuccessBanner(`Specimen ${selectedBenchSample.barcode || selectedBenchSample.sampleId} status updated to '${targetProcessingStatus}'.`);
+      if (targetProcessingStatus === 'received') {
+        const res = await clinicalService.updateSampleStatus(tenantId, selectedBenchSample.sampleId || selectedBenchSample.id, {
+          collectionStatus: 'received',
+          notes: `Specimen received at bench triage on ${selectedAnalyzer}`,
+        });
+        const barcode = res?.data?.barcode || selectedBenchSample.barcode || selectedBenchSample.sampleId;
+        setSuccessBanner(`Specimen ${barcode} received at laboratory bench.`);
+      } else {
+        const res = await clinicalService.updateSampleStatus(tenantId, selectedBenchSample.sampleId || selectedBenchSample.id, {
+          processingStatus: targetProcessingStatus,
+          analyzer: selectedAnalyzer,
+          notes: `Bench status updated on ${selectedAnalyzer}`,
+        });
+        const barcode = res?.data?.barcode || selectedBenchSample.barcode || selectedBenchSample.sampleId;
+        setSuccessBanner(`Specimen ${barcode} status updated to '${targetProcessingStatus}'.`);
+      }
       setTechnicianBenchModalOpen(false);
+      setModalError(null);
       await fetchDashboard();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to update analyzer bench run.');
+      setSuccessBanner(null);
+      const msg = err.response?.data?.message || err.message || 'Failed to update analyzer bench run.';
+      setModalError(msg);
+      setError(msg);
     } finally {
       setIsUpdatingSample(false);
     }
+  };
+
+  // Contextual status-aware bench action for specimen queue
+  const renderBenchAction = (sample) => {
+    if (sample.collectionStatus === 'rejected' || sample.processingStatus === 'recollection_requested') {
+      return (
+        <Link
+          to="/samples"
+          className="btn btn-secondary btn-sm"
+          style={{ color: 'var(--danger-600, #dc2626)', borderColor: '#fca5a5', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
+          title="Specimen rejected. View Recollection Queue on Specimen Bench"
+        >
+          <RotateCcw size={12} />
+          <span>Recollection</span>
+        </Link>
+      );
+    }
+
+    if (sample.processingStatus === 'completed') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            background: '#ecfdf5',
+            color: '#047857',
+            border: '1px solid #a7f3d0',
+          }}
+          title="Analytical run completed. Results validated."
+        >
+          <CheckCircle size={12} />
+          <span>Completed</span>
+        </span>
+      );
+    }
+
+    if (sample.processingStatus === 'results_entered') {
+      return (
+        <button
+          onClick={() => setResultEntrySample(sample)}
+          className="btn btn-secondary btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem' }}
+          title="Review or edit recorded analyte values prior to pathologist sign-off"
+        >
+          <FileText size={12} />
+          <span>Edit Results</span>
+        </button>
+      );
+    }
+
+    if (sample.processingStatus === 'in_analysis') {
+      return (
+        <button
+          onClick={() => setResultEntrySample(sample)}
+          className="btn btn-primary btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#7c3aed', borderColor: '#6d28d9', fontSize: '0.75rem' }}
+          title="Complete instrument run & enter test results to push to Pathologist Sign-Off"
+        >
+          <Sparkles size={12} />
+          <span>Enter Results</span>
+        </button>
+      );
+    }
+
+    // Specimen pending collection by phlebotomist (cannot be received until collected)
+    if (sample.collectionStatus === 'pending') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            background: '#f8fafc',
+            color: 'var(--slate-500, #64748b)',
+            border: '1px solid var(--slate-200, #e2e8f0)',
+          }}
+          title="Specimen awaiting collection by phlebotomy before central lab receipt"
+        >
+          <Clock size={12} />
+          <span>Awaiting Collection</span>
+        </span>
+      );
+    }
+
+    // Specimen collected by phlebotomy, eligible for central laboratory receipt triage
+    if (sample.collectionStatus === 'collected') {
+      return (
+        <button
+          onClick={() => handleOpenTechnicianModal(sample)}
+          className="btn btn-secondary btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', borderColor: '#2563eb', color: '#1d4ed8', fontSize: '0.75rem' }}
+          title="Receive & verify collected specimen tube at laboratory accessioning desk"
+        >
+          <CheckCircle2 size={12} />
+          <span>Receive at Bench</span>
+        </button>
+      );
+    }
+
+    // Specimen received in lab triage, eligible to load on analyzer instrument
+    return (
+      <button
+        onClick={() => handleOpenTechnicianModal(sample)}
+        className="btn btn-primary btn-sm"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem' }}
+        title="Assign analyzer instrument and begin analytical run"
+      >
+        <Cpu size={12} />
+        <span>Load on Instrument</span>
+      </button>
+    );
   };
 
   // Helper for tube color codes
@@ -326,10 +618,99 @@ export function DashboardPage() {
     );
   };
 
+  // Helper to strictly evaluate whether all diagnostic tests in a report have recorded results
+  const checkReportCompleteness = (report) => {
+    const items = Array.isArray(report?.items) ? report.items : [];
+    if (items.length === 0) {
+      return { isComplete: false, totalItems: 0, completedCount: 0, missingItems: ['No test items'] };
+    }
+    const missing = [];
+    let completedCount = 0;
+    for (const it of items) {
+      const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+      if (hasParams) {
+        const hasBlank = it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
+        if (!hasBlank) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      } else {
+        const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+        if (hasSingle) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      }
+    }
+    return {
+      isComplete: missing.length === 0,
+      totalItems: items.length,
+      completedCount,
+      missingItems: missing,
+    };
+  };
+
   // Helper for Clinical Panic / Out of Range Flag
   const getAbnormalFindingFlag = (report) => {
+    if (!report) return null;
+
+    if (report.status === 'rejected') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '2px 8px',
+            borderRadius: '9999px',
+            fontSize: '0.6875rem',
+            fontWeight: 700,
+            background: '#fef2f2',
+            color: '#b91c1c',
+            border: '1px solid #fecaca',
+          }}
+          title={report.rejectionReason ? `Rejected: ${report.rejectionReason}` : 'Report rejected by pathologist'}
+        >
+          <AlertTriangle size={11} />
+          REJECTED CLINICAL STATE
+        </span>
+      );
+    }
+
+    const comp = checkReportCompleteness(report);
+    if (!comp.isComplete) {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '2px 8px',
+            borderRadius: '9999px',
+            fontSize: '0.6875rem',
+            fontWeight: 700,
+            background: '#fff7ed',
+            color: '#c2410c',
+            border: '1px solid #fed7aa',
+          }}
+          title={`Awaiting results for: ${comp.missingItems.join(', ')}`}
+        >
+          <AlertCircle size={11} />
+          INCOMPLETE ({comp.completedCount}/{comp.totalItems} TESTS)
+        </span>
+      );
+    }
+
+    const hasParamAbnormal = Array.isArray(report.items) && report.items.some(
+      (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((p) => p.isAbnormal))
+    );
     const raw = (report.findings || report.notes || '').toLowerCase();
-    if (raw.includes('critical') || raw.includes('panic') || raw.includes('high') || raw.includes('severe')) {
+    const isCritical = raw.includes('critical') || raw.includes('panic') || raw.includes('severe');
+    const isOutOfRange = hasParamAbnormal || raw.includes('elevated') || raw.includes('borderline') || raw.includes('low') || raw.includes('abnormal') || raw.includes('high');
+
+    if (isCritical) {
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.6875rem', fontWeight: 700, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}>
           <AlertTriangle size={11} />
@@ -337,7 +718,7 @@ export function DashboardPage() {
         </span>
       );
     }
-    if (raw.includes('elevated') || raw.includes('borderline') || raw.includes('low') || raw.includes('abnormal')) {
+    if (isOutOfRange) {
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.6875rem', fontWeight: 600, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' }}>
           OUT OF RANGE
@@ -794,18 +1175,26 @@ export function DashboardPage() {
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{metrics.pendingReviewReports}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#fecaca' }}>Awaiting Sign-Off</div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', minWidth: '90px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{pendingReportsCount}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#fecaca', whiteSpace: 'nowrap' }}>Pending Review</div>
                 </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.reportsReleased}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#fecaca' }}>Verified Today</div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', minWidth: '90px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{approvedReportsCount}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#fecaca', whiteSpace: 'nowrap' }}>Awaiting Release</div>
                 </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.formattedTat || 'N/A'}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#fecaca' }}>Avg Review TAT</div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', minWidth: '90px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{rejectedReportsCount}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#fecaca', whiteSpace: 'nowrap' }}>Rejected</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', minWidth: '90px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{releasedReportsCount}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#fecaca', whiteSpace: 'nowrap' }}>Released</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', minWidth: '90px' }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{todaySummary.formattedTat || 'N/A'}</div>
+                  <div style={{ fontSize: '0.6875rem', color: '#fecaca', whiteSpace: 'nowrap' }}>Avg Review TAT</div>
                 </div>
               </div>
             </div>
@@ -813,15 +1202,90 @@ export function DashboardPage() {
 
           {/* Pathologist Diagnostic Queue Card */}
           <div className="card">
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <FileCheck size={18} style={{ color: '#b91c1c' }} />
-                <h3 className="card-title">Diagnostic Reports Verification Queue</h3>
+                <h3 className="card-title" style={{ margin: 0 }}>Diagnostic Reports Verification Queue</h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontWeight: 500 }}>
+                  ({actionableReportsCount} actionable • {recentReports.length} total)
+                </span>
               </div>
-              <Link to="/reports" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span>Open Diagnostic Reports Portal</span>
-                <ArrowRight size={13} />
-              </Link>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: 'var(--slate-100, #f1f5f9)', padding: '2px', borderRadius: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setReportQueueFilter('actionable'); setReportQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: reportQueueFilter === 'actionable' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: reportQueueFilter === 'actionable' ? '#fff' : 'transparent',
+                      color: reportQueueFilter === 'actionable' ? '#b91c1c' : 'var(--slate-600)',
+                      boxShadow: reportQueueFilter === 'actionable' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Actionable ({actionableReportsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReportQueueFilter('pending'); setReportQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: reportQueueFilter === 'pending' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: reportQueueFilter === 'pending' ? '#fff' : 'transparent',
+                      color: reportQueueFilter === 'pending' ? '#b91c1c' : 'var(--slate-600)',
+                      boxShadow: reportQueueFilter === 'pending' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Pending Sign-Off ({pendingReportsList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReportQueueFilter('approved'); setReportQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: reportQueueFilter === 'approved' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: reportQueueFilter === 'approved' ? '#fff' : 'transparent',
+                      color: reportQueueFilter === 'approved' ? '#0d9488' : 'var(--slate-600)',
+                      boxShadow: reportQueueFilter === 'approved' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Awaiting Release ({approvedReportsList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReportQueueFilter('all'); setReportQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: reportQueueFilter === 'all' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: reportQueueFilter === 'all' ? '#fff' : 'transparent',
+                      color: reportQueueFilter === 'all' ? '#1d4ed8' : 'var(--slate-600)',
+                      boxShadow: reportQueueFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    All ({recentReports.length})
+                  </button>
+                </div>
+                <Link to="/reports" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Open Diagnostic Reports Portal</span>
+                  <ArrowRight size={13} />
+                </Link>
+              </div>
             </div>
 
             <div className="table-container">
@@ -831,73 +1295,185 @@ export function DashboardPage() {
                     <th>Order #</th>
                     <th>Patient / MRN</th>
                     <th>Diagnostic Panel</th>
-                    <th>Clinical Interpretation & Findings</th>
-                    <th>Status Flag</th>
+                    <th>Clinical Result State</th>
+                    <th>Report Workflow Status</th>
                     <th>Priority</th>
                     <th style={{ textAlign: 'right' }}>Physician Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recentReports.length === 0 ? (
+                  {displayedReports.length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--slate-400)' }}>
-                        No pending diagnostic reports in verification queue. Excellent work!
+                        {reportQueueFilter === 'actionable'
+                          ? 'No actionable diagnostic reports in verification queue. Excellent work!'
+                          : 'No reports found matching the selected filter.'}
                       </td>
                     </tr>
                   ) : (
-                    recentReports.map((report) => (
-                      <tr key={report.reportId || report.id}>
-                        <td>
-                          <strong style={{ fontFamily: 'monospace', color: 'var(--primary-700)' }}>
-                            {report.orderNumber || report.orderId || 'ORD-REQ'}
-                          </strong>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{report.patientName}</span>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{report.patientMrn || 'MRN-RECORD'}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span style={{ fontWeight: 500 }}>
-                            {report.tests?.map((t) => t.name || t.testCode).join(', ') || report.testName || 'Comprehensive Clinical Panel'}
-                          </span>
-                        </td>
-                        <td style={{ maxWidth: '280px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <span style={{ fontSize: '0.8125rem', color: 'var(--slate-700)' }}>
-                              {report.findings || 'Raw instrument findings compiled. Awaiting pathologist signature.'}
+                    displayedReports.map((report) => {
+                      const comp = checkReportCompleteness(report);
+                      const isPendingReview = report.status === 'draft' || report.status === 'pending_review';
+                      return (
+                        <tr key={report.reportId || report.id}>
+                          <td>
+                            <strong style={{ fontFamily: 'monospace', color: 'var(--primary-700)' }}>
+                              {report.orderNumber || report.orderId || 'ORD-REQ'}
+                            </strong>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{report.patientName}</span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{report.patientMrn || 'MRN-RECORD'}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span style={{ fontWeight: 500 }}>
+                              {report.tests?.map((t) => t.name || t.testCode).join(', ') || report.testName || 'Comprehensive Clinical Panel'}
                             </span>
-                            {getAbnormalFindingFlag(report)}
-                          </div>
-                        </td>
-                        <td>
-                          <Badge variant={report.status === 'released' ? 'success' : report.status === 'approved' ? 'teal' : 'warning'}>
-                            {report.status || 'Draft Findings'}
-                          </Badge>
-                        </td>
-                        <td>{getPriorityBadge(report.priority || 'stat')}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <button
-                            onClick={() => handleOpenPathologistModal(report)}
-                            className="btn btn-primary btn-sm"
-                            style={{
-                              background: '#b91c1c',
-                              borderColor: '#991b1b',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                            }}
-                          >
-                            <Stethoscope size={13} />
-                            <span>Review & Sign-Off</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td style={{ maxWidth: '280px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div>{getAbnormalFindingFlag(report)}</div>
+                              {report.status === 'rejected' ? (
+                                <span style={{ fontSize: '0.75rem', color: '#991b1b', fontStyle: 'italic' }}>
+                                  Rejection note: {report.rejectionReason || 'Returned for correction'}
+                                </span>
+                              ) : !comp.isComplete ? (
+                                <span style={{ fontSize: '0.75rem', color: '#c2410c' }}>
+                                  Awaiting: {comp.missingItems.join(', ')}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '0.8125rem', color: 'var(--slate-700)' }}>
+                                  {report.findings || 'All analyte results verified within reference thresholds.'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            {report.status === 'rejected' ? (
+                              <Badge variant="danger" icon={AlertTriangle}>Rejected</Badge>
+                            ) : report.status === 'released' ? (
+                              <Badge variant="success" icon={CheckCircle2}>Released</Badge>
+                            ) : report.status === 'approved' ? (
+                              <Badge variant="teal">Approved</Badge>
+                            ) : report.status === 'pending_review' ? (
+                              <Badge variant="purple">Ready for Review</Badge>
+                            ) : (
+                              <Badge variant="warning">Draft</Badge>
+                            )}
+                          </td>
+                          <td>{getPriorityBadge(report.priority || 'stat')}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                              {isPendingReview ? (
+                                <button
+                                  onClick={() => handleOpenPathologistModal(report)}
+                                  className="btn btn-primary btn-sm"
+                                  style={{
+                                    background: '#b91c1c',
+                                    borderColor: '#991b1b',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                  }}
+                                  title="Open complete clinical review and sign-off workflow"
+                                >
+                                  <Stethoscope size={13} />
+                                  <span>Review & Sign-Off</span>
+                                </button>
+                              ) : report.status === 'approved' && canRelease ? (
+                                <button
+                                  onClick={() => handleReleaseReport(report.reportId || report.id)}
+                                  className="btn btn-success btn-sm"
+                                  style={{
+                                    background: 'var(--teal-600, #0d9488)',
+                                    borderColor: 'var(--teal-600, #0d9488)',
+                                    color: 'white',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                  }}
+                                  title="Release approved report to patient portal"
+                                >
+                                  <CheckCircle2 size={13} />
+                                  <span>Release</span>
+                                </button>
+                              ) : report.status === 'rejected' ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--danger-600, #dc2626)' }}>
+                                  <AlertTriangle size={13} />
+                                  <span>Rejected</span>
+                                </span>
+                              ) : report.status === 'approved' ? (
+                                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--teal-700, #0f766e)' }}>
+                                  Approved
+                                </span>
+                              ) : report.status === 'released' ? (
+                                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--success-700, #15803d)' }}>
+                                  Released
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '0.8125rem', color: 'var(--slate-500)', textTransform: 'capitalize' }}>
+                                  {report.status}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPathologistModal(report)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                title="Inspect full diagnostic report details"
+                              >
+                                <Eye size={13} />
+                                <span>View</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination & Summary Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--slate-50, #f8fafc)', borderTop: '1px solid var(--border-color, #e2e8f0)', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                Showing <strong>{displayedReports.length}</strong> of <strong>{prioritizedReports.length}</strong> {reportQueueFilter === 'actionable' ? 'actionable reports' : 'reports in queue'}
+                {recentReports.length > prioritizedReports.length && (
+                  <span style={{ color: 'var(--slate-400)', marginLeft: '6px' }}>
+                    ({recentReports.length} total loaded)
+                  </span>
+                )}
+              </div>
+              {totalReportPages > 1 && (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={currentReportPage <= 1}
+                    onClick={() => setReportQueuePage((p) => Math.max(1, p - 1))}
+                    style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                  >
+                    <ChevronLeft size={13} />
+                    <span>Prev</span>
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                    Page {currentReportPage} of {totalReportPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={currentReportPage >= totalReportPages}
+                    onClick={() => setReportQueuePage((p) => Math.min(totalReportPages, p + 1))}
+                    style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                  >
+                    <span>Next</span>
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -967,15 +1543,64 @@ export function DashboardPage() {
 
           {/* Specimen Tube Queue Card */}
           <div className="card">
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <FlaskConical size={18} style={{ color: '#2563eb' }} />
-                <h3 className="card-title">Specimen Tubes & Analyzer Run Queue</h3>
+                <h3 className="card-title" style={{ margin: 0 }}>Specimen Tubes & Analyzer Run Queue</h3>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                  {metrics.activeQueueSamples !== undefined && metrics.activeQueueSamples > activeQueueCount
+                    ? `${activeQueueCount} in Queue (${metrics.activeQueueSamples} Active in Lab)`
+                    : `${activeQueueCount} Active on Bench`}
+                </span>
+                {recentSamples.length > activeQueueCount && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                    ({recentSamples.length} loaded preview)
+                  </span>
+                )}
               </div>
-              <Link to="/samples" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span>Open Full Specimen Bench</span>
-                <ArrowRight size={13} />
-              </Link>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: 'var(--slate-100, #f1f5f9)', padding: '2px', borderRadius: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setQueueFilter('active'); setQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: queueFilter === 'active' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: queueFilter === 'active' ? '#fff' : 'transparent',
+                      color: queueFilter === 'active' ? '#1d4ed8' : 'var(--slate-600)',
+                      boxShadow: queueFilter === 'active' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Active Queue ({activeQueueCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setQueueFilter('all'); setQueuePage(1); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: queueFilter === 'all' ? 700 : 500,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: queueFilter === 'all' ? '#fff' : 'transparent',
+                      color: queueFilter === 'all' ? '#1d4ed8' : 'var(--slate-600)',
+                      boxShadow: queueFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    All Tubes ({recentSamples.length})
+                  </button>
+                </div>
+                <Link to="/samples" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Open Full Specimen Bench</span>
+                  <ArrowRight size={13} />
+                </Link>
+              </div>
             </div>
 
             <div className="table-container">
@@ -992,14 +1617,16 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentSamples.length === 0 ? (
+                  {displayedSamples.length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--slate-400)' }}>
-                        No specimen tubes currently in analyzer queue. Accession new samples via Patient Requisitions.
+                        {queueFilter === 'active'
+                          ? 'No active specimen tubes currently in analyzer queue. All accessioned tubes have completed testing or view All Tubes.'
+                          : 'No specimen tubes accessioned yet. Accession new samples via Patient Requisitions.'}
                       </td>
                     </tr>
                   ) : (
-                    recentSamples.map((sample) => (
+                    displayedSamples.map((sample) => (
                       <tr key={sample.sampleId || sample.id}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1009,33 +1636,26 @@ export function DashboardPage() {
                             </strong>
                           </div>
                         </td>
-                        <td>{getTubeCapBadge(sample.type, sample.testName)}</td>
+                        <td>{getTubeCapBadge(sample.type || sample.sampleType, sample.testName)}</td>
                         <td>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{sample.patientName || 'Accessioned Patient'}</span>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{sample.patientMrn || sample.orderId}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{sample.patientMrn || sample.orderNumber || sample.orderId}</span>
                           </div>
                         </td>
                         <td>
                           <span style={{ fontWeight: 500 }}>
-                            {sample.testName || sample.tests?.join(', ') || 'Complete Metabolic Profile'}
+                            {sample.testName || sample.testNames?.join(', ') || sample.tests?.join(', ') || 'Diagnostic Panel'}
                           </span>
                         </td>
                         <td>
-                          <Badge variant={sample.processingStatus === 'completed' ? 'success' : sample.processingStatus === 'in_analysis' ? 'purple' : 'warning'}>
-                            {sample.processingStatus === 'in_analysis' ? 'In Analyzer Run' : sample.processingStatus || 'Awaiting Run'}
+                          <Badge variant={sample.processingStatus === 'completed' ? 'success' : sample.processingStatus === 'in_analysis' ? 'purple' : sample.processingStatus === 'results_entered' ? 'teal' : 'warning'}>
+                            {sample.processingStatus === 'in_analysis' ? 'In Analyzer Run' : sample.processingStatus === 'results_entered' ? 'Pending Sign-Off' : sample.processingStatus || 'Awaiting Run'}
                           </Badge>
                         </td>
                         <td>{getPriorityBadge(sample.priority || 'stat')}</td>
                         <td style={{ textAlign: 'right' }}>
-                          <button
-                            onClick={() => handleOpenTechnicianModal(sample)}
-                            className="btn btn-primary btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                          >
-                            <Cpu size={13} />
-                            <span>Load / Run Analyzer</span>
-                          </button>
+                          {renderBenchAction(sample)}
                         </td>
                       </tr>
                     ))
@@ -1043,6 +1663,47 @@ export function DashboardPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination & Total Count Footer */}
+            {eligibleSamples.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border-color)', fontSize: '0.8125rem', color: 'var(--slate-600)', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  Showing <strong>{startIndex + 1}</strong> to <strong>{Math.min(startIndex + QUEUE_PAGE_SIZE, eligibleSamples.length)}</strong> of <strong>{eligibleSamples.length}</strong> {queueFilter === 'active' ? 'active queue records' : 'loaded records'}
+                  {metrics.activeQueueSamples !== undefined && metrics.activeQueueSamples > eligibleSamples.length && queueFilter === 'active' && (
+                    <span style={{ color: 'var(--slate-500)', marginLeft: '6px' }}>
+                      (Previewing top {eligibleSamples.length} of {metrics.activeQueueSamples} active in lab — <Link to="/samples" style={{ color: '#2563eb', fontWeight: 600 }}>Open Full Bench</Link>)
+                    </span>
+                  )}
+                </div>
+                {totalQueuePages > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={currentPage <= 1}
+                      onClick={() => setQueuePage((p) => Math.max(1, p - 1))}
+                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <ChevronLeft size={13} />
+                      <span>Prev</span>
+                    </button>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                      Page {currentPage} of {totalQueuePages}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={currentPage >= totalQueuePages}
+                      onClick={() => setQueuePage((p) => Math.min(totalQueuePages, p + 1))}
+                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <span>Next</span>
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -1498,85 +2159,369 @@ export function DashboardPage() {
       {/* ========================================================================= */}
       {/* MODAL: Pathologist Clinical Sign-Off */}
       {/* ========================================================================= */}
-      {pathologistSignModalOpen && selectedReviewReport && (
-        <Modal
-          isOpen={pathologistSignModalOpen}
-          onClose={() => setPathologistSignModalOpen(false)}
-          title={`Pathologist Verification & Digital Sign-Off`}
-          size="md"
-        >
-          <form onSubmit={handleConfirmPathologistVerification}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#991b1b' }}>
-                    Order: {selectedReviewReport.orderNumber || selectedReviewReport.orderId}
-                  </span>
-                  {getAbnormalFindingFlag(selectedReviewReport)}
+      {pathologistSignModalOpen && selectedReviewReport && (() => {
+        const comp = checkReportCompleteness(selectedReviewReport);
+        const items = Array.isArray(selectedReviewReport.items) ? selectedReviewReport.items : [];
+        const hasAbnormal = items.some(
+          (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((pr) => pr.isAbnormal))
+        );
+
+        return (
+          <Modal
+            isOpen={pathologistSignModalOpen}
+            onClose={() => {
+              setPathologistSignModalOpen(false);
+              setPathologistModalError(null);
+            }}
+            title={`Diagnostic Report Clinical Review: ${selectedReviewReport.reportNumber || selectedReviewReport.orderNumber || 'Requisition'}`}
+            size="lg"
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+              {/* Modal Inline Error Alert */}
+              {pathologistModalError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.8125rem' }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <span>{pathologistModalError}</span>
                 </div>
-                <div style={{ fontSize: '0.8125rem', color: '#7f1d1d' }}>
-                  <strong>Patient:</strong> {selectedReviewReport.patientName} ({selectedReviewReport.patientMrn || 'MRN-RECORD'})
+              )}
+
+              {/* Context Summary Banner */}
+              <div style={{ background: '#f8fafc', border: '1px solid var(--border-color, #e2e8f0)', borderRadius: '8px', padding: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Name</span>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--slate-900)' }}>{selectedReviewReport.patientName}</div>
+                  <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>MRN: {selectedReviewReport.patientMrn || 'N/A'}</div>
                 </div>
-                <div style={{ fontSize: '0.8125rem', color: '#7f1d1d', marginTop: '4px' }}>
-                  <strong>Panel:</strong> {selectedReviewReport.tests?.map((t) => t.name).join(', ') || selectedReviewReport.testName || 'Diagnostic Panel'}
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Diagnostic Panel</span>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue, #2563eb)' }}>
+                    {selectedReviewReport.tests?.map((t) => t.name || t.testCode).join(', ') || selectedReviewReport.testName || 'Comprehensive Panel'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>Order: {selectedReviewReport.orderNumber || selectedReviewReport.orderId}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Drafted By</span>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{selectedReviewReport.draftedBy || 'Laboratory Staff'}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                    Workflow State: <strong style={{ textTransform: 'capitalize' }}>{selectedReviewReport.status}</strong>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Findings Preview</label>
-                <div style={{ padding: '8px 12px', background: 'var(--slate-50)', border: '1px solid var(--border-subtle)', borderRadius: '6px', fontSize: '0.8125rem', color: 'var(--slate-800)' }}>
-                  {selectedReviewReport.findings || 'Raw analyzer readings verified within reference boundaries. Morphology clear.'}
+              {/* Clinical Completeness / Warnings */}
+              {!comp.isComplete ? (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '12px', color: '#9a3412', fontSize: '0.8125rem' }}>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertTriangle size={15} />
+                    <span>Incomplete Diagnostic Report — Approval Disabled</span>
+                  </div>
+                  <div style={{ marginTop: '4px' }}>
+                    One or more tests in this requisition are missing diagnostic results (
+                    <strong>{comp.missingItems.join(', ')}</strong>). Pathologist approval is blocked until remaining specimen runs are completed.
+                  </div>
                 </div>
-              </div>
+              ) : hasAbnormal ? (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', color: '#991b1b', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span><strong>Pathological Alert:</strong> One or more analyte parameters are outside normal physiological reference ranges. Please evaluate clinical implications before approval.</span>
+                </div>
+              ) : (
+                <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '10px 12px', color: '#047857', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <CheckCircle size={15} style={{ flexShrink: 0 }} />
+                  <span><strong>All Analytes Complete:</strong> All required parameters recorded and verified within laboratory reference limits.</span>
+                </div>
+              )}
 
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Pathologist Clinical Notes & Impression</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={verificationNotes}
-                  onChange={(e) => setVerificationNotes(e.target.value)}
-                  className="form-control"
-                  placeholder="Enter clinical interpretation, follow-up recommendations, or signature impression..."
-                />
-              </div>
+              {/* VIEW 1: MAIN REVIEW VIEW */}
+              {pathologistReviewStep === 'review' && (
+                <>
+                  {/* Parameter Results Table */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: 'var(--slate-800)' }}>
+                      Verified Diagnostic Test Results & Analyte Parameters ({items.length} Test{items.length === 1 ? '' : 's'}):
+                    </h4>
+                    <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border-color, #e2e8f0)', borderRadius: '8px' }}>
+                      {items.length === 0 ? (
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--slate-500)', fontSize: '0.8125rem' }}>
+                          No test items attached to this report requisition.
+                        </div>
+                      ) : (
+                        items.map((it, idx) => (
+                          <div key={idx} style={{ borderBottom: idx < items.length - 1 ? '1px solid var(--border-color, #e2e8f0)' : 'none' }}>
+                            <div style={{ padding: '6px 12px', background: 'var(--slate-100, #f1f5f9)', fontWeight: 600, fontSize: '0.8125rem', color: 'var(--slate-700)', display: 'flex', justifyContent: 'space-between' }}>
+                              <span>{it.testName || it.testCode}</span>
+                              {it.isAbnormal && <span style={{ color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>ABNORMAL FINDING</span>}
+                            </div>
+                            {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
+                              <table className="lms-table" style={{ margin: 0, fontSize: '0.8125rem' }}>
+                                <thead>
+                                  <tr>
+                                    <th>Parameter / Analyte</th>
+                                    <th>Observed Result</th>
+                                    <th>Unit</th>
+                                    <th>Reference Range</th>
+                                    <th>Clinical Flag</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {it.parameterResults.map((pr, pidx) => {
+                                    const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                    return (
+                                      <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff5f5' : isBlank ? '#fffbeb' : undefined }}>
+                                        <td style={{ fontWeight: 600 }}>{pr.name || pr.parameterCode}</td>
+                                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: pr.isAbnormal ? '#dc2626' : undefined }}>
+                                          {isBlank ? <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Missing result</span> : pr.value}
+                                        </td>
+                                        <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{pr.unit || '—'}</td>
+                                        <td style={{ fontSize: '0.75rem' }}>{pr.referenceRange || 'Standard'}</td>
+                                        <td>
+                                          {isBlank ? (
+                                            <Badge variant="warning" style={{ fontSize: '0.65rem' }}>MISSING</Badge>
+                                          ) : pr.isAbnormal ? (
+                                            <Badge variant="danger" style={{ fontSize: '0.65rem' }}>ABNORMAL</Badge>
+                                          ) : (
+                                            <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div style={{ padding: '8px 12px', fontSize: '0.8125rem', color: 'var(--slate-700)' }}>
+                                Result:{' '}
+                                {it.resultValue && String(it.resultValue).trim() !== '' ? (
+                                  <strong>{it.resultValue}</strong>
+                                ) : (
+                                  <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Awaiting analytical result entry</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
 
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer', color: 'var(--slate-800)' }}>
-                <input
-                  type="checkbox"
-                  required
-                  checked={isDoctorConfirmed}
-                  onChange={(e) => setIsDoctorConfirmed(e.target.checked)}
-                  style={{ marginTop: '2px' }}
-                />
-                <span>
-                  I confirm that as a certified medical pathologist, I have verified these diagnostic findings, inspected abnormal flags, and authorize release under laboratory accreditation standards.
-                </span>
-              </label>
+                  {/* Findings */}
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8125rem' }}>
+                      Pathologist Clinical Findings & Interpretation *
+                    </label>
+                    <textarea
+                      rows={2}
+                      required
+                      value={pathologistFindings}
+                      onChange={(e) => setPathologistFindings(e.target.value)}
+                      className="form-control"
+                      style={{ fontSize: '0.8125rem' }}
+                      placeholder="Enter clinical impression (e.g. Normocytic normochromic blood picture...)"
+                    />
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setPathologistSignModalOpen(false)}
-                  disabled={isVerifyingReport}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!isDoctorConfirmed || isVerifyingReport}
-                  className="btn btn-primary"
-                  style={{ background: '#b91c1c', borderColor: '#991b1b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  {isVerifyingReport && <Loader2 size={14} className="animate-spin" />}
-                  <span>Sign & Release Report</span>
-                </button>
-              </div>
+                  {/* Verification Notes */}
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8125rem' }}>
+                      Pathologist Quality Notes & Accreditation Certification (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={verificationNotes}
+                      onChange={(e) => setVerificationNotes(e.target.value)}
+                      className="form-control"
+                      style={{ fontSize: '0.8125rem' }}
+                      placeholder="Enter verification notes or quality remarks..."
+                    />
+                  </div>
+
+                  {/* Footer Actions */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setPathologistSignModalOpen(false);
+                        setPathologistModalError(null);
+                      }}
+                      disabled={isVerifyingReport}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setPathologistSignModalOpen(false)}
+                      disabled={isVerifyingReport}
+                    >
+                      Close
+                    </button>
+
+                    {selectedReviewReport.status === 'draft' || selectedReviewReport.status === 'pending_review' ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                          onClick={() => {
+                            setPathologistModalError(null);
+                            setPathologistReviewStep('confirm_reject');
+                          }}
+                          disabled={isVerifyingReport}
+                        >
+                          <AlertTriangle size={14} />
+                          <span>Reject Report</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ background: '#b91c1c', borderColor: '#991b1b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          onClick={() => {
+                            setPathologistModalError(null);
+                            setPathologistReviewStep('confirm_approve');
+                          }}
+                          disabled={isVerifyingReport || !comp.isComplete}
+                          title={!comp.isComplete ? `Cannot approve: Missing results for ${comp.missingItems.join(', ')}` : 'Proceed to sign-off confirmation'}
+                        >
+                          <ShieldCheck size={14} />
+                          <span>Approve & Sign Report</span>
+                        </button>
+                      </div>
+                    ) : selectedReviewReport.status === 'approved' ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--teal-700, #0f766e)' }}>
+                          Verified & Approved
+                        </span>
+                        {canRelease && (
+                          <button
+                            type="button"
+                            className="btn btn-success"
+                            style={{ background: 'var(--teal-600, #0d9488)', borderColor: 'var(--teal-600, #0d9488)', color: 'white', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            onClick={async () => {
+                              setPathologistSignModalOpen(false);
+                              await handleReleaseReport(selectedReviewReport.reportId || selectedReviewReport.id);
+                            }}
+                            disabled={isVerifyingReport}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Release to Patient Portal</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                        Status: <strong style={{ textTransform: 'capitalize' }}>{selectedReviewReport.status}</strong>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* VIEW 2: CONFIRM APPROVAL STEP */}
+              {pathologistReviewStep === 'confirm_approve' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '14px', color: '#1e40af' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                      <ShieldCheck size={18} />
+                      <span>Confirm Pathologist Approval & Sign-Off</span>
+                    </div>
+                    <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#1e3a8a' }}>
+                      You are about to authorize and digitally sign report <strong>{selectedReviewReport.reportNumber || selectedReviewReport.orderNumber}</strong> for patient <strong>{selectedReviewReport.patientName}</strong>.
+                      This decision moves the requisition into <strong>Approved</strong> status, locking verified analyte parameters under ISO 15189 accreditation standards.
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.8125rem', cursor: 'pointer', color: 'var(--slate-800)', background: 'var(--slate-50)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                    <input
+                      type="checkbox"
+                      required
+                      checked={isDoctorConfirmed}
+                      onChange={(e) => setIsDoctorConfirmed(e.target.checked)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Consultant Pathologist Authorization:</strong> I certify that I have thoroughly inspected all analyte values, reviewed pathological out-of-range alerts, verified clinical correlation, and hereby authorize report issuance.
+                    </span>
+                  </label>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setPathologistReviewStep('review')}
+                      disabled={isVerifyingReport}
+                    >
+                      Back to Review
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ background: '#b91c1c', borderColor: '#991b1b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      onClick={handleConfirmPathologistVerification}
+                      disabled={!isDoctorConfirmed || isVerifyingReport}
+                    >
+                      {isVerifyingReport && <Loader2 size={14} className="animate-spin" />}
+                      <span>Confirm & Sign Report</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 3: CONFIRM REJECTION STEP */}
+              {pathologistReviewStep === 'confirm_reject' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', color: '#991b1b' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                      <AlertTriangle size={18} />
+                      <span>Confirm Clinical Rejection & Return for Revision</span>
+                    </div>
+                    <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#7f1d1d' }}>
+                      Rejecting this report will return it to the laboratory bench queue for technician rerun or result correction.
+                      This rejection justification will be permanently saved to the report's audit trail and displayed on the technician bench.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem' }}>
+                      Clinical Rejection Justification * (minimum 5 characters)
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={pathologistRejectionReason}
+                      onChange={(e) => setPathologistRejectionReason(e.target.value)}
+                      className="form-control"
+                      style={{ fontSize: '0.8125rem' }}
+                      placeholder="e.g. Inconsistent potassium analyzer readout; gross hemolysis suspected. Redraw or repeat bench analysis required."
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setPathologistReviewStep('review')}
+                      disabled={isVerifyingReport}
+                    >
+                      Back to Review
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      onClick={handleConfirmPathologistRejection}
+                      disabled={isVerifyingReport || pathologistRejectionReason.trim().length < 5}
+                    >
+                      {isVerifyingReport && <Loader2 size={14} className="animate-spin" />}
+                      <span>Confirm Clinical Rejection</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </form>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL: Technician Analyzer Bench Action */}
@@ -1584,18 +2529,29 @@ export function DashboardPage() {
       {technicianBenchModalOpen && selectedBenchSample && (
         <Modal
           isOpen={technicianBenchModalOpen}
-          onClose={() => setTechnicianBenchModalOpen(false)}
+          onClose={() => {
+            setTechnicianBenchModalOpen(false);
+            setModalError(null);
+          }}
           title={`Analyzer Bench Run: ${selectedBenchSample.barcode || selectedBenchSample.sampleId}`}
           size="md"
         >
           <form onSubmit={handleConfirmTechnicianUpdate}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Modal Inline Error Alert */}
+              {modalError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.8125rem' }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
               <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                   <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#1e40af' }}>
                     Barcode: {selectedBenchSample.barcode || selectedBenchSample.sampleId}
                   </span>
-                  {getTubeCapBadge(selectedBenchSample.type, selectedBenchSample.testName)}
+                  {getTubeCapBadge(selectedBenchSample.type || selectedBenchSample.sampleType, selectedBenchSample.testName)}
                 </div>
                 <div style={{ fontSize: '0.8125rem', color: '#1e3a8a' }}>
                   <strong>Patient:</strong> {selectedBenchSample.patientName || 'Specimen Intake'}
@@ -1626,17 +2582,46 @@ export function DashboardPage() {
                   onChange={(e) => setTargetProcessingStatus(e.target.value)}
                   className="form-control"
                 >
-                  <option value="received">Received at Bench (Triage Complete)</option>
-                  <option value="in_analysis">Loaded on Instrument (In Analyzer Run)</option>
-                  <option value="completed">Run Completed (Results Drafted)</option>
+                  {selectedBenchSample?.collectionStatus === 'collected' && (
+                    <option value="received">Receive at Bench (Central Lab Triage)</option>
+                  )}
+                  {selectedBenchSample?.collectionStatus === 'received' && (
+                    <option value="in_analysis">
+                      Loaded on Instrument (In Analyzer Run)
+                    </option>
+                  )}
                 </select>
               </div>
+
+              {selectedBenchSample?.processingStatus === 'in_analysis' && (
+                <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '6px', padding: '10px 12px', fontSize: '0.8125rem', color: '#5b21b6' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>Instrument run is in progress. Ready to enter test results?</span>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setTechnicianBenchModalOpen(false);
+                        setModalError(null);
+                        setResultEntrySample(selectedBenchSample);
+                      }}
+                      style={{ background: '#7c3aed', borderColor: '#6d28d9', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Sparkles size={12} />
+                      <span>Open Result Entry</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setTechnicianBenchModalOpen(false)}
+                  onClick={() => {
+                    setTechnicianBenchModalOpen(false);
+                    setModalError(null);
+                  }}
                   disabled={isUpdatingSample}
                 >
                   Cancel
@@ -1654,6 +2639,21 @@ export function DashboardPage() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Result Entry Modal for Direct Analyte Feeding */}
+      {resultEntrySample && (
+        <ResultEntryModal
+          isOpen={Boolean(resultEntrySample)}
+          onClose={() => setResultEntrySample(null)}
+          sample={resultEntrySample}
+          tenantId={tenantId}
+          onSuccess={async () => {
+            setSuccessBanner(`Results recorded for specimen ${resultEntrySample.barcode || resultEntrySample.sampleId}. Pushed to Pathologist Review.`);
+            setResultEntrySample(null);
+            await fetchDashboard();
+          }}
+        />
       )}
 
       {/* Inspect Order Modal */}

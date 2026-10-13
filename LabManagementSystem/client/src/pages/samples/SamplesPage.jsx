@@ -105,6 +105,8 @@ export function SamplesPage() {
 
   // Pathologist Sign-Off Modal state
   const [signOffReport, setSignOffReport] = useState(null);
+  const [signOffStep, setSignOffStep] = useState('review'); // 'review' | 'confirm_reject'
+  const [signOffRejectionReason, setSignOffRejectionReason] = useState('');
   const [signOffFindings, setSignOffFindings] = useState('');
   const [signOffNotes, setSignOffNotes] = useState('');
   const [signOffAgreed, setSignOffAgreed] = useState(false);
@@ -409,11 +411,47 @@ export function SamplesPage() {
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
+  // Helper to strictly evaluate whether all diagnostic tests in a report have recorded results
+  const checkReportCompleteness = (report) => {
+    const items = Array.isArray(report?.items) ? report.items : [];
+    if (items.length === 0) {
+      return { isComplete: false, totalItems: 0, completedCount: 0, missingItems: ['No test items'] };
+    }
+    const missing = [];
+    let completedCount = 0;
+    for (const it of items) {
+      const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+      if (hasParams) {
+        const hasBlank = it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
+        if (!hasBlank) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      } else {
+        const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+        if (hasSingle) {
+          completedCount++;
+        } else {
+          missing.push(it.testName || it.testCode || it.itemId || 'Test');
+        }
+      }
+    }
+    return {
+      isComplete: missing.length === 0,
+      totalItems: items.length,
+      completedCount,
+      missingItems: missing,
+    };
+  };
+
   // Pathologist Review Modal Open Handler
   const handleOpenSignOff = (report) => {
     setSignOffReport(report);
+    setSignOffStep('review');
+    setSignOffRejectionReason('');
     setSignOffFindings(report.findings || 'All analyte test parameters correlated and within expected clinical limits.');
-    setSignOffNotes('');
+    setSignOffNotes(report.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
     setSignOffAgreed(false);
     setSignOffError(null);
   };
@@ -421,14 +459,25 @@ export function SamplesPage() {
   // Pathologist Sign-Off Confirm Handler
   const handleConfirmSignOff = async (e) => {
     if (e) e.preventDefault();
-    if (!signOffReport || !signOffAgreed) return;
+    if (!signOffReport) return;
+    const comp = checkReportCompleteness(signOffReport);
+    if (!comp.isComplete) {
+      setSignOffError(`Cannot authorize report: missing diagnostic results for ${comp.missingItems.join(', ')}.`);
+      return;
+    }
+    if (!signOffAgreed) {
+      setSignOffError('Please confirm the pathologist digital authorization statement before signing.');
+      return;
+    }
 
     try {
       setIsSigningOff(true);
       setSignOffError(null);
       const res = await clinicalService.approveReport(tenantId, signOffReport.reportId, {
-        findings: signOffFindings,
-        verificationNotes: signOffNotes,
+        findings: signOffFindings.trim(),
+        verificationNotes: signOffNotes.trim(),
+        notes: signOffNotes.trim(),
+        verifiedBy: user?.fullName || user?.email || 'Consultant Pathologist',
       });
       if (res.success) {
         setSuccessMsg(`Diagnostic Report ${res.data.reportNumber} digitally signed & authorized by Consultant Pathologist.`);
@@ -439,6 +488,34 @@ export function SamplesPage() {
       }
     } catch (err) {
       setSignOffError(err.response?.data?.message || err.message || 'Failed to sign off report');
+    } finally {
+      setIsSigningOff(false);
+    }
+  };
+
+  // Pathologist Sign-Off Rejection Handler
+  const handleConfirmSignOffRejection = async (e) => {
+    if (e) e.preventDefault();
+    if (!signOffReport) return;
+    const reason = signOffRejectionReason.trim();
+    if (!reason || reason.length < 5) {
+      setSignOffError('Please enter a clinical justification for rejecting this report (minimum 5 characters).');
+      return;
+    }
+
+    try {
+      setIsSigningOff(true);
+      setSignOffError(null);
+      const res = await clinicalService.rejectReport(tenantId, signOffReport.reportId, { reason });
+      if (res.success) {
+        setSuccessMsg(`Diagnostic Report ${res.data?.reportNumber || signOffReport.reportNumber} rejected and returned for technician revision.`);
+        setSignOffReport(null);
+        await fetchReports();
+        await fetchSamples();
+        setTimeout(() => setSuccessMsg(null), 4000);
+      }
+    } catch (err) {
+      setSignOffError(err.response?.data?.message || err.message || 'Failed to reject report');
     } finally {
       setIsSigningOff(false);
     }
@@ -1158,205 +1235,321 @@ export function SamplesPage() {
         title={signOffReport ? `Pathologist Diagnostic Sign-Off: ${signOffReport.reportNumber}` : 'Pathologist Sign-Off'}
         size="lg"
       >
-        {signOffReport && (
-          <form onSubmit={handleConfirmSignOff} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Report Header Banner */}
-            <div style={{
-              background: 'var(--slate-50, #f8fafc)',
-              border: '1px solid var(--border-color, #e2e8f0)',
-              borderRadius: 'var(--radius-md, 8px)',
-              padding: '0.875rem 1rem',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: '12px',
-            }}>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Name</span>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{signOffReport.patientName}</div>
-                <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
-                  MRN: {signOffReport.patientMrn || 'N/A'}
-                </div>
-              </div>
+        {signOffReport && (() => {
+          const comp = checkReportCompleteness(signOffReport);
+          const hasMissingResults = !comp.isComplete;
+          const items = Array.isArray(signOffReport.items) ? signOffReport.items : [];
+          const hasAbnormal = items.some(
+            (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((pr) => pr.isAbnormal))
+          );
 
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Diagnostic Panel</span>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue)' }}>
-                  {signOffReport.testName}
-                </div>
-                <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
-                  Order: {signOffReport.orderNumber}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Bench Technician</span>
-                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                  {signOffReport.draftedBy || 'Laboratory Staff'}
-                </div>
-              </div>
-            </div>
-
-            {signOffError && (
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Report Header Banner */}
               <div style={{
-                background: 'var(--danger-50, #fef2f2)',
-                border: '1px solid var(--danger-200, #fecaca)',
-                color: 'var(--danger-700, #b91c1c)',
-                padding: '0.75rem 1rem',
+                background: 'var(--slate-50, #f8fafc)',
+                border: '1px solid var(--border-color, #e2e8f0)',
                 borderRadius: 'var(--radius-md, 8px)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '0.85rem'
+                padding: '0.875rem 1rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '12px',
               }}>
-                <AlertCircle size={16} />
-                <span>{signOffError}</span>
-              </div>
-            )}
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Name</span>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{signOffReport.patientName}</div>
+                  <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                    MRN: {signOffReport.patientMrn || 'N/A'}
+                  </div>
+                </div>
 
-            {/* Analyte Results Breakdown */}
-            <div>
-              <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: 'var(--slate-800)' }}>
-                Fed Parameter Results & Reference Ranges:
-              </h4>
-              <div style={{
-                maxHeight: '220px',
-                overflowY: 'auto',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md, 8px)'
-              }}>
-                <table className="lms-table" style={{ margin: 0 }}>
-                  <thead style={{ position: 'sticky', top: 0, background: 'var(--slate-100)' }}>
-                    <tr>
-                      <th>Analyte</th>
-                      <th>Observed Result</th>
-                      <th>Unit</th>
-                      <th>Reference Range</th>
-                      <th>Flag</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(signOffReport.items || []).flatMap((it, itIdx) => {
-                      if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
-                        return it.parameterResults.map((pr, prIdx) => (
-                          <tr key={`${itIdx}-${prIdx}`} style={{ background: pr.isAbnormal ? '#fff5f5' : undefined }}>
-                            <td style={{ fontWeight: 600 }}>{pr.name || pr.parameterCode}</td>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 700, color: pr.isAbnormal ? '#dc2626' : undefined }}>
-                              {pr.value}
-                            </td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{pr.unit || '—'}</td>
-                            <td style={{ fontSize: '0.75rem' }}>{pr.referenceRange || 'Standard'}</td>
-                            <td>
-                              {pr.isAbnormal ? (
-                                <Badge variant="danger" style={{ fontSize: '0.65rem' }}>ABNORMAL</Badge>
-                              ) : (
-                                <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
-                              )}
-                            </td>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Diagnostic Panel</span>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue)' }}>
+                    {signOffReport.testName}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                    Order: {signOffReport.orderNumber}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Bench Technician</span>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                    {signOffReport.draftedBy || 'Laboratory Staff'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status and Clinical Warnings */}
+              {signOffError && (
+                <div style={{
+                  background: 'var(--danger-50, #fef2f2)',
+                  border: '1px solid var(--danger-200, #fecaca)',
+                  color: 'var(--danger-700, #b91c1c)',
+                  padding: '0.75rem 1rem',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '0.85rem'
+                }}>
+                  <AlertCircle size={16} />
+                  <span>{signOffError}</span>
+                </div>
+              )}
+
+              {hasMissingResults && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '12px', color: '#9a3412', fontSize: '0.8125rem' }}>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertTriangle size={15} />
+                    <span>Incomplete Diagnostic Results — Authorization Disabled</span>
+                  </div>
+                  <div style={{ marginTop: '4px' }}>
+                    One or more tests in this requisition are missing diagnostic results (
+                    <strong>{comp.missingItems.join(', ')}</strong>). Pathologist sign-off is blocked until remaining specimen runs are completed.
+                  </div>
+                </div>
+              )}
+
+              {hasAbnormal && !hasMissingResults && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', color: '#991b1b', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span><strong>Pathological Alert:</strong> One or more analyte parameters are outside normal physiological reference ranges. Please evaluate clinical implications before approval.</span>
+                </div>
+              )}
+
+              {/* VIEW 1: MAIN REVIEW STEP */}
+              {signOffStep === 'review' && (
+                <form onSubmit={handleConfirmSignOff} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Analyte Results Breakdown */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: 'var(--slate-800)' }}>
+                      Fed Parameter Results & Reference Ranges:
+                    </h4>
+                    <div style={{
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 'var(--radius-md, 8px)'
+                    }}>
+                      <table className="lms-table" style={{ margin: 0 }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--slate-100)' }}>
+                          <tr>
+                            <th>Analyte</th>
+                            <th>Observed Result</th>
+                            <th>Unit</th>
+                            <th>Reference Range</th>
+                            <th>Flag</th>
                           </tr>
-                        ));
-                      }
-                      return (
-                        <tr key={itIdx}>
-                          <td style={{ fontWeight: 600 }}>{it.testName || it.testCode}</td>
-                          <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{it.resultValue || 'Normal'}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>—</td>
-                          <td style={{ fontSize: '0.75rem' }}>{it.referenceRange || 'Standard'}</td>
-                          <td>
-                            <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                        </thead>
+                        <tbody>
+                          {items.flatMap((it, itIdx) => {
+                            if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
+                              return it.parameterResults.map((pr, prIdx) => {
+                                const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                return (
+                                  <tr key={`${itIdx}-${prIdx}`} style={{ background: pr.isAbnormal ? '#fff5f5' : isBlank ? '#fffbeb' : undefined }}>
+                                    <td style={{ fontWeight: 600 }}>{pr.name || pr.parameterCode}</td>
+                                    <td style={{ fontFamily: 'monospace', fontWeight: 700, color: pr.isAbnormal ? '#dc2626' : undefined }}>
+                                      {isBlank ? <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Missing result</span> : pr.value}
+                                    </td>
+                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{pr.unit || '—'}</td>
+                                    <td style={{ fontSize: '0.75rem' }}>{pr.referenceRange || 'Standard'}</td>
+                                    <td>
+                                      {isBlank ? (
+                                        <Badge variant="warning" style={{ fontSize: '0.65rem' }}>MISSING</Badge>
+                                      ) : pr.isAbnormal ? (
+                                        <Badge variant="danger" style={{ fontSize: '0.65rem' }}>ABNORMAL</Badge>
+                                      ) : (
+                                        <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            }
+                            const isSingleBlank = it.resultValue === undefined || it.resultValue === null || String(it.resultValue).trim() === '';
+                            return (
+                              <tr key={itIdx} style={{ background: isSingleBlank ? '#fffbeb' : undefined }}>
+                                <td style={{ fontWeight: 600 }}>{it.testName || it.testCode}</td>
+                                <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                  {isSingleBlank ? <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Awaiting result entry</span> : it.resultValue}
+                                </td>
+                                <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>—</td>
+                                <td style={{ fontSize: '0.75rem' }}>{it.referenceRange || 'Standard'}</td>
+                                <td>
+                                  {isSingleBlank ? (
+                                    <Badge variant="warning" style={{ fontSize: '0.65rem' }}>MISSING</Badge>
+                                  ) : (
+                                    <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
 
-            {/* Pathologist Clinical Interpretation & Findings */}
-            <div className="form-group">
-              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                Pathologist Clinical Remarks & Diagnostic Interpretation *
-              </label>
-              <textarea
-                className="form-input"
-                rows={2}
-                style={{ fontSize: '0.8125rem', resize: 'vertical' }}
-                value={signOffFindings}
-                onChange={(e) => setSignOffFindings(e.target.value)}
-                placeholder="Enter diagnostic impression (e.g. Normocytic normochromic blood picture...)"
-                required
-              />
-            </div>
+                  {/* Pathologist Clinical Interpretation & Findings */}
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                      Pathologist Clinical Remarks & Diagnostic Interpretation *
+                    </label>
+                    <textarea
+                      className="form-input"
+                      rows={2}
+                      style={{ fontSize: '0.8125rem', resize: 'vertical' }}
+                      value={signOffFindings}
+                      onChange={(e) => setSignOffFindings(e.target.value)}
+                      placeholder="Enter diagnostic impression (e.g. Normocytic normochromic blood picture...)"
+                      required
+                    />
+                  </div>
 
-            {/* Verification Notes */}
-            <div className="form-group">
-              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                Verification Notes / Quality Control Certification (Optional)
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                style={{ fontSize: '0.8125rem' }}
-                value={signOffNotes}
-                onChange={(e) => setSignOffNotes(e.target.value)}
-                placeholder="e.g. Microscopic review correlated. Internal QC batch valid."
-              />
-            </div>
+                  {/* Verification Notes */}
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                      Verification Notes / Quality Control Certification (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ fontSize: '0.8125rem' }}
+                      value={signOffNotes}
+                      onChange={(e) => setSignOffNotes(e.target.value)}
+                      placeholder="e.g. Microscopic review correlated. Internal QC batch valid."
+                    />
+                  </div>
 
-            {/* ISO 15189 Digital Signature Confirmation Checkbox */}
-            <div style={{
-              background: 'var(--primary-50, #eff6ff)',
-              border: '1px solid var(--primary-200, #bfdbfe)',
-              padding: '0.75rem 1rem',
-              borderRadius: 'var(--radius-md, 8px)',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '10px'
-            }}>
-              <input
-                type="checkbox"
-                id="digitalSigCheck"
-                style={{ marginTop: '3px', cursor: 'pointer' }}
-                checked={signOffAgreed}
-                onChange={(e) => setSignOffAgreed(e.target.checked)}
-              />
-              <label htmlFor="digitalSigCheck" style={{ fontSize: '0.8125rem', color: 'var(--primary-900, #1e3a8a)', cursor: 'pointer', lineHeight: 1.4 }}>
-                <strong>Consultant Pathologist Digital Authorization:</strong> I hereby certify under ISO 15189 compliance that I have clinically reviewed, validated, and authorized these analytical test findings for final report issuance.
-              </label>
-            </div>
+                  {/* ISO 15189 Digital Signature Confirmation Checkbox */}
+                  <div style={{
+                    background: 'var(--primary-50, #eff6ff)',
+                    border: '1px solid var(--primary-200, #bfdbfe)',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md, 8px)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      id="digitalSigCheck"
+                      style={{ marginTop: '3px', cursor: 'pointer' }}
+                      checked={signOffAgreed}
+                      onChange={(e) => setSignOffAgreed(e.target.checked)}
+                    />
+                    <label htmlFor="digitalSigCheck" style={{ fontSize: '0.8125rem', color: 'var(--primary-900, #1e3a8a)', cursor: 'pointer', lineHeight: 1.4 }}>
+                      <strong>Consultant Pathologist Digital Authorization:</strong> I hereby certify under ISO 15189 compliance that I have clinically reviewed, validated, and authorized these analytical test findings for final report issuance.
+                    </label>
+                  </div>
 
-            {/* Footer Actions */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setSignOffReport(null)}
-                disabled={isSigningOff}
-              >
-                Cancel
-              </button>
+                  {/* Footer Actions */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setSignOffReport(null)}
+                      disabled={isSigningOff}
+                    >
+                      Cancel
+                    </button>
 
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={isSigningOff || !signOffAgreed}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--purple-700, #7e22ce)', borderColor: 'var(--purple-700)' }}
-              >
-                {isSigningOff ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>Signing Report...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck size={16} />
-                    <span>Authorize & Sign-Off Report</span>
-                  </>
-                )}
-              </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
+                        onClick={() => {
+                          setSignOffError(null);
+                          setSignOffStep('confirm_reject');
+                        }}
+                        disabled={isSigningOff}
+                      >
+                        <AlertTriangle size={14} />
+                        <span>Reject Report</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={isSigningOff || !signOffAgreed || hasMissingResults}
+                        title={hasMissingResults ? `Cannot sign off: Missing results for ${comp.missingItems.join(', ')}` : 'Authorize & Sign-off'}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--purple-700, #7e22ce)', borderColor: 'var(--purple-700)' }}
+                      >
+                        {isSigningOff ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Signing Report...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck size={16} />
+                            <span>Authorize & Sign-Off Report</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* VIEW 2: CONFIRM REJECTION STEP */}
+              {signOffStep === 'confirm_reject' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', color: '#991b1b' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                      <AlertTriangle size={18} />
+                      <span>Confirm Clinical Rejection & Return for Revision</span>
+                    </div>
+                    <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#7f1d1d' }}>
+                      Rejecting this report will return it to the laboratory bench queue for technician rerun or result correction.
+                      This rejection justification will be permanently saved to the report's audit trail.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem' }}>
+                      Clinical Rejection Justification * (minimum 5 characters)
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      className="form-input"
+                      style={{ fontSize: '0.8125rem' }}
+                      placeholder="e.g. Inconsistent potassium readout; gross hemolysis suspected. Redraw or repeat bench analysis required."
+                      value={signOffRejectionReason}
+                      onChange={(e) => setSignOffRejectionReason(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setSignOffStep('review')}
+                      disabled={isSigningOff}
+                    >
+                      Back to Review
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={handleConfirmSignOffRejection}
+                      disabled={isSigningOff || signOffRejectionReason.trim().length < 5}
+                    >
+                      {isSigningOff && <Loader2 size={16} className="animate-spin" />}
+                      <span>Confirm Clinical Rejection</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </form>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* 50 x 25 mm Barcode Label Modal */}

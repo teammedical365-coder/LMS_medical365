@@ -838,6 +838,32 @@ class TenantClinicalService {
     await tenantUserService.assertTenantReady(tenantId);
     const { collectionStatus, processingStatus, rejectionReason, rejectionNotes, notes } = updates;
 
+    const validProcessingStatuses = ['pending', 'in_analysis', 'results_entered', 'completed', 'recollection_requested'];
+    const validCollectionStatuses = ['pending', 'collected', 'received', 'rejected'];
+
+    if (processingStatus && !validProcessingStatuses.includes(processingStatus)) {
+      if (processingStatus === 'received') {
+        throw new ClinicalServiceError(
+          "'received' is a specimen collection/receipt state, not a valid analyzer processingStatus. Use collectionStatus: 'received' to record specimen receipt.",
+          'INVALID_PROCESSING_STATUS',
+          400
+        );
+      }
+      throw new ClinicalServiceError(
+        `Invalid processing status: '${processingStatus}'. Valid values are: ${validProcessingStatuses.join(', ')}`,
+        'INVALID_PROCESSING_STATUS',
+        400
+      );
+    }
+
+    if (collectionStatus && !validCollectionStatuses.includes(collectionStatus)) {
+      throw new ClinicalServiceError(
+        `Invalid collection status: '${collectionStatus}'. Valid values are: ${validCollectionStatuses.join(', ')}`,
+        'INVALID_COLLECTION_STATUS',
+        400
+      );
+    }
+
     // Strict Separation of Duties (SoD): Phlebotomists / sample_collection roles can only mark specimens as collected
     const userRole = (actor?.role || '').toLowerCase();
     const isSampleCollector = ['sample_collection', 'phlebotomist', 'sample_collector', 'phlebotomy'].includes(userRole);
@@ -878,6 +904,13 @@ class TenantClinicalService {
         }
         if (sample.processingStatus === 'rejected' && processingStatus !== 'rejected' && processingStatus !== 'recollection_requested') {
           throw new ClinicalServiceError('Cannot alter status of a rejected specimen', 'INVALID_STATUS_TRANSITION', 400);
+        }
+        if (processingStatus === 'completed' && sample.processingStatus !== 'results_entered' && sample.processingStatus !== 'completed') {
+          throw new ClinicalServiceError(
+            'Cannot mark specimen as completed before test analyte results have been recorded. Please enter results first.',
+            'RESULTS_REQUIRED_FOR_COMPLETION',
+            400
+          );
         }
         sample.processingStatus = processingStatus;
         if (processingStatus === 'completed') {
@@ -988,6 +1021,13 @@ class TenantClinicalService {
       }
       if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
         throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
+      }
+      if (processingStatus === 'completed' && sample.processingStatus !== 'results_entered' && sample.processingStatus !== 'completed') {
+        throw new ClinicalServiceError(
+          'Cannot mark specimen as completed before test analyte results have been recorded. Please enter results first.',
+          'RESULTS_REQUIRED_FOR_COMPLETION',
+          400
+        );
       }
       sample.processingStatus = processingStatus;
     }
@@ -1252,15 +1292,34 @@ class TenantClinicalService {
         if (order.save) await order.save();
       }
 
-      // Check for existing report or create a new DiagnosticReport in pending_review
-      const combinedFindings = findings || (hasAbnormal ? 'Parameters flagged outside normal clinical thresholds.' : 'Parameters verified within normal clinical reference ranges.');
+      // Check completeness across all order items before advancing report to pending_review
+      const isItemComplete = (it) => {
+        if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
+          return it.parameterResults.every(
+            (p) => p.value !== undefined && p.value !== null && String(p.value).trim() !== ''
+          );
+        }
+        return it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+      };
+
+      const completedItems = order.items.filter(isItemComplete);
+      const missingItems = order.items.filter((it) => !isItemComplete(it));
+      const allItemsComplete = order.items.length > 0 && missingItems.length === 0;
+
+      const targetReportStatus = allItemsComplete ? 'pending_review' : 'draft';
+      const defaultFindings = allItemsComplete
+        ? (hasAbnormal ? 'Parameters flagged outside normal clinical thresholds.' : 'Parameters verified within normal clinical reference ranges.')
+        : `Partial results entered (${completedItems.length}/${order.items.length} tests complete). Awaiting remaining specimen runs: ${missingItems.map((m) => m.testCode || m.testName).join(', ')}.`;
+      const combinedFindings = !allItemsComplete
+        ? `${findings ? findings + ' — ' : ''}Partial results recorded (${completedItems.length}/${order.items.length} tests complete). Awaiting remaining specimen runs: ${missingItems.map((m) => m.testCode || m.testName).join(', ')}.`
+        : (findings || defaultFindings);
 
       if (ReportModel) {
         report = await ReportModel.findOne({ tenantId, orderId: order.orderId });
         if (report && (report.status === 'draft' || report.status === 'pending_review' || report.status === 'rejected')) {
           report.items = order.items;
           report.findings = combinedFindings;
-          report.status = 'pending_review';
+          report.status = targetReportStatus;
           report.draftedBy = actor.email || 'Lab Technician';
           await report.save();
         } else if (!report) {
@@ -1277,7 +1336,7 @@ class TenantClinicalService {
             testName: sample.testNames?.join(', ') || order.items[0]?.testName || 'Diagnostic Panel',
             items: order.items,
             findings: combinedFindings,
-            status: 'pending_review',
+            status: targetReportStatus,
             draftedBy: actor.email || 'Lab Technician',
           });
           await report.save();
@@ -1288,7 +1347,7 @@ class TenantClinicalService {
         if (existingRep && (existingRep.status === 'draft' || existingRep.status === 'pending_review' || existingRep.status === 'rejected')) {
           existingRep.items = order.items;
           existingRep.findings = combinedFindings;
-          existingRep.status = 'pending_review';
+          existingRep.status = targetReportStatus;
           report = existingRep;
         } else if (!existingRep) {
           const reportId = this.generateId('rep');
@@ -1304,7 +1363,7 @@ class TenantClinicalService {
             testName: sample.testNames?.join(', ') || order.items[0]?.testName || 'Diagnostic Panel',
             items: order.items,
             findings: combinedFindings,
-            status: 'pending_review',
+            status: targetReportStatus,
             draftedBy: actor.email || 'Lab Technician',
             createdAt: new Date(),
             toSafeJSON() { return { ...this }; },
@@ -1927,18 +1986,33 @@ class TenantClinicalService {
       await order.save();
     }
 
-    // Connect into DiagnosticReport workflow (Fix D)
+    // Connect into DiagnosticReport workflow
+    const isItemComplete = (it) => {
+      if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
+        return it.parameterResults.every(
+          (p) => p.value !== undefined && p.value !== null && String(p.value).trim() !== ''
+        );
+      }
+      return it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
+    };
+
+    const completedItems = order.items.filter(isItemComplete);
+    const missingItems = order.items.filter((it) => !isItemComplete(it));
+    const allItemsComplete = order.items.length > 0 && missingItems.length === 0;
+
+    const targetReportStatus = allItemsComplete ? 'pending_review' : 'draft';
     let hasAbnormal = order.items.some((it) => it.isAbnormal);
-    const combinedFindings = hasAbnormal
-      ? 'Parameters flagged outside normal clinical thresholds.'
-      : 'Parameters verified within normal clinical reference ranges.';
+    const defaultFindings = allItemsComplete
+      ? (hasAbnormal ? 'Parameters flagged outside normal clinical thresholds.' : 'Parameters verified within normal clinical reference ranges.')
+      : `Partial results entered (${completedItems.length}/${order.items.length} tests complete). Awaiting remaining specimen runs: ${missingItems.map((m) => m.testCode || m.testName).join(', ')}.`;
+    const combinedFindings = defaultFindings;
 
     let report = null;
     if (ReportModel) {
       if (existingReport && (existingReport.status === 'draft' || existingReport.status === 'pending_review' || existingReport.status === 'rejected')) {
         existingReport.items = order.items;
         existingReport.findings = combinedFindings;
-        existingReport.status = 'pending_review';
+        existingReport.status = targetReportStatus;
         existingReport.draftedBy = actor.email || 'Lab Technician';
         await existingReport.save();
         report = existingReport;
@@ -1956,7 +2030,7 @@ class TenantClinicalService {
           testName: sample.testNames?.join(', ') || targetItem.testName || 'Diagnostic Panel',
           items: order.items,
           findings: combinedFindings,
-          status: 'pending_review',
+          status: targetReportStatus,
           draftedBy: actor.email || 'Lab Technician',
         });
         await report.save();
@@ -1966,7 +2040,7 @@ class TenantClinicalService {
       if (existingReport && (existingReport.status === 'draft' || existingReport.status === 'pending_review' || existingReport.status === 'rejected')) {
         existingReport.items = order.items;
         existingReport.findings = combinedFindings;
-        existingReport.status = 'pending_review';
+        existingReport.status = targetReportStatus;
         report = existingReport;
       } else if (!existingReport) {
         const reportId = this.generateId('rep');
@@ -1982,7 +2056,7 @@ class TenantClinicalService {
           testName: sample.testNames?.join(', ') || targetItem.testName || 'Diagnostic Panel',
           items: order.items,
           findings: combinedFindings,
-          status: 'pending_review',
+          status: targetReportStatus,
           draftedBy: actor.email || 'Lab Technician',
           createdAt: new Date(),
           toSafeJSON() { return { ...this }; },
@@ -2047,7 +2121,7 @@ class TenantClinicalService {
 
     const reportId = this.generateId('rep');
     const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
-    const findings = data.findings || data.clinicalFindings || data.interpretations || 'Analyzer findings verified within reference thresholds.';
+    const findings = data.findings || data.clinicalFindings || data.interpretations || 'Diagnostic specimen intake recorded. Awaiting analytical completion and pathologist review.';
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
 
     if (ReportModel) {
@@ -2111,12 +2185,14 @@ class TenantClinicalService {
 
     // 2. Prevent verification when required clinical results are missing
     let items = Array.isArray(report.items) && report.items.length > 0 ? report.items : [];
-    if (items.length === 0 && report.orderId) {
+    if (report.orderId) {
       try {
         const order = await this.getOrderById(tenantId, report.orderId);
-        if (order && Array.isArray(order.items)) {
-          items = order.items;
-          report.items = items;
+        if (order && Array.isArray(order.items) && order.items.length > 0) {
+          if (items.length < order.items.length) {
+            items = order.items;
+            report.items = items;
+          }
         }
       } catch {}
     }
@@ -2125,19 +2201,22 @@ class TenantClinicalService {
       throw new ClinicalServiceError('Cannot verify report: no test items or clinical parameters found', 'MISSING_RESULTS', 400);
     }
 
-    const hasIncomplete = items.some((it) => {
-      const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
-      if (hasParams) {
-        const anyParamBlank = it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
-        if (anyParamBlank) return true;
-        return false;
-      }
-      const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
-      return !hasSingle;
-    });
+    const incompleteTests = items
+      .filter((it) => {
+        const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+        if (hasParams) {
+          return it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
+        }
+        return it.resultValue === undefined || it.resultValue === null || String(it.resultValue).trim() === '';
+      })
+      .map((it) => it.testName || it.testCode || it.itemId || 'Diagnostic Test');
 
-    if (hasIncomplete) {
-      throw new ClinicalServiceError('Cannot verify report: one or more tests have missing diagnostic results', 'MISSING_RESULTS', 400);
+    if (incompleteTests.length > 0) {
+      throw new ClinicalServiceError(
+        `Cannot verify report: one or more tests have missing diagnostic results (${incompleteTests.join(', ')})`,
+        'MISSING_RESULTS',
+        400
+      );
     }
 
     // 3. Record verification details
@@ -3102,14 +3181,20 @@ class TenantClinicalService {
           totalOrders,
           pendingCollectionSamples,
           inAnalysisSamples,
+          activeQueueSamples,
           pendingReviewReports,
+          approvedReports,
+          rejectedReports,
           releasedReports,
         ] = await Promise.all([
           PatientModel.countDocuments({ tenantId, isActive: { $ne: false } }),
           OrderModel.countDocuments({ tenantId }),
           SampleModel.countDocuments({ tenantId, collectionStatus: 'pending' }),
           SampleModel.countDocuments({ tenantId, processingStatus: 'in_analysis' }),
+          SampleModel.countDocuments({ tenantId, processingStatus: { $ne: 'completed' }, collectionStatus: { $ne: 'rejected' } }),
           ReportModel.countDocuments({ tenantId, status: { $in: ['draft', 'pending_review'] } }),
+          ReportModel.countDocuments({ tenantId, status: 'approved' }),
+          ReportModel.countDocuments({ tenantId, status: 'rejected' }),
           ReportModel.countDocuments({ tenantId, status: 'released' }),
         ]);
         return {
@@ -3117,7 +3202,10 @@ class TenantClinicalService {
           totalOrders,
           pendingCollectionSamples,
           inAnalysisSamples,
+          activeQueueSamples,
           pendingReviewReports,
+          approvedReports,
+          rejectedReports,
           releasedReports,
         };
       }
@@ -3138,7 +3226,10 @@ class TenantClinicalService {
         totalOrders: orderList.length,
         pendingCollectionSamples: sampleList.filter((s) => s.collectionStatus === 'pending').length,
         inAnalysisSamples: sampleList.filter((s) => s.processingStatus === 'in_analysis').length,
+        activeQueueSamples: sampleList.filter((s) => s.processingStatus !== 'completed' && s.collectionStatus !== 'rejected').length,
         pendingReviewReports: reportList.filter((r) => r.status === 'draft' || r.status === 'pending_review').length,
+        approvedReports: reportList.filter((r) => r.status === 'approved').length,
+        rejectedReports: reportList.filter((r) => r.status === 'rejected').length,
         releasedReports: reportList.filter((r) => r.status === 'released').length,
       };
     })();
@@ -3146,8 +3237,8 @@ class TenantClinicalService {
     const [patients, orders, samples, reports, billing, todaySummary, staffList, counts] = await Promise.all([
       this.listPatients(tenantId, { limit: 10 }),
       this.listOrders(tenantId, { limit: 10 }),
-      this.listSamples(tenantId, { limit: 10 }),
-      this.listReports(tenantId, { limit: 10 }),
+      this.listSamples(tenantId, { limit: 50 }),
+      this.listReports(tenantId, { limit: 50 }),
       this.getBillingSummary(tenantId),
       this.getTodayOrderSummary(tenantId, options),
       tenantUserService.listUsers(tenantId).catch(() => []),
@@ -3168,11 +3259,42 @@ class TenantClinicalService {
       totalStaff: staffList.length,
       pendingCollectionSamples: counts.pendingCollectionSamples,
       inAnalysisSamples: counts.inAnalysisSamples,
+      activeQueueSamples: counts.activeQueueSamples,
       pendingReviewReports: counts.pendingReviewReports,
+      approvedReports: counts.approvedReports,
+      rejectedReports: counts.rejectedReports,
       releasedReports: counts.releasedReports,
       totalRevenue: billing.totalRevenue,
       totalOutstanding: billing.totalOutstanding,
     };
+
+    // Prioritize actionable bench specimens (pending, in_analysis, results_entered) over completed ones,
+    // ensuring active work is not crowded out by completed runs
+    const actionableSamples = samples.filter(
+      (s) => s.processingStatus !== 'completed' && s.collectionStatus !== 'rejected'
+    );
+    const completedOrArchived = samples.filter(
+      (s) => s.processingStatus === 'completed' || s.collectionStatus === 'rejected'
+    );
+    const queueSamples = [...actionableSamples, ...completedOrArchived].slice(0, 30);
+
+    // Prioritize actionable reports in the Pathologist queue:
+    // 1. Pending Review / Drafts (requiring Pathologist Review & Sign-Off)
+    // 2. Approved reports awaiting release
+    // 3. Rejected reports (returned for technician correction)
+    // 4. Released reports (completed history)
+    const pendingReviewReportsList = reports.filter(
+      (r) => r.status === 'draft' || r.status === 'pending_review'
+    );
+    const approvedReportsList = reports.filter((r) => r.status === 'approved');
+    const rejectedReportsList = reports.filter((r) => r.status === 'rejected');
+    const releasedReportsList = reports.filter((r) => r.status === 'released');
+    const queueReports = [
+      ...pendingReviewReportsList,
+      ...approvedReportsList,
+      ...rejectedReportsList,
+      ...releasedReportsList,
+    ];
 
     return {
       role,
@@ -3190,8 +3312,8 @@ class TenantClinicalService {
       })),
       recentPatients: patients.slice(0, 5),
       recentOrders: orders.slice(0, 5),
-      recentSamples: samples.slice(0, 5),
-      recentReports: reports.slice(0, 5),
+      recentSamples: queueSamples,
+      recentReports: queueReports,
     };
   }
 
