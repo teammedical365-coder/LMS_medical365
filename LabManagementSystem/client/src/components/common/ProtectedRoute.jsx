@@ -95,8 +95,18 @@ export function ProtectedRoute({ children, requireSuperAdmin = false, requiredPe
   // Tenant Permission Check
   if (requiredPermission && !isSuperAdmin) {
     const isLabAdmin = user?.role === 'lab_admin' || user?.role === 'lab_director';
+    const disallowedForLabAdmin = [
+      'patients:view', 'patients:create', 'patients:update', 'patients:delete',
+      'orders:view', 'orders:create', 'orders:update', 'orders:delete',
+      'samples:view', 'samples:collect', 'samples:process', 'samples:verify',
+      'audit:view',
+      'settings:view', 'settings:manage',
+    ];
+
     const userPermissions = user?.permissions || user?.roleDefinition?.permissions || [];
-    const hasPermission = isLabAdmin || userPermissions.includes('*') || userPermissions.includes(requiredPermission);
+    const hasPermission =
+      (!isLabAdmin && (userPermissions.includes('*') || userPermissions.includes(requiredPermission))) ||
+      (isLabAdmin && !disallowedForLabAdmin.includes(requiredPermission));
 
     if (!hasPermission) {
       return (

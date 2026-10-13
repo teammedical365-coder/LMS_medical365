@@ -69,6 +69,16 @@ export const clinicalService = {
   updateTest: (tenantId, testId, data) =>
     api.patch(`/tenants/${tenantId}/tests/${testId}`, data).then((res) => res.data),
 
+  // Test Categories
+  getTestCategories: (tenantId) =>
+    api.get(`/tenants/${tenantId}/test-categories`).then((res) => res.data),
+
+  createTestCategory: (tenantId, data) =>
+    api.post(`/tenants/${tenantId}/test-categories`, data).then((res) => res.data),
+
+  deleteTestCategory: (tenantId, categoryId) =>
+    api.delete(`/tenants/${tenantId}/test-categories/${categoryId}`).then((res) => res.data),
+
   // Reports
   getReports: (tenantId, params = {}) =>
     api.get(`/tenants/${tenantId}/reports`, { params }).then((res) => res.data),

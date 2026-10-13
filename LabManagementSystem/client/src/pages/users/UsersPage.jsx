@@ -34,6 +34,8 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import ConfirmModal from '../../components/common/ConfirmModal';
+import notify from '../../utils/notify';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
 import roleService from '../../services/roleService';
@@ -94,6 +96,8 @@ export function UsersPage() {
     permissions: [],
   });
   const [isSavingRole, setIsSavingRole] = useState(false);
+  const [roleToDelete, setRoleToDelete] = useState(null);
+  const [isDeletingRole, setIsDeletingRole] = useState(false);
 
   // Load Matrix, Roles, and Users
   const loadData = useCallback(async () => {
@@ -221,34 +225,44 @@ export function UsersPage() {
   // Toggle Role Active Status
   const handleToggleRoleStatus = async (role) => {
     if (role.code === 'lab_admin' && role.isActive) {
-      alert('The primary Laboratory Administrator role cannot be deactivated.');
+      notify.warning('The primary Laboratory Administrator role cannot be deactivated.');
       return;
     }
     const newStatus = !role.isActive;
     try {
       await roleService.updateRoleStatus(tenantId, role.roleId, newStatus);
+      notify.success(`Role '${role.name}' ${newStatus ? 'activated' : 'deactivated'} successfully.`);
       setSuccessBanner(`Role '${role.name}' ${newStatus ? 'activated' : 'deactivated'} successfully.`);
       await loadData();
     } catch (err) {
+      notify.error(err, { fallback: 'Failed to update role status.' });
       setErrorBanner(err.response?.data?.message || err.message || 'Failed to update role status.');
     }
   };
 
   // Delete Custom Role
-  const handleDeleteRole = async (role) => {
+  const handleDeleteRole = (role) => {
     if (role.code === 'lab_admin') {
-      alert('The primary Laboratory Administrator role cannot be deleted.');
+      notify.warning('The primary Laboratory Administrator role cannot be deleted.');
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete the role "${role.name}" (${role.code})? Staff assigned to this role must be reassigned first.`)) {
-      return;
-    }
+    setRoleToDelete(role);
+  };
+
+  const handleConfirmDeleteRole = async () => {
+    if (!roleToDelete) return;
     try {
-      await roleService.deleteRole(tenantId, role.roleId);
-      setSuccessBanner(`Role "${role.name}" deleted successfully.`);
+      setIsDeletingRole(true);
+      await roleService.deleteRole(tenantId, roleToDelete.roleId);
+      notify.success(`Role "${roleToDelete.name}" deleted successfully.`);
+      setSuccessBanner(`Role "${roleToDelete.name}" deleted successfully.`);
+      setRoleToDelete(null);
       await loadData();
     } catch (err) {
+      notify.error(err, { fallback: 'Failed to delete role.' });
       setErrorBanner(err.response?.data?.message || err.message || 'Failed to delete role.');
+    } finally {
+      setIsDeletingRole(false);
     }
   };
 
@@ -1386,6 +1400,26 @@ export function UsersPage() {
           </div>
         )}
       </Modal>
+
+      {/* Confirm Role Delete Modal */}
+      <ConfirmModal
+        isOpen={Boolean(roleToDelete)}
+        onClose={() => setRoleToDelete(null)}
+        onConfirm={handleConfirmDeleteRole}
+        title="Delete Custom Role"
+        message={
+          roleToDelete ? (
+            <span>
+              Are you sure you want to delete the role <strong>"{roleToDelete.name}"</strong> ({roleToDelete.code})?
+              Staff assigned to this role must be reassigned first. This action cannot be undone.
+            </span>
+          ) : ''
+        }
+        confirmText="Delete Role"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={isDeletingRole}
+      />
     </>
   );
 }

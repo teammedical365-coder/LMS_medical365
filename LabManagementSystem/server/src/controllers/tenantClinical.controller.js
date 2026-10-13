@@ -248,6 +248,48 @@ export class TenantClinicalController {
   }
 
   // -------------------------------------------------------------------------
+  // TEST CATEGORIES
+  // -------------------------------------------------------------------------
+  static async listTestCategories(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const categories = await tenantClinicalService.listTestCategories(tenantId);
+      return ApiResponse.success(res, categories, 'Test categories retrieved successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async createTestCategory(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const category = await tenantClinicalService.createTestCategory(tenantId, req.body, req.user);
+      return ApiResponse.success(res, category, 'Test category created successfully', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async deleteTestCategory(req, res, next) {
+    try {
+      const { tenantId, categoryId } = req.params;
+      const result = await tenantClinicalService.deleteTestCategory(tenantId, categoryId, req.user);
+      return ApiResponse.success(res, result, 'Test category deleted successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // DIAGNOSTIC REPORTS
   // -------------------------------------------------------------------------
   static async listReports(req, res, next) {

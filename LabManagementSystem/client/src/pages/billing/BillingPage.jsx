@@ -11,6 +11,7 @@ import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import StatCard from '../../components/common/StatCard';
 import Modal from '../../components/common/Modal';
+import notify from '../../utils/notify';
 
 export function BillingPage() {
   const { user, tenant } = useAuth();
@@ -68,11 +69,11 @@ export function BillingPage() {
     if (!paymentInvoice) return;
     const num = Number(paymentAmount);
     if (!num || num <= 0) {
-      alert('Please enter a valid payment amount greater than zero');
+      notify.error('Please enter a valid payment amount greater than zero');
       return;
     }
     if (num > paymentInvoice.balance) {
-      alert(`Amount (₹${num.toFixed(2)}) cannot exceed outstanding balance (₹${paymentInvoice.balance.toFixed(2)})`);
+      notify.error(`Amount (₹${num.toFixed(2)}) cannot exceed outstanding balance (₹${paymentInvoice.balance.toFixed(2)})`);
       return;
     }
 
@@ -86,13 +87,14 @@ export function BillingPage() {
       });
 
       if (res.success) {
+        notify.success('Payment recorded successfully.');
         setSuccessMsg(`Payment of ₹${num.toFixed(2)} recorded on invoice ${paymentInvoice.invoiceNumber}`);
         setPaymentInvoice(null);
         fetchBillingData();
         setTimeout(() => setSuccessMsg(null), 3000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to record payment');
+      notify.error(err, { fallback: 'Failed to record payment' });
     } finally {
       setActionLoading(false);
     }

@@ -59,6 +59,10 @@ tenantClinicalRouter.get('/tests/:testId', requirePermission(['tests:view', 'ord
 tenantClinicalRouter.post('/tests', requirePermission('tests:manage'), tenantClinicalController.createTest);
 tenantClinicalRouter.patch('/tests/:testId', requirePermission('tests:manage'), tenantClinicalController.updateTest);
 
+tenantClinicalRouter.get('/test-categories', requirePermission(['tests:view', 'orders:create']), tenantClinicalController.listTestCategories);
+tenantClinicalRouter.post('/test-categories', requirePermission('tests:manage'), tenantClinicalController.createTestCategory);
+tenantClinicalRouter.delete('/test-categories/:categoryId', requirePermission('tests:manage'), tenantClinicalController.deleteTestCategory);
+
 // ---------------------------------------------------------------------------
 // DIAGNOSTIC REPORTS & VERIFICATION WORKFLOW
 // ---------------------------------------------------------------------------

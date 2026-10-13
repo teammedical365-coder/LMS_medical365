@@ -17,7 +17,7 @@ export const PatientSchema = new mongoose.Schema(
     mrn: { type: String, required: true, trim: true },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
-    dob: { type: String, required: true },
+    dob: { type: String, trim: true, default: '' },
     age: { type: String, trim: true },
     gender: { type: String, enum: ['male', 'female', 'other'], required: true },
     phone: { type: String, trim: true },
@@ -510,7 +510,7 @@ const PaymentRecordSchema = new mongoose.Schema(
     amount: { type: Number, required: true },
     method: {
       type: String,
-      enum: ['cash', 'card', 'credit_card', 'debit_card', 'insurance', 'online', 'bank_transfer', 'cheque', 'upi'],
+      enum: ['cash', 'card', 'bank_transfer', 'cheque', 'upi', 'split'],
       default: 'card',
     },
     reference: { type: String, default: null },
@@ -563,3 +563,35 @@ InvoiceSchema.methods.toSafeJSON = function () {
     updatedAt: obj.updatedAt,
   };
 };
+
+// ---------------------------------------------------------------------------
+// 7. Test Category Schema
+// ---------------------------------------------------------------------------
+export const TestCategorySchema = new mongoose.Schema(
+  {
+    categoryId: { type: String, required: true, index: true },
+    tenantId: { type: String, required: true, index: true },
+    name: { type: String, required: true, trim: true },
+    department: { type: String, default: 'Clinical Pathology' },
+    description: { type: String, default: '' },
+  },
+  { timestamps: true }
+);
+
+TestCategorySchema.index({ tenantId: 1, name: 1 }, { unique: true });
+
+TestCategorySchema.methods.toSafeJSON = function () {
+  const obj = this.toObject ? this.toObject() : { ...this };
+  delete obj.__v;
+  return {
+    id: obj._id,
+    categoryId: obj.categoryId,
+    tenantId: obj.tenantId,
+    name: obj.name,
+    department: obj.department,
+    description: obj.description,
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+  };
+};
+

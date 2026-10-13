@@ -43,6 +43,7 @@ import ErrorState from '../../components/common/ErrorState';
 import EmptyState from '../../components/common/EmptyState';
 import AdminSecurityBoundary from '../../components/common/AdminSecurityBoundary';
 import superAdminService from '../../services/superAdminService';
+import notify from '../../utils/notify';
 
 export function LaboratoriesPage() {
   const [searchParams] = useSearchParams();
@@ -92,6 +93,7 @@ export function LaboratoriesPage() {
   const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState(null);
   const [labSuccess, setLabSuccess] = useState(null);
+  const [createdLabSuccessModal, setCreatedLabSuccessModal] = useState(null);
   const [labCopied, setLabCopied] = useState(false);
 
   // Dedicated Lab Admin Form State
@@ -280,14 +282,20 @@ export function LaboratoriesPage() {
 
     try {
       const createdLab = await superAdminService.registerLaboratory(payload);
-      setLabSuccess(createdLab);
+      const labName = createdLab?.name || payload.name;
+      notify.success(`Laboratory "${labName}" registered successfully!`);
+      setCreatedLabSuccessModal(createdLab);
+      setLabSuccess(null);
       setLabForm(initialLabFormState);
       fetchLabs();
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setLabError('Super Administrator authentication required to register new medical facilities.');
+        notify.error('Super Administrator authentication required to register new medical facilities.');
       } else {
-        setLabError(err.response?.data?.message || err.message || 'Failed to register laboratory');
+        const msg = err.response?.data?.message || err.message || 'Failed to register laboratory';
+        setLabError(msg);
+        notify.error(err, { fallback: 'Failed to register laboratory' });
       }
     } finally {
       setLabLoading(false);
@@ -376,6 +384,7 @@ export function LaboratoriesPage() {
 
     try {
       const createdStaff = await superAdminService.createLaboratoryStaff(labIdentifier, payload);
+      notify.success(`Administrator "${payload.fullName}" created successfully for ${selectedLab?.name || 'Laboratory'}.`);
       setAdminSuccess({
         user: createdStaff,
         lab: selectedLab || { name: 'Laboratory Facility', code: '' },
@@ -393,8 +402,11 @@ export function LaboratoriesPage() {
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setAdminError('Super Administrator authentication required to create laboratory administrators.');
+        notify.error('Super Administrator authentication required to create laboratory administrators.');
       } else {
-        setAdminError(err.response?.data?.message || err.message || 'Failed to create laboratory administrator');
+        const msg = err.response?.data?.message || err.message || 'Failed to create laboratory administrator';
+        setAdminError(msg);
+        notify.error(err, { fallback: 'Failed to create laboratory administrator' });
       }
     } finally {
       setAdminLoading(false);
@@ -641,55 +653,7 @@ export function LaboratoriesPage() {
           </div>
 
           {/* Success Banner */}
-          {labSuccess && (
-            <div
-              style={{
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: '8px',
-                padding: '0.9rem 1rem',
-                marginBottom: '1.25rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: 700, fontSize: '0.9rem' }}>
-                <CheckCircle2 size={18} />
-                <span>Laboratory "{labSuccess.name}" ({labSuccess.code}) Registered Successfully!</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <code style={{ fontSize: '0.775rem', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px', color: '#166534' }}>
-                  {`${originUrl}/lab/${labSuccess.code.toLowerCase()}`}
-                </code>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ padding: '3px 8px', fontSize: '0.72rem' }}
-                  onClick={() => {
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(`${originUrl}/lab/${labSuccess.code.toLowerCase()}`);
-                      setLabCopied(true);
-                      setTimeout(() => setLabCopied(false), 2000);
-                    }
-                  }}
-                >
-                  {labCopied ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                  <span>{labCopied ? 'Copied!' : 'Copy Portal URL'}</span>
-                </button>
-                <a
-                  href={`${originUrl}/lab/${labSuccess.code.toLowerCase()}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-primary btn-sm"
-                  style={{ padding: '3px 8px', fontSize: '0.72rem' }}
-                >
-                  <ExternalLink size={12} />
-                  <span>Open Portal</span>
-                </a>
-              </div>
-            </div>
-          )}
+          {/* Success Banner removed to prevent duplicate messaging with top toast & centered details modal */}
 
           {/* Error Banner */}
           {labError && (
@@ -1877,6 +1841,198 @@ export function LaboratoriesPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Laboratory Registration Success Details Modal */}
+      {createdLabSuccessModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setCreatedLabSuccessModal(null)}
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '1rem',
+          }}
+        >
+          <div
+            className="modal-dialog modal-md"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '520px',
+              width: '100%',
+              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
+              border: '1px solid var(--border-subtle)',
+              overflow: 'hidden',
+              animation: 'confirmModalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+              margin: 'auto',
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '10px',
+                    background: '#dcfce7',
+                    color: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <CheckCircle2 size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                    Laboratory Registered Successfully
+                  </h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.775rem', color: '#64748b' }}>
+                    Dedicated tenant and portal provisioned
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreatedLabSuccessModal(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem' }}>
+              <div
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '10px',
+                  padding: '1rem 1.25rem',
+                  marginBottom: '1.25rem',
+                }}
+              >
+                <div style={{ fontSize: '0.8rem', color: '#166534', fontWeight: 600, marginBottom: '4px' }}>
+                  Laboratory Facility
+                </div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#14532d', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>{createdLabSuccessModal.name}</span>
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.8rem',
+                      background: '#dcfce7',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: '1px solid #86efac',
+                    }}
+                  >
+                    {createdLabSuccessModal.code}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                  Whitelabel Dedicated Login Portal URL:
+                </label>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                  }}
+                >
+                  <code style={{ fontSize: '0.825rem', color: '#0f172a', wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                    {`${originUrl}/lab/${(createdLabSuccessModal.code || '').toLowerCase()}`}
+                  </code>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ flex: 1, minWidth: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(`${originUrl}/lab/${(createdLabSuccessModal.code || '').toLowerCase()}`);
+                      setLabCopied(true);
+                      setTimeout(() => setLabCopied(false), 2000);
+                    }
+                  }}
+                >
+                  {labCopied ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
+                  <span>{labCopied ? 'Copied to Clipboard!' : 'Copy Portal URL'}</span>
+                </button>
+                <a
+                  href={`${originUrl}/lab/${(createdLabSuccessModal.code || '').toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary"
+                  style={{ flex: 1, minWidth: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <ExternalLink size={16} />
+                  <span>Open Portal</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: '0.875rem 1.5rem',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                background: '#f8fafc',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCreatedLabSuccessModal(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

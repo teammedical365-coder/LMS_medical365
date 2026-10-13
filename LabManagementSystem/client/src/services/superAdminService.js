@@ -121,6 +121,16 @@ export const superAdminService = {
   },
 
   /**
+   * Update laboratory status (alias for transitionStatus)
+   */
+  async updateLaboratoryStatus(id, statusOrPayload, reason = null) {
+    if (typeof statusOrPayload === 'object' && statusOrPayload !== null) {
+      return this.transitionStatus(id, statusOrPayload.status, statusOrPayload.reason);
+    }
+    return this.transitionStatus(id, statusOrPayload, reason);
+  },
+
+  /**
    * Get safe provisioning status
    */
   async getProvisioningStatus(id) {
@@ -142,6 +152,13 @@ export const superAdminService = {
   async verifyDomain(id, domain) {
     const res = await api.post(`/super-admin/laboratories/${id}/domains/${domain}/verify`, {}, { headers: getAdminHeaders() });
     return res.data.data;
+  },
+
+  /**
+   * Verify domain mapping (alias for verifyDomain)
+   */
+  async verifyDomainMapping(id, domain) {
+    return this.verifyDomain(id, domain);
   },
 
   /**

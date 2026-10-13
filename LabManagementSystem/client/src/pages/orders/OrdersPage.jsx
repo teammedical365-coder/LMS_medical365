@@ -10,6 +10,7 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import notify from '../../utils/notify';
 
 export function OrdersPage() {
   const { user, tenant } = useAuth();
@@ -99,11 +100,11 @@ export function OrdersPage() {
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     if (!selectedPatientId) {
-      alert('Please select a patient');
+      notify.error('Please select a patient');
       return;
     }
     if (selectedTestCodes.length === 0) {
-      alert('Please select at least one test from the catalog');
+      notify.error('Please select at least one test from the catalog');
       return;
     }
 
@@ -130,6 +131,7 @@ export function OrdersPage() {
       });
 
       if (res.success) {
+        notify.success(`Order ${res.data.orderNumber} created successfully!`);
         setSuccessMsg(`Order ${res.data.orderNumber} created successfully! (Total: ₹${res.data.totalAmount})`);
         setIsCreateOpen(false);
         setSelectedPatientId('');
@@ -139,7 +141,7 @@ export function OrdersPage() {
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit order');
+      notify.error(err, { fallback: 'Failed to submit order' });
     } finally {
       setIsSubmitting(false);
     }
@@ -194,6 +196,7 @@ export function OrdersPage() {
       );
 
       if (res.success) {
+        notify.success(`Diagnostic results recorded for ${resultItem.testName}`);
         setSuccessMsg(`Diagnostic results recorded for ${resultItem.testName}`);
         setResultItem(null);
         await fetchOrders();
@@ -203,7 +206,7 @@ export function OrdersPage() {
         setTimeout(() => setSuccessMsg(null), 3500);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to record test results');
+      notify.error(err, { fallback: 'Failed to record test results' });
     } finally {
       setIsSavingResult(false);
     }
