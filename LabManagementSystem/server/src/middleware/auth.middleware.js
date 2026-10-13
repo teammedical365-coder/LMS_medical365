@@ -208,7 +208,12 @@ export function requirePermission(requiredPermission) {
       const isLabAdminRole = [USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR, 'lab_admin', 'lab_director'].includes(req.user.role);
 
       if (isLabAdminRole) {
-        if (permissionsToCheck.some((p) => disallowedForLabAdmin.some((prefix) => p.startsWith(prefix)))) {
+        // Lab Admin is permitted if at least one of the alternative required permissions is allowed
+        const hasAnyAllowedPermission = permissionsToCheck.some(
+          (p) => !disallowedForLabAdmin.some((prefix) => p.startsWith(prefix))
+        );
+
+        if (!hasAnyAllowedPermission) {
           const permLabel = permissionsToCheck.join(' or ');
           logger.warn(
             `[SECURITY] Permission denied: Lab Admin (${req.user.email}) restricted from module: ${permLabel}`

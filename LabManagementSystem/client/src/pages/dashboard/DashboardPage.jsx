@@ -54,6 +54,8 @@ import ResultEntryModal from '../samples/ResultEntryModal';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
 import api from '../../services/api';
+import clinicalService from '../../services/clinicalService';
+import { Link } from 'react-router-dom';
 
 export function DashboardPage() {
   const { user, isSuperAdmin } = useAuth();
@@ -122,6 +124,32 @@ export function DashboardPage() {
     userRole === 'front_desk' ||
     userRole === 'clerk' ||
     userRole === 'reception';
+
+  const isBillingClerk =
+    userRole === 'billing_clerk' ||
+    userRole === 'accountant' ||
+    userRole === 'billing';
+
+  const isPathologist =
+    !isReceptionist &&
+    !isBillingClerk &&
+    (userRole === 'pathologist' ||
+      userRole === 'report_reviewer' ||
+      (!isLabAdmin && hasPermission(['reports:verify'])));
+
+  const isTechnician =
+    !isReceptionist &&
+    !isBillingClerk &&
+    (userRole === 'lab_technician' ||
+      userRole === 'technician' ||
+      (!isLabAdmin && hasPermission(['samples:process'])));
+
+  const isLabTechnician = isTechnician;
+
+  const isClinicalStaff =
+    !isReceptionist &&
+    !isBillingClerk &&
+    (isLabAdmin || ['lab_admin', 'pathologist', 'lab_technician', 'technician'].includes(userRole));
 
   const fetchDashboard = useCallback(async () => {
     if (!tenantId || isSuperAdmin) {
@@ -888,6 +916,25 @@ export function DashboardPage() {
     }
 
     return cards;
+  };
+
+  const workflowSteps = [
+    { name: '1. Order Entry', count: `${metrics.totalOrders} Orders`, status: 'completed' },
+    { name: '2. Phlebotomy', count: `${metrics.pendingCollectionSamples} Pending`, status: 'current' },
+    { name: '3. Analysis', count: `${metrics.inAnalysisSamples} In Progress`, status: 'current' },
+    { name: '4. Pathologist Review', count: `${metrics.pendingReviewReports} Queue`, status: 'pending' },
+    { name: '5. Diagnostic Release', count: `${metrics.releasedReports} Released`, status: 'completed' },
+  ];
+
+  const getPriorityBadge = (priority) => {
+    switch (priority) {
+      case 'stat':
+        return <Badge variant="danger">STAT</Badge>;
+      case 'urgent':
+        return <Badge variant="warning">Urgent</Badge>;
+      default:
+        return <Badge variant="slate">Routine</Badge>;
+    }
   };
 
   return (

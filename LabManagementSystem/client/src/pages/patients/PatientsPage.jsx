@@ -1019,7 +1019,7 @@ export function PatientsPage() {
               className="btn btn-primary btn-sm"
               style={{ marginTop: '1rem' }}
               onClick={() => {
-                setIsBannerOpen(true);
+                setIsRegisterModalOpen(true);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             >

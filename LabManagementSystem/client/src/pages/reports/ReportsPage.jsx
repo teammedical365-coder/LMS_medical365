@@ -54,6 +54,15 @@ export function ReportsPage() {
   const [selectedReportIds, setSelectedReportIds] = useState(new Set());
   const [filterStatus, setFilterStatus] = useState('all');
 
+  // Release Confirmation Modal State
+  const [releaseConfirmModal, setReleaseConfirmModal] = useState({
+    isOpen: false,
+    isBatch: false,
+    reportId: null,
+    reportNumber: '',
+    count: 0,
+  });
+
   // Batch PDF Export Modal State
   const [isBatchExportOpen, setIsBatchExportOpen] = useState(false);
   const [batchExportQueue, setBatchExportQueue] = useState([]);
@@ -87,6 +96,9 @@ export function ReportsPage() {
     (r) => selectedReportIds.has(r.reportId) && r.status === 'approved'
   );
   const eligibleReleaseCount = eligibleReleaseReports.length;
+
+  const selectedReleaseIds = new Set(eligibleReleaseReports.map((r) => r.reportId));
+  const selectedDownloadIds = new Set(eligibleDownloadReports.map((r) => r.reportId));
 
   // Helper to strictly evaluate whether all diagnostic tests in a report have recorded results
   const checkReportCompleteness = (report) => {
@@ -177,9 +189,9 @@ export function ReportsPage() {
     });
   };
 
-  const handleBatchRelease = async () => {
-    if (selectedReleaseIds.size === 0) return;
-    if (!window.confirm(`Release ${selectedReleaseIds.size} selected approved report(s) to patient portal?`)) {
+  const handleBatchRelease = () => {
+    if (selectedReleaseIds.size === 0) {
+      notify.warning('Please select at least one approved report to release.');
       return;
     }
     setReleaseConfirmModal({
@@ -213,6 +225,7 @@ export function ReportsPage() {
     try {
       setActionLoading(true);
       setError(null);
+      const targetIds = Array.from(selectedReleaseIds);
       const res = await clinicalService.batchReleaseReports(tenantId, targetIds);
       if (res.success) {
         const { releasedCount, failedCount } = res.data;
@@ -221,6 +234,7 @@ export function ReportsPage() {
           `Batch Release Completed: ${releasedCount} report(s) released successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}`
         );
         setSelectedReportIds(new Set());
+        setReleaseConfirmModal((prev) => ({ ...prev, isOpen: false }));
         fetchReports();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
@@ -239,6 +253,7 @@ export function ReportsPage() {
       if (res.success) {
         notify.success('Report released successfully.');
         setSuccessMsg(`Report ${res.data.reportNumber} finalized and released to patient portal`);
+        setReleaseConfirmModal((prev) => ({ ...prev, isOpen: false }));
         fetchReports();
         if (selectedReport && selectedReport.reportId === reportId) {
           setSelectedReport(res.data);
