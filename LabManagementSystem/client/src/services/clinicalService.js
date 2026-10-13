@@ -41,6 +41,9 @@ export const clinicalService = {
   updateSampleStatus: (tenantId, sampleId, updates) =>
     api.patch(`/tenants/${tenantId}/samples/${sampleId}/status`, updates).then((res) => res.data),
 
+  recordSampleResults: (tenantId, sampleId, data) =>
+    api.post(`/tenants/${tenantId}/samples/${sampleId}/results`, data).then((res) => res.data),
+
   getSampleLabel: (tenantId, sampleId) =>
     api.get(`/tenants/${tenantId}/samples/${sampleId}/label`).then((res) => res.data),
 
@@ -75,6 +78,9 @@ export const clinicalService = {
 
   approveReport: (tenantId, reportId, data = {}) =>
     api.post(`/tenants/${tenantId}/reports/${reportId}/approve`, data).then((res) => res.data),
+
+  rejectReport: (tenantId, reportId, data = {}) =>
+    api.post(`/tenants/${tenantId}/reports/${reportId}/reject`, data).then((res) => res.data),
 
   releaseReport: (tenantId, reportId) =>
     api.post(`/tenants/${tenantId}/reports/${reportId}/release`).then((res) => res.data),

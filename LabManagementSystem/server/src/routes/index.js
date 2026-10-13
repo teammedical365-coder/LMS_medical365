@@ -64,6 +64,7 @@ apiV1Router.get('/', (req, res) => {
         get: 'GET /api/v1/tenants/:tenantId/users/:userId',
         updateStatus: 'PATCH /api/v1/tenants/:tenantId/users/:userId/status',
         assignRole: 'PATCH /api/v1/tenants/:tenantId/users/:userId/role',
+        delete: 'DELETE /api/v1/tenants/:tenantId/users/:userId',
       },
       roles: {
         permissionsMatrix: 'GET /api/v1/tenants/:tenantId/roles/permissions-matrix',

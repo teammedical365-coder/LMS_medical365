@@ -95,6 +95,23 @@ class TenantUserController {
       next(err);
     }
   }
+
+  /**
+   * Safely soft-delete a staff member from the laboratory
+   * DELETE /api/v1/tenants/:tenantId/users/:userId
+   */
+  async deleteUser(req, res, next) {
+    try {
+      const { tenantId, userId } = req.params;
+      const user = await tenantUserService.deleteUser(tenantId, userId, req.user);
+      return ApiResponse.success(res, user, 'Laboratory staff member deleted successfully');
+    } catch (err) {
+      if (err instanceof TenantUserError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
 }
 
 export const tenantUserController = new TenantUserController();

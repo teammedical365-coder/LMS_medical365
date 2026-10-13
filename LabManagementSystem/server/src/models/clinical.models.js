@@ -161,7 +161,7 @@ const OrderItemSchema = new mongoose.Schema(
     barcode: { type: String, default: null },
     status: {
       type: String,
-      enum: ['ordered', 'sample_collected', 'in_analysis', 'completed', 'verified', 'cancelled'],
+      enum: ['ordered', 'sample_collected', 'in_analysis', 'results_entered', 'completed', 'verified', 'cancelled'],
       default: 'ordered',
     },
     resultValue: { type: String, default: null },
@@ -199,7 +199,7 @@ export const LabOrderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ['ordered', 'in_progress', 'in_analysis', 'completed', 'cancelled'],
+      enum: ['ordered', 'in_progress', 'in_analysis', 'results_entered', 'completed', 'cancelled'],
       default: 'ordered',
     },
     createdBy: { type: String, default: 'staff' },
@@ -261,7 +261,7 @@ export const SampleSchema = new mongoose.Schema(
     },
     processingStatus: {
       type: String,
-      enum: ['pending', 'in_analysis', 'completed', 'recollection_requested'],
+      enum: ['pending', 'in_analysis', 'results_entered', 'completed', 'recollection_requested'],
       default: 'pending',
     },
     collectedAt: { type: Date, default: null },
@@ -460,6 +460,7 @@ export const DiagnosticReportSchema = new mongoose.Schema(
     reviewedBy: { type: String, default: null },
     releasedBy: { type: String, default: null },
     rejectionReason: { type: String, default: null },
+    rejectionHistory: { type: Array, default: [] },
     verifiedAt: { type: Date, default: null },
     verificationNotes: { type: String, default: null },
     releasedAt: { type: Date, default: null },
@@ -490,6 +491,7 @@ DiagnosticReportSchema.methods.toSafeJSON = function () {
     reviewedBy: obj.reviewedBy,
     releasedBy: obj.releasedBy,
     rejectionReason: obj.rejectionReason,
+    rejectionHistory: obj.rejectionHistory || [],
     verifiedAt: obj.verifiedAt,
     verificationNotes: obj.verificationNotes,
     releasedAt: obj.releasedAt,

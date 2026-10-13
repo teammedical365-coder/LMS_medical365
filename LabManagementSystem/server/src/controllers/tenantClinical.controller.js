@@ -127,6 +127,19 @@ export class TenantClinicalController {
     }
   }
 
+  static async recordSampleResults(req, res, next) {
+    try {
+      const { tenantId, sampleId } = req.params;
+      const result = await tenantClinicalService.recordSampleResults(tenantId, sampleId, req.body, req.user);
+      return ApiResponse.success(res, result, 'Sample test results recorded and pushed to verification queue');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   static async getSampleBarcodeLabel(req, res, next) {
     try {
       const { tenantId, sampleId } = req.params;

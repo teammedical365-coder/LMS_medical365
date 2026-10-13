@@ -100,6 +100,14 @@ export const roleService = {
     const res = await api.patch(`/tenants/${tenantId}/users/${userId}/role`, { role });
     return res.data.data;
   },
+
+  /**
+   * Safely soft-delete staff member
+   */
+  async deleteUser(tenantId, userId) {
+    const res = await api.delete(`/tenants/${tenantId}/users/${userId}`);
+    return res.data.data;
+  },
 };
 
 export default roleService;

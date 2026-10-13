@@ -837,6 +837,27 @@ class TenantClinicalService {
   async updateSampleStatus(tenantId, sampleId, updates, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const { collectionStatus, processingStatus, rejectionReason, rejectionNotes, notes } = updates;
+
+    // Strict Separation of Duties (SoD): Phlebotomists / sample_collection roles can only mark specimens as collected
+    const userRole = (actor?.role || '').toLowerCase();
+    const isSampleCollector = ['sample_collection', 'phlebotomist', 'sample_collector', 'phlebotomy'].includes(userRole);
+    if (isSampleCollector) {
+      if (processingStatus) {
+        throw new ClinicalServiceError(
+          'Separation of Duties (SoD) violation: Phlebotomists and sample collection personnel cannot modify analyzer processing status',
+          'SOD_VIOLATION_PROCESSING',
+          403
+        );
+      }
+      if (collectionStatus && collectionStatus !== 'collected') {
+        throw new ClinicalServiceError(
+          'Separation of Duties (SoD) violation: Phlebotomists and sample collection personnel cannot receive or reject specimens at laboratory bench',
+          'SOD_VIOLATION_RECEIPT',
+          403
+        );
+      }
+    }
+
     const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
     const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
 
@@ -845,6 +866,13 @@ class TenantClinicalService {
       if (!sample) throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
 
       if (processingStatus) {
+        if (processingStatus !== 'recollection_requested' && sample.collectionStatus !== 'received') {
+          throw new ClinicalServiceError(
+            'Sample must be received in lab before analysis',
+            'SOD_VIOLATION_UNRECEIVED_ANALYSIS',
+            403
+          );
+        }
         if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
           throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
         }
@@ -902,11 +930,34 @@ class TenantClinicalService {
             }
           }
         } else if (collectionStatus === 'received') {
-          // Central receipt and triage in lab
-          sample.collectionStatus = 'received';
-          sample.receivedAt = new Date();
-          sample.receivedBy = actor.email || 'Accessioning Technician';
+          if (sample.collectionStatus === 'received') {
+            // Idempotent duplicate receipt - return safely
+          } else if (sample.collectionStatus === 'rejected') {
+            throw new ClinicalServiceError(
+              'Cannot receive a rejected specimen without recollection',
+              'INVALID_SAMPLE_STATE',
+              400
+            );
+          } else if (sample.collectionStatus !== 'collected') {
+            throw new ClinicalServiceError(
+              'Specimen must be collected by phlebotomy before central laboratory receipt',
+              'SOD_VIOLATION_UNCOLLECTED_SPECIMEN',
+              400
+            );
+          } else {
+            // Central receipt and triage in lab
+            sample.collectionStatus = 'received';
+            sample.receivedAt = new Date();
+            sample.receivedBy = actor.email || 'Accessioning Technician';
+          }
         } else if (collectionStatus === 'collected') {
+          if (sample.collectionStatus === 'received') {
+            throw new ClinicalServiceError(
+              'Specimen already received in laboratory cannot revert to collected',
+              'INVALID_SAMPLE_STATE',
+              400
+            );
+          }
           sample.collectionStatus = 'collected';
           sample.collectedAt = new Date();
           sample.collectedBy = actor.email || 'Phlebotomist';
@@ -928,6 +979,13 @@ class TenantClinicalService {
     if (!sample) throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
 
     if (processingStatus) {
+      if (processingStatus !== 'recollection_requested' && sample.collectionStatus !== 'received') {
+        throw new ClinicalServiceError(
+          'Sample must be received in lab before analysis',
+          'SOD_VIOLATION_UNRECEIVED_ANALYSIS',
+          403
+        );
+      }
       if (sample.processingStatus === 'completed' && processingStatus !== 'completed') {
         throw new ClinicalServiceError('Cannot revert status of an already completed specimen', 'INVALID_STATUS_TRANSITION', 400);
       }
@@ -978,10 +1036,33 @@ class TenantClinicalService {
           sample.recollectionTaskId = existingTask.taskId;
         }
       } else if (collectionStatus === 'received') {
-        sample.collectionStatus = 'received';
-        sample.receivedAt = new Date();
-        sample.receivedBy = actor.email || 'Accessioning Technician';
+        if (sample.collectionStatus === 'received') {
+          // Idempotent duplicate receipt - safe return
+        } else if (sample.collectionStatus === 'rejected') {
+          throw new ClinicalServiceError(
+            'Cannot receive a rejected specimen without recollection',
+            'INVALID_SAMPLE_STATE',
+            400
+          );
+        } else if (sample.collectionStatus !== 'collected') {
+          throw new ClinicalServiceError(
+            'Specimen must be collected by phlebotomy before central laboratory receipt',
+            'SOD_VIOLATION_UNCOLLECTED_SPECIMEN',
+            400
+          );
+        } else {
+          sample.collectionStatus = 'received';
+          sample.receivedAt = new Date();
+          sample.receivedBy = actor.email || 'Accessioning Technician';
+        }
       } else if (collectionStatus === 'collected') {
+        if (sample.collectionStatus === 'received') {
+          throw new ClinicalServiceError(
+            'Specimen already received in laboratory cannot revert to collected',
+            'INVALID_SAMPLE_STATE',
+            400
+          );
+        }
         sample.collectionStatus = 'collected';
         sample.collectedAt = new Date();
         sample.collectedBy = actor.email || 'Phlebotomist';
@@ -991,6 +1072,266 @@ class TenantClinicalService {
     }
 
     return sample;
+  }
+
+  async recordSampleResults(tenantId, sampleId, resultData = {}, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+
+    let sample = null;
+    if (SampleModel) {
+      sample = await SampleModel.findOne({ tenantId, $or: [{ sampleId }, { barcode: sampleId }] });
+    } else {
+      const tenantMap = this.memorySamples.get(tenantId);
+      sample = tenantMap?.get(sampleId);
+      if (!sample && tenantMap) {
+        sample = Array.from(tenantMap.values()).find((s) => s.barcode === sampleId);
+      }
+    }
+
+    if (!sample) {
+      throw new ClinicalServiceError('Sample not found', 'SAMPLE_NOT_FOUND', 404);
+    }
+
+    // Strict Sequential State Validation: Specimen MUST be received before analysis
+    if (sample.collectionStatus !== 'received') {
+      throw new ClinicalServiceError(
+        'Sample must be received in lab before analysis',
+        'SOD_VIOLATION_UNRECEIVED_ANALYSIS',
+        403
+      );
+    }
+
+    // Check associated report immutability before accepting result mutations
+    let existingReportDoc = null;
+    if (sample.orderId) {
+      if (ReportModel) {
+        existingReportDoc = await ReportModel.findOne({ tenantId, orderId: sample.orderId });
+      } else {
+        const repMap = this.memoryReports.get(tenantId);
+        existingReportDoc = repMap ? Array.from(repMap.values()).find((r) => r.orderId === sample.orderId) : null;
+      }
+    }
+
+    if (existingReportDoc) {
+      if (existingReportDoc.status === 'released') {
+        throw new ClinicalServiceError(
+          'Cannot modify results: diagnostic report is already finalized and released to patient portal',
+          'REPORT_ALREADY_RELEASED',
+          403
+        );
+      }
+      if (existingReportDoc.status === 'approved') {
+        throw new ClinicalServiceError(
+          'Cannot modify results: diagnostic report has already been reviewed and approved by Pathologist',
+          'REPORT_ALREADY_APPROVED',
+          403
+        );
+      }
+    }
+
+    const { parameterResults = [], findings, notes, instrument, reagentLot } = resultData;
+
+    // Validate parameterResults strictly (Fix A)
+    const validatedParameterResults = [];
+    if (Array.isArray(parameterResults)) {
+      for (const pr of parameterResults) {
+        const pCode = (pr.parameterCode || pr.code || '').trim().toUpperCase();
+        const pName = pr.name || pr.parameterCode || pCode || 'Parameter';
+        const pType = (pr.resultType || 'NUMERIC').toUpperCase();
+        let val = pr.value;
+
+        if (pType === 'NUMERIC') {
+          if (val === '' || val === undefined || (val === null && pr.required)) {
+            throw new ClinicalServiceError(
+              `Invalid numeric value for parameter '${pName}'. Empty input cannot be evaluated as zero.`,
+              'INVALID_NUMERIC_VALUE',
+              400
+            );
+          }
+          if (val !== null && val !== undefined) {
+            const numVal = Number(val);
+            if (isNaN(numVal)) {
+              throw new ClinicalServiceError(
+                `Invalid numeric value '${val}' for parameter '${pName}'`,
+                'INVALID_NUMERIC_VALUE',
+                400
+              );
+            }
+            val = numVal;
+          }
+        } else if (pType === 'OPTIONS') {
+          if (val === undefined || val === null || String(val).trim() === '') {
+            if (pr.required) {
+              throw new ClinicalServiceError(
+                `Value required for parameter '${pName}'`,
+                'REQUIRED_PARAMETER_MISSING',
+                400
+              );
+            }
+            val = '';
+          } else {
+            val = String(val).trim();
+          }
+        } else {
+          // TEXT
+          if (val === undefined || val === null || String(val).trim() === '') {
+            if (pr.required) {
+              throw new ClinicalServiceError(
+                `Value required for parameter '${pName}'`,
+                'REQUIRED_PARAMETER_MISSING',
+                400
+              );
+            }
+            val = '';
+          } else {
+            val = String(val).trim();
+          }
+        }
+
+        validatedParameterResults.push({
+          parameterCode: pCode || 'PARAM',
+          name: pName,
+          resultType: pType,
+          value: val,
+          unit: pr.unit || '',
+          referenceRange: pr.referenceRange || '',
+          isAbnormal: Boolean(pr.isAbnormal),
+          enteredAt: new Date(),
+          enteredBy: actor.email || 'Lab Technician',
+        });
+      }
+    }
+
+    // Transition sample processing status to results_entered
+    sample.processingStatus = 'results_entered';
+    if (sample.save) await sample.save();
+
+    // Now update associated order items
+    let order = null;
+    if (sample.orderId) {
+      if (OrderModel) {
+        order = await OrderModel.findOne({ tenantId, orderId: sample.orderId });
+      } else {
+        const oMap = this.memoryOrders.get(tenantId);
+        order = oMap?.get(sample.orderId);
+      }
+    }
+
+    let report = null;
+    if (order) {
+      const targetCodes = Array.isArray(sample.testCodes) ? sample.testCodes : [];
+      const targetItemIds = Array.isArray(sample.itemIds) ? sample.itemIds : [];
+
+      let anyItemUpdated = false;
+      let hasAbnormal = false;
+
+      for (const it of order.items) {
+        const matchesCode = targetCodes.includes(it.testCode);
+        const matchesId = targetItemIds.includes(it.itemId);
+        if (matchesCode || matchesId || order.items.length === 1) {
+          it.status = 'results_entered';
+          if (validatedParameterResults.length > 0) {
+            it.parameterResults = validatedParameterResults;
+            if (it.parameterResults.some((p) => p.isAbnormal)) {
+              it.isAbnormal = true;
+              hasAbnormal = true;
+            }
+            it.resultValue = it.parameterResults
+              .map((p) => `${p.name || p.parameterCode}: ${p.value}${p.unit ? ' ' + p.unit : ''}`)
+              .join(', ');
+          }
+          anyItemUpdated = true;
+        }
+      }
+
+      if (anyItemUpdated) {
+        order.orderStatus = 'in_analysis';
+        if (order.save) await order.save();
+      }
+
+      // Check for existing report or create a new DiagnosticReport in pending_review
+      const combinedFindings = findings || (hasAbnormal ? 'Parameters flagged outside normal clinical thresholds.' : 'Parameters verified within normal clinical reference ranges.');
+
+      if (ReportModel) {
+        report = await ReportModel.findOne({ tenantId, orderId: order.orderId });
+        if (report && (report.status === 'draft' || report.status === 'pending_review' || report.status === 'rejected')) {
+          report.items = order.items;
+          report.findings = combinedFindings;
+          report.status = 'pending_review';
+          report.draftedBy = actor.email || 'Lab Technician';
+          await report.save();
+        } else if (!report) {
+          const reportId = this.generateId('rep');
+          const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
+          report = new ReportModel({
+            reportId,
+            tenantId,
+            reportNumber,
+            orderId: order.orderId,
+            orderNumber: order.orderNumber,
+            patientName: order.patientName,
+            patientMrn: order.patientMrn,
+            testName: sample.testNames?.join(', ') || order.items[0]?.testName || 'Diagnostic Panel',
+            items: order.items,
+            findings: combinedFindings,
+            status: 'pending_review',
+            draftedBy: actor.email || 'Lab Technician',
+          });
+          await report.save();
+        }
+      } else {
+        if (!this.memoryReports.has(tenantId)) this.memoryReports.set(tenantId, new Map());
+        const existingRep = Array.from(this.memoryReports.get(tenantId).values()).find((r) => r.orderId === order.orderId);
+        if (existingRep && (existingRep.status === 'draft' || existingRep.status === 'pending_review' || existingRep.status === 'rejected')) {
+          existingRep.items = order.items;
+          existingRep.findings = combinedFindings;
+          existingRep.status = 'pending_review';
+          report = existingRep;
+        } else if (!existingRep) {
+          const reportId = this.generateId('rep');
+          const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
+          report = {
+            reportId,
+            tenantId,
+            reportNumber,
+            orderId: order.orderId,
+            orderNumber: order.orderNumber,
+            patientName: order.patientName,
+            patientMrn: order.patientMrn,
+            testName: sample.testNames?.join(', ') || order.items[0]?.testName || 'Diagnostic Panel',
+            items: order.items,
+            findings: combinedFindings,
+            status: 'pending_review',
+            draftedBy: actor.email || 'Lab Technician',
+            createdAt: new Date(),
+            toSafeJSON() { return { ...this }; },
+          };
+          this.memoryReports.get(tenantId).set(reportId, report);
+        }
+      }
+    }
+
+    await auditLogService.recordEvent({
+      action: 'SAMPLE_RESULTS_ENTERED',
+      targetTenantId: tenantId,
+      actorType: actor.accountType || 'TENANT_USER',
+      actorEmail: actor.email,
+      details: {
+        sampleId: sample.sampleId,
+        barcode: sample.barcode,
+        orderId: sample.orderId,
+        parameterCount: parameterResults.length,
+        status: 'results_entered',
+      },
+    });
+
+    return {
+      sample: sample.toSafeJSON ? sample.toSafeJSON() : sample,
+      report: report?.toSafeJSON ? report.toSafeJSON() : report,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -1079,6 +1420,38 @@ class TenantClinicalService {
     task.recollectedAt = new Date();
     task.resolvedBy = actor.email || 'Phlebotomist';
     if (task.save) await task.save();
+
+    // Re-link replacement specimen to order items
+    if (task.orderId) {
+      const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+      if (OrderModel) {
+        const ord = await OrderModel.findOne({ tenantId, orderId: task.orderId });
+        if (ord && Array.isArray(ord.items)) {
+          let ordUpdated = false;
+          for (const it of ord.items) {
+            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode)) {
+              it.sampleId = newSampleId;
+              it.barcode = newBarcode;
+              it.status = 'sample_collected';
+              ordUpdated = true;
+            }
+          }
+          if (ordUpdated) await ord.save();
+        }
+      } else {
+        const oMap = this.memoryOrders.get(tenantId);
+        const ord = oMap?.get(task.orderId);
+        if (ord && Array.isArray(ord.items)) {
+          for (const it of ord.items) {
+            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode)) {
+              it.sampleId = newSampleId;
+              it.barcode = newBarcode;
+              it.status = 'sample_collected';
+            }
+          }
+        }
+      }
+    }
 
     return {
       task: task.toSafeJSON ? task.toSafeJSON() : task,
@@ -1362,6 +1735,76 @@ class TenantClinicalService {
     const targetItem = order.items.find((it) => it.itemId === itemId || it.testCode === itemId);
     if (!targetItem) throw new ClinicalServiceError(`Test item '${itemId}' not found in order`, 'ITEM_NOT_FOUND', 404);
 
+    // Validate specimen existence and central receipt state (Fix D)
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    let sample = null;
+    if (SampleModel) {
+      if (targetItem.sampleId) {
+        sample = await SampleModel.findOne({ tenantId, sampleId: targetItem.sampleId });
+      }
+      if (!sample && targetItem.barcode) {
+        sample = await SampleModel.findOne({ tenantId, barcode: targetItem.barcode });
+      }
+      if (!sample) {
+        sample = await SampleModel.findOne({ tenantId, orderId: order.orderId, testCodes: targetItem.testCode });
+      }
+      if (!sample) {
+        sample = await SampleModel.findOne({ tenantId, orderId: order.orderId });
+      }
+    } else {
+      const sMap = this.memorySamples.get(tenantId);
+      if (sMap) {
+        sample = Array.from(sMap.values()).find((s) =>
+          s.sampleId === targetItem.sampleId ||
+          s.barcode === targetItem.barcode ||
+          (s.orderId === order.orderId && (s.testCodes?.includes(targetItem.testCode) || s.itemIds?.includes(targetItem.itemId)))
+        ) || Array.from(sMap.values()).find((s) => s.orderId === order.orderId);
+      }
+    }
+
+    if (!sample) {
+      throw new ClinicalServiceError(
+        `No specimen found for order item '${itemId}'. Cannot record results without linked specimen.`,
+        'SPECIMEN_NOT_FOUND',
+        400
+      );
+    }
+
+    if (sample.collectionStatus !== 'received') {
+      throw new ClinicalServiceError(
+        `Specimen '${sample.barcode || sample.sampleId}' must be collected and received in the laboratory before result entry`,
+        'SOD_VIOLATION_UNRECEIVED_ANALYSIS',
+        403
+      );
+    }
+
+    // Check associated report immutability before accepting result mutations (Fix C)
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    let existingReport = null;
+    if (ReportModel) {
+      existingReport = await ReportModel.findOne({ tenantId, orderId: order.orderId });
+    } else {
+      const rMap = this.memoryReports.get(tenantId);
+      existingReport = rMap ? Array.from(rMap.values()).find((r) => r.orderId === order.orderId) : null;
+    }
+
+    if (existingReport) {
+      if (existingReport.status === 'released') {
+        throw new ClinicalServiceError(
+          'Cannot modify results for a released diagnostic report',
+          'REPORT_ALREADY_RELEASED',
+          403
+        );
+      }
+      if (existingReport.status === 'approved') {
+        throw new ClinicalServiceError(
+          'Cannot modify results for an approved diagnostic report without authorized revision',
+          'REPORT_ALREADY_APPROVED',
+          403
+        );
+      }
+    }
+
     // Validate and process parameter results if provided
     let storedParamResults = [];
     if (hasParamResults) {
@@ -1472,19 +1915,82 @@ class TenantClinicalService {
     if (resultValue) {
       targetItem.resultValue = String(resultValue).trim();
     }
-    targetItem.status = 'completed';
+    targetItem.status = 'results_entered';
     targetItem.isAbnormal = Boolean(isAbnormal);
     if (referenceRange) targetItem.referenceRange = String(referenceRange).trim();
 
-    const allDone = order.items.every(
-      (it) => it.status === 'completed' && (it.resultValue || (it.parameterResults && it.parameterResults.length > 0))
-    );
-    order.orderStatus = allDone ? 'completed' : 'in_analysis';
+    sample.processingStatus = 'results_entered';
+    if (sample.save) await sample.save();
 
+    order.orderStatus = 'in_analysis';
     if (OrderModel && order.save) {
       await order.save();
-      return order.toSafeJSON();
     }
+
+    // Connect into DiagnosticReport workflow (Fix D)
+    let hasAbnormal = order.items.some((it) => it.isAbnormal);
+    const combinedFindings = hasAbnormal
+      ? 'Parameters flagged outside normal clinical thresholds.'
+      : 'Parameters verified within normal clinical reference ranges.';
+
+    let report = null;
+    if (ReportModel) {
+      if (existingReport && (existingReport.status === 'draft' || existingReport.status === 'pending_review' || existingReport.status === 'rejected')) {
+        existingReport.items = order.items;
+        existingReport.findings = combinedFindings;
+        existingReport.status = 'pending_review';
+        existingReport.draftedBy = actor.email || 'Lab Technician';
+        await existingReport.save();
+        report = existingReport;
+      } else if (!existingReport) {
+        const reportId = this.generateId('rep');
+        const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
+        report = new ReportModel({
+          reportId,
+          tenantId,
+          reportNumber,
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          patientName: order.patientName,
+          patientMrn: order.patientMrn,
+          testName: sample.testNames?.join(', ') || targetItem.testName || 'Diagnostic Panel',
+          items: order.items,
+          findings: combinedFindings,
+          status: 'pending_review',
+          draftedBy: actor.email || 'Lab Technician',
+        });
+        await report.save();
+      }
+    } else {
+      if (!this.memoryReports.has(tenantId)) this.memoryReports.set(tenantId, new Map());
+      if (existingReport && (existingReport.status === 'draft' || existingReport.status === 'pending_review' || existingReport.status === 'rejected')) {
+        existingReport.items = order.items;
+        existingReport.findings = combinedFindings;
+        existingReport.status = 'pending_review';
+        report = existingReport;
+      } else if (!existingReport) {
+        const reportId = this.generateId('rep');
+        const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
+        report = {
+          reportId,
+          tenantId,
+          reportNumber,
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          patientName: order.patientName,
+          patientMrn: order.patientMrn,
+          testName: sample.testNames?.join(', ') || targetItem.testName || 'Diagnostic Panel',
+          items: order.items,
+          findings: combinedFindings,
+          status: 'pending_review',
+          draftedBy: actor.email || 'Lab Technician',
+          createdAt: new Date(),
+          toSafeJSON() { return { ...this }; },
+        };
+        this.memoryReports.get(tenantId).set(reportId, report);
+      }
+    }
+
     return order.toSafeJSON ? order.toSafeJSON() : order;
   }
 
@@ -1621,8 +2127,13 @@ class TenantClinicalService {
 
     const hasIncomplete = items.some((it) => {
       const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+      if (hasParams) {
+        const anyParamBlank = it.parameterResults.some((p) => p.value === undefined || p.value === null || String(p.value).trim() === '');
+        if (anyParamBlank) return true;
+        return false;
+      }
       const hasSingle = it.resultValue !== undefined && it.resultValue !== null && String(it.resultValue).trim() !== '';
-      return !hasParams && !hasSingle;
+      return !hasSingle;
     });
 
     if (hasIncomplete) {
@@ -1642,6 +2153,40 @@ class TenantClinicalService {
 
     if (ReportModel && typeof report.save === 'function') {
       await report.save();
+    }
+
+    // Also mark matching sample(s) and order as completed
+    if (report.orderId) {
+      const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+      const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+      if (SampleModel) {
+        await SampleModel.updateMany(
+          { tenantId, orderId: report.orderId, processingStatus: { $ne: 'rejected' } },
+          { $set: { processingStatus: 'completed', verifiedAt: report.verifiedAt, verifiedBy: report.reviewedBy } }
+        );
+      } else {
+        const tenantSamples = this.memorySamples.get(tenantId);
+        if (tenantSamples) {
+          for (const s of tenantSamples.values()) {
+            if (s.orderId === report.orderId && s.processingStatus !== 'rejected') {
+              s.processingStatus = 'completed';
+              s.verifiedAt = report.verifiedAt;
+              s.verifiedBy = report.reviewedBy;
+            }
+          }
+        }
+      }
+
+      if (OrderModel) {
+        await OrderModel.updateOne(
+          { tenantId, orderId: report.orderId },
+          { $set: { orderStatus: 'completed' } }
+        );
+      } else {
+        const tenantOrders = this.memoryOrders.get(tenantId);
+        const ord = tenantOrders?.get(report.orderId);
+        if (ord) ord.orderStatus = 'completed';
+      }
     }
 
     await auditLogService.recordEvent({
@@ -1672,6 +2217,23 @@ class TenantClinicalService {
       const report = await ReportModel.findOne({ tenantId, reportId });
       if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
 
+      if (report.status === 'released') {
+        throw new ClinicalServiceError('Cannot reject an already released report', 'REPORT_ALREADY_RELEASED', 400);
+      }
+      if (report.status === 'approved') {
+        throw new ClinicalServiceError('Cannot reject an already approved report', 'REPORT_ALREADY_APPROVED', 400);
+      }
+
+      const historyEntry = {
+        reason: reason.trim(),
+        rejectedBy: actor.email || 'Pathologist',
+        rejectedAt: new Date(),
+      };
+      if (!Array.isArray(report.rejectionHistory)) {
+        report.rejectionHistory = [];
+      }
+      report.rejectionHistory.push(historyEntry);
+
       report.status = 'rejected';
       report.rejectionReason = reason.trim();
       report.reviewedBy = actor.email || 'Pathologist';
@@ -1691,6 +2253,24 @@ class TenantClinicalService {
     const tenantMap = this.memoryReports.get(tenantId);
     const report = tenantMap?.get(reportId);
     if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
+
+    if (report.status === 'released') {
+      throw new ClinicalServiceError('Cannot reject an already released report', 'REPORT_ALREADY_RELEASED', 400);
+    }
+    if (report.status === 'approved') {
+      throw new ClinicalServiceError('Cannot reject an already approved report', 'REPORT_ALREADY_APPROVED', 400);
+    }
+
+    const historyEntry = {
+      reason: reason.trim(),
+      rejectedBy: actor.email || 'Pathologist',
+      rejectedAt: new Date(),
+    };
+    if (!Array.isArray(report.rejectionHistory)) {
+      report.rejectionHistory = [];
+    }
+    report.rejectionHistory.push(historyEntry);
+
     report.status = 'rejected';
     report.rejectionReason = reason.trim();
     report.reviewedBy = actor.email;

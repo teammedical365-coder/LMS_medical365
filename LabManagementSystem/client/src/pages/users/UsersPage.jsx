@@ -60,6 +60,11 @@ export function UsersPage() {
   const [selectedAssignRoleId, setSelectedAssignRoleId] = useState('');
   const [isAssigningRole, setIsAssigningRole] = useState(false);
 
+  // Staff Account Deletion Modal state
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [deleteModalError, setDeleteModalError] = useState(null);
+
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
     fullName: '',
@@ -344,6 +349,33 @@ export function UsersPage() {
     }
   };
 
+  // Open Delete Confirmation Modal
+  const handleOpenDeleteModal = (targetUser) => {
+    setErrorBanner(null);
+    setDeleteModalError(null);
+    setUserToDelete(targetUser);
+  };
+
+  // Confirm and Execute Safe Staff Account Deletion
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete || isDeletingUser) return;
+    setIsDeletingUser(true);
+    setDeleteModalError(null);
+    setErrorBanner(null);
+    try {
+      await roleService.deleteUser(tenantId, userToDelete.userId);
+      setSuccessBanner(`Staff account '${userToDelete.fullName}' (${userToDelete.email}) was deleted successfully.`);
+      setUserToDelete(null);
+      await loadData();
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to delete staff account.';
+      setDeleteModalError(msg);
+      setErrorBanner(msg);
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -513,7 +545,7 @@ export function UsersPage() {
                   <th>Assigned Role</th>
                   <th>Department</th>
                   <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th style={{ textAlign: 'right', minWidth: '310px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -556,7 +588,7 @@ export function UsersPage() {
                           </Badge>
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                          <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
                             <button
                               className="btn btn-secondary btn-sm"
                               onClick={() => handleOpenRoleAssignModal(u)}
@@ -571,13 +603,28 @@ export function UsersPage() {
                               title="Inspect profile"
                             >
                               <Eye size={13} />
+                              <span>View</span>
                             </button>
                             <button
                               className="btn btn-secondary btn-sm"
                               style={{ color: u.isActive ? 'var(--danger-600)' : 'var(--mint-text)' }}
                               onClick={() => handleToggleUserStatus(u)}
+                              title={u.isActive ? 'Deactivate staff account' : 'Activate staff account'}
                             >
                               {u.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              style={{
+                                background: 'var(--danger-600, #dc2626)',
+                                color: '#ffffff',
+                                border: '1px solid var(--danger-700, #b91c1c)',
+                              }}
+                              onClick={() => handleOpenDeleteModal(u)}
+                              title={`Delete staff account ${u.fullName}`}
+                            >
+                              <Trash2 size={13} />
+                              <span>Delete</span>
                             </button>
                           </div>
                         </td>
@@ -1185,6 +1232,156 @@ export function UsersPage() {
               <p style={{ fontFamily: 'monospace', color: 'var(--primary-blue)', fontSize: '0.8125rem' }}>
                 Bound to Database: lms_lab_{selectedUser.tenantId}
               </p>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* MODAL 5: Delete Staff Account Confirmation */}
+      <Modal
+        isOpen={!!userToDelete}
+        onClose={() => !isDeletingUser && setUserToDelete(null)}
+        title="Confirm Staff Account Deletion"
+        size="md"
+      >
+        {userToDelete && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Warning Callout */}
+            <div
+              style={{
+                background: 'var(--danger-50, #fef2f2)',
+                border: '1px solid var(--danger-200, #fecaca)',
+                borderRadius: 'var(--radius-md, 8px)',
+                padding: '0.875rem 1rem',
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'flex-start',
+              }}
+            >
+              <AlertTriangle size={20} style={{ color: 'var(--danger-600, #dc2626)', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <p style={{ fontWeight: 600, color: 'var(--danger-800, #991b1b)', fontSize: '0.875rem', marginBottom: '4px' }}>
+                  Permanent Access Revocation
+                </p>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--danger-700, #b91c1c)', lineHeight: 1.45 }}>
+                  Deleting this account will immediately revoke all laboratory staff login privileges and session access. This action may be irreversible.
+                </p>
+              </div>
+            </div>
+
+            {/* Target Staff Identity Card */}
+            <div
+              style={{
+                background: 'var(--slate-50, #f8fafc)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                borderRadius: 'var(--radius-md, 8px)',
+                padding: '1rem',
+              }}
+            >
+              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--slate-500, #64748b)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                Staff Member Identity
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.875rem' }}>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500, #64748b)' }}>Full Name:</span>
+                  <p style={{ fontWeight: 600, color: 'var(--slate-900, #0f172a)' }}>{userToDelete.fullName}</p>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500, #64748b)' }}>Email Address:</span>
+                  <p style={{ fontWeight: 600, color: 'var(--slate-900, #0f172a)' }}>{userToDelete.email}</p>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500, #64748b)' }}>Staff ID:</span>
+                  <p style={{ fontFamily: 'monospace', color: 'var(--primary-700, #1d4ed8)' }}>{userToDelete.userId || userToDelete.id}</p>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500, #64748b)' }}>Assigned Role:</span>
+                  <p>
+                    <Badge variant={userToDelete.role === 'lab_admin' ? 'blue' : 'purple'}>
+                      {roles.find((r) => r.code === userToDelete.role || r.roleId === userToDelete.roleId)?.name || userToDelete.role}
+                    </Badge>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Data Integrity Notice */}
+            <p style={{ fontSize: '0.8125rem', color: 'var(--slate-600, #475569)', lineHeight: 1.5 }}>
+              <strong>Clinical & Audit Trail Notice:</strong> Historical patient accessioning records, laboratory orders, specimens, verified test findings, released diagnostic reports, and audit trail events attributed to this staff member will remain completely preserved for regulatory and accreditation compliance.
+            </p>
+
+            {/* Delete Modal Error Alert */}
+            {deleteModalError && (
+              <div
+                style={{
+                  background: 'var(--danger-50, #fef2f2)',
+                  border: '1px solid var(--danger-200, #fecaca)',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  padding: '0.75rem 1rem',
+                  fontSize: '0.8125rem',
+                  color: 'var(--danger-700, #b91c1c)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <AlertTriangle size={16} style={{ color: 'var(--danger-600, #dc2626)', flexShrink: 0 }} />
+                <span>{deleteModalError}</span>
+              </div>
+            )}
+
+            {/* Self-Deletion Warning in Modal */}
+            {(user?.userId === userToDelete.userId || (user?.email && userToDelete.email && user.email.toLowerCase() === userToDelete.email.toLowerCase())) && (
+              <div
+                style={{
+                  background: 'var(--warning-50, #fffbeb)',
+                  border: '1px solid var(--warning-200, #fde68a)',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  padding: '0.75rem 1rem',
+                  fontSize: '0.8125rem',
+                  color: 'var(--warning-800, #92400e)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <AlertTriangle size={16} style={{ color: 'var(--warning-600, #d97706)', flexShrink: 0 }} />
+                <span>You are currently authenticated as this administrator. Self-deletion is blocked to prevent accidental system lockout.</span>
+              </div>
+            )}
+
+            {/* Confirmation Controls */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ background: 'var(--danger-600, #dc2626)', color: '#ffffff', border: 'none' }}
+                onClick={handleConfirmDeleteUser}
+                disabled={
+                  isDeletingUser ||
+                  (user?.userId === userToDelete.userId || (user?.email && userToDelete.email && user.email.toLowerCase() === userToDelete.email.toLowerCase()))
+                }
+              >
+                {isDeletingUser ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Deleting Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         )}
