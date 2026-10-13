@@ -37,6 +37,11 @@ export function ReportsPage() {
   const [verificationFindings, setVerificationFindings] = useState('');
   const [verifyError, setVerifyError] = useState(null);
 
+  // Rejection Modal State
+  const [rejectModalReport, setRejectModalReport] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectError, setRejectError] = useState(null);
+
   // Print & QR Code State
   const [printReport, setPrintReport] = useState(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
@@ -58,7 +63,8 @@ export function ReportsPage() {
 
   const approvedReports = reports.filter((r) => r.status === 'approved');
   const releasedReports = reports.filter((r) => r.status === 'released');
-  const draftReports = reports.filter((r) => r.status === 'draft');
+  const draftReports = reports.filter((r) => r.status === 'draft' || r.status === 'pending_review');
+  const rejectedReports = reports.filter((r) => r.status === 'rejected');
 
   const toggleSelectRelease = (reportId) => {
     setSelectedReleaseIds((prev) => {
@@ -268,6 +274,42 @@ export function ReportsPage() {
     }
   };
 
+  const openRejectModal = (r) => {
+    setRejectModalReport(r);
+    setRejectionReason('');
+    setRejectError(null);
+  };
+
+  const handleConfirmReject = async (e) => {
+    if (e) e.preventDefault();
+    if (!rejectModalReport) return;
+    const trimmed = rejectionReason.trim();
+    if (!trimmed || trimmed.length < 5) {
+      setRejectError('Please provide a clinical justification for rejecting this report (minimum 5 characters)');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setRejectError(null);
+      const res = await clinicalService.rejectReport(tenantId, rejectModalReport.reportId, { reason: trimmed });
+      if (res.success) {
+        setSuccessMsg(`Report ${res.data?.reportNumber || rejectModalReport.reportNumber} rejected and returned for technician correction`);
+        setRejectModalReport(null);
+        if (verifyReport) setVerifyReport(null);
+        await fetchReports();
+        if (selectedReport && selectedReport.reportId === rejectModalReport.reportId) {
+          setSelectedReport(res.data);
+        }
+        setTimeout(() => setSuccessMsg(null), 3500);
+      }
+    } catch (err) {
+      setRejectError(err.response?.data?.message || err.message || 'Failed to reject report');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleApprove = async (reportId) => {
     try {
       setActionLoading(true);
@@ -434,7 +476,8 @@ export function ReportsPage() {
               { id: 'all', label: `All Reports (${reports.length})` },
               { id: 'released', label: `Released (${releasedReports.length})` },
               { id: 'approved', label: `Approved (${approvedReports.length})` },
-              { id: 'draft', label: `Drafts (${draftReports.length})` },
+              { id: 'draft', label: `Pending Review (${draftReports.length})` },
+              { id: 'rejected', label: `Rejected (${rejectedReports.length})` },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -519,7 +562,11 @@ export function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(filterStatus === 'all' ? reports : reports.filter((r) => r.status === filterStatus)).map((r) => (
+                {(filterStatus === 'all'
+                  ? reports
+                  : filterStatus === 'draft'
+                  ? reports.filter((r) => r.status === 'draft' || r.status === 'pending_review')
+                  : reports.filter((r) => r.status === filterStatus)).map((r) => (
                   <tr key={r.reportId || r._id}>
                     <td style={{ textAlign: 'center' }}>
                       {r.status === 'released' ? (
@@ -576,16 +623,28 @@ export function ReportsPage() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '6px' }}>
-                        {r.status === 'draft' && isPathologist && (
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={() => openVerifyModal(r)}
-                            disabled={actionLoading}
-                            title="Pathologist clinical review and verification"
-                          >
-                            <ShieldCheck size={14} />
-                            <span>Review & Verify</span>
-                          </button>
+                        {(r.status === 'draft' || r.status === 'pending_review') && isPathologist && (
+                          <>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => openVerifyModal(r)}
+                              disabled={actionLoading}
+                              title="Pathologist clinical review and verification"
+                            >
+                              <ShieldCheck size={14} />
+                              <span>Review & Verify</span>
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none' }}
+                              onClick={() => openRejectModal(r)}
+                              disabled={actionLoading}
+                              title="Pathologist clinical rejection with justification"
+                            >
+                              <AlertTriangle size={14} />
+                              <span>Reject</span>
+                            </button>
+                          </>
                         )}
                         {r.status === 'approved' && canRelease && (
                           <button
@@ -643,16 +702,28 @@ export function ReportsPage() {
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
             <div>
-              {selectedReport?.status === 'draft' && isPathologist && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => openVerifyModal(selectedReport)}
-                  disabled={actionLoading}
-                  title="Open pathologist review & verification modal"
-                >
-                  <ShieldCheck size={14} />
-                  <span>Review & Verify Results</span>
-                </button>
+              {(selectedReport?.status === 'draft' || selectedReport?.status === 'pending_review') && isPathologist && (
+                <div style={{ display: 'inline-flex', gap: '8px' }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => openVerifyModal(selectedReport)}
+                    disabled={actionLoading}
+                    title="Open pathologist review & verification modal"
+                  >
+                    <ShieldCheck size={14} />
+                    <span>Review & Verify Results</span>
+                  </button>
+                  <button
+                    className="btn btn-danger btn-sm"
+                    style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none' }}
+                    onClick={() => openRejectModal(selectedReport)}
+                    disabled={actionLoading}
+                    title="Reject report with clinical justification"
+                  >
+                    <AlertTriangle size={14} />
+                    <span>Reject</span>
+                  </button>
+                </div>
               )}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -713,6 +784,31 @@ export function ReportsPage() {
                 <div>{getStatusBadge(selectedReport.status)}</div>
               </div>
             </div>
+
+            {/* Rejection Decision Banner & Audit Trail */}
+            {selectedReport.status === 'rejected' && (
+              <div style={{ padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)', color: '#991b1b' }}>
+                <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={16} />
+                  <span>Report Rejected by Pathologist: Returned for Correction</span>
+                </div>
+                <div style={{ marginTop: '4px', fontSize: '0.8125rem' }}>
+                  <strong>Rejection Justification:</strong> {selectedReport.rejectionReason}
+                </div>
+                {Array.isArray(selectedReport.rejectionHistory) && selectedReport.rejectionHistory.length > 0 && (
+                  <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#7f1d1d', borderTop: '1px dashed #fca5a5', paddingTop: '6px' }}>
+                    <strong>Rejection Audit History ({selectedReport.rejectionHistory.length}):</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      {selectedReport.rejectionHistory.map((h, hidx) => (
+                        <li key={hidx}>
+                          "{h.reason}" — by <em>{h.rejectedBy}</em> on {new Date(h.rejectedAt).toLocaleString()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Structured Analyte & Parameter Results */}
             {selectedReport.items && selectedReport.items.length > 0 && (
@@ -860,6 +956,21 @@ export function ReportsPage() {
           <>
             <button className="btn btn-secondary" onClick={() => setVerifyReport(null)} disabled={actionLoading}>
               Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => {
+                const rep = verifyReport;
+                setVerifyReport(null);
+                openRejectModal(rep);
+              }}
+              disabled={actionLoading}
+              title="Reject report with clinical justification"
+            >
+              <AlertTriangle size={15} />
+              <span>Reject Report</span>
             </button>
             <button
               className="btn btn-primary"
@@ -1015,6 +1126,74 @@ export function ReportsPage() {
             </form>
           );
         })()}
+      </Modal>
+
+      {/* Pathologist Report Rejection Modal */}
+      <Modal
+        isOpen={!!rejectModalReport}
+        onClose={() => setRejectModalReport(null)}
+        title={rejectModalReport ? `Reject Pathology Report: ${rejectModalReport.reportNumber}` : ''}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setRejectModalReport(null)} disabled={actionLoading}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              style={{ background: 'var(--danger-600, #dc2626)', color: 'white', border: 'none' }}
+              onClick={handleConfirmReject}
+              disabled={actionLoading || !rejectionReason.trim()}
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Rejecting...</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={16} />
+                  <span>Confirm Clinical Rejection</span>
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        {rejectModalReport && (
+          <form onSubmit={handleConfirmReject} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
+            <div style={{ padding: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)', color: '#991b1b', fontSize: '0.8125rem' }}>
+              <strong>Notice:</strong> Rejecting this report will return it to the laboratory bench queue for technician correction. The rejection reason and decision timestamp will be permanently logged in the report audit trail.
+            </div>
+
+            {rejectError && (
+              <div style={{ padding: '0.625rem 0.875rem', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-md)', color: '#be123c', fontSize: '0.8125rem' }}>
+                <strong>Error:</strong> {rejectError}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8125rem', padding: '0.5rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)' }}>
+              <div>Patient: <strong>{rejectModalReport.patientName}</strong></div>
+              <div>Requisition: <strong>{rejectModalReport.orderNumber}</strong></div>
+              <div>Test Panel: <strong>{rejectModalReport.testName}</strong></div>
+              <div>Drafted By: <strong>{rejectModalReport.draftedBy}</strong></div>
+            </div>
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>Clinical Rejection Reason & Corrective Instructions *</label>
+              <textarea
+                className="form-input"
+                rows={4}
+                required
+                placeholder="Specify clinical reasons for rejection (e.g. questionable morphology, contradictory analyte values, requirement for re-dilution or technician repeat run)..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '4px' }}>
+                Minimum 5 characters required. This justification is permanently recorded and visible to technicians.
+              </span>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Official Released Report Print Modal & A4 Printable Layout */}

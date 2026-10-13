@@ -246,6 +246,9 @@ class TenantUserService {
 
     if (UserModel) {
       const filter = { tenantId };
+      if (!query.includeDeleted || query.includeDeleted === 'false') {
+        filter.isDeleted = { $ne: true };
+      }
       if (role) filter.role = role;
       if (typeof isActive === 'boolean' || isActive === 'true' || isActive === 'false') {
         filter.isActive = isActive === true || isActive === 'true';
@@ -264,6 +267,10 @@ class TenantUserService {
     // In-memory test store fallback
     const tenantUsers = this.memoryStore.get(tenantId) || new Map();
     let list = Array.from(tenantUsers.values());
+
+    if (!query.includeDeleted || query.includeDeleted === 'false') {
+      list = list.filter((u) => !u.isDeleted && u.status !== 'deleted');
+    }
 
     if (role) {
       list = list.filter((u) => u.role === role);
@@ -325,7 +332,12 @@ class TenantUserService {
         throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
       }
 
+      if (user.isDeleted || user.status === 'deleted') {
+        throw new TenantUserError('Cannot update status of a deleted staff account.', 'USER_ALREADY_DELETED', 400);
+      }
+
       user.isActive = isActive;
+      user.status = isActive ? 'active' : 'deactivated';
       await user.save();
 
       await auditLogService.recordEvent({
@@ -347,7 +359,12 @@ class TenantUserService {
       throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
     }
 
+    if (user.isDeleted || user.status === 'deleted') {
+      throw new TenantUserError('Cannot update status of a deleted staff account.', 'USER_ALREADY_DELETED', 400);
+    }
+
     user.isActive = isActive;
+    user.status = isActive ? 'active' : 'deactivated';
     user.updatedAt = new Date();
     return typeof user.toSafeJSON === 'function' ? user.toSafeJSON() : user;
   }
@@ -399,6 +416,10 @@ class TenantUserService {
         throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
       }
 
+      if (user.isDeleted || user.status === 'deleted') {
+        throw new TenantUserError('Cannot assign role to a deleted staff account.', 'USER_ALREADY_DELETED', 400);
+      }
+
       user.role = roleDoc.code;
       user.roleId = roleDoc.roleId;
       await user.save();
@@ -425,6 +446,10 @@ class TenantUserService {
       throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
     }
 
+    if (user.isDeleted || user.status === 'deleted') {
+      throw new TenantUserError('Cannot assign role to a deleted staff account.', 'USER_ALREADY_DELETED', 400);
+    }
+
     user.role = roleDoc.code;
     user.roleId = roleDoc.roleId;
     user.updatedAt = new Date();
@@ -432,6 +457,162 @@ class TenantUserService {
     const safeUser = typeof user.toSafeJSON === 'function' ? user.toSafeJSON() : { ...user };
     safeUser.assignedRole = roleDoc;
     return safeUser;
+  }
+
+  /**
+   * Safely soft-delete a laboratory staff member
+   *
+   * SECURITY & DATA-INTEGRITY RULES:
+   * 1. Preserves patient, sample, test, report, invoice, and historical audit records.
+   * 2. Sets isDeleted: true, status: 'deleted', isActive: false to immediately block login.
+   * 3. Prevents an administrator from deleting their own account (lockout prevention).
+   * 4. Prevents deleting the last active laboratory administrator in the tenant.
+   * 5. Scoped strictly to the isolated tenant database.
+   *
+   * @param {string} tenantId
+   * @param {string} userId
+   * @param {Object} actor
+   */
+  async deleteUser(tenantId, userId, actor = {}) {
+    await this.assertTenantReady(tenantId);
+
+    if (!userId || typeof userId !== 'string') {
+      throw new TenantUserError('Target user ID is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const cleanUserId = userId.trim();
+    const UserModel = tenantConnectionService.getTenantUserModel(tenantId);
+
+    if (UserModel) {
+      const targetUser = await UserModel.findOne({ tenantId, userId: cleanUserId });
+      if (!targetUser) {
+        throw new TenantUserError('Laboratory staff member not found', 'USER_NOT_FOUND', 404);
+      }
+
+      if (targetUser.isDeleted || targetUser.status === 'deleted') {
+        throw new TenantUserError('Laboratory staff account has already been deleted', 'USER_ALREADY_DELETED', 400);
+      }
+
+      // Security Guard: Prevent administrator self-deletion lockout
+      const actorUserId = actor.userId || actor.sub || actor.adminId;
+      const actorEmail = (actor.email || '').toLowerCase().trim();
+      const targetEmail = (targetUser.email || '').toLowerCase().trim();
+
+      if (
+        (actorUserId && actorUserId === targetUser.userId) ||
+        (actorEmail && targetEmail && actorEmail === targetEmail)
+      ) {
+        throw new TenantUserError(
+          'Cannot delete your own administrator account. Another laboratory administrator must perform this action if required.',
+          'CANNOT_DELETE_SELF',
+          400
+        );
+      }
+
+      // Security Guard: Protect the last active administrator
+      if ([USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR].includes(targetUser.role)) {
+        const activeAdminCount = await UserModel.countDocuments({
+          tenantId,
+          role: { $in: [USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR] },
+          isActive: true,
+          isDeleted: { $ne: true },
+        });
+
+        if (activeAdminCount <= 1) {
+          throw new TenantUserError(
+            'Cannot delete the last active Laboratory Administrator account. A laboratory must retain at least one active administrator.',
+            'LAST_ADMIN_PROTECTED',
+            400
+          );
+        }
+      }
+
+      // Safe Soft Deletion
+      targetUser.isDeleted = true;
+      targetUser.isActive = false;
+      targetUser.status = 'deleted';
+      targetUser.deletedAt = new Date();
+      targetUser.deletedBy = actorEmail || actorUserId || 'administrator';
+
+      await targetUser.save();
+
+      // Audit Trail Logging
+      await auditLogService.recordEvent({
+        action: AUDIT_ACTIONS.TENANT_USER_DELETE || 'USER_DELETED',
+        targetTenantId: tenantId,
+        actorType: actor.accountType || 'TENANT_USER',
+        actorId: actorUserId || 'system',
+        actorEmail: actor.email,
+        resource: 'user',
+        details: {
+          userId: targetUser.userId,
+          email: targetUser.email,
+          fullName: targetUser.fullName,
+          role: targetUser.role,
+          deletedAt: targetUser.deletedAt,
+          deletedBy: targetUser.deletedBy,
+        },
+      });
+
+      return targetUser.toSafeJSON();
+    }
+
+    // Test memory store fallback
+    if (!this.memoryStore.has(tenantId)) {
+      this.memoryStore.set(tenantId, new Map());
+    }
+    const tenantUsers = this.memoryStore.get(tenantId);
+    const targetUser = tenantUsers.get(cleanUserId);
+
+    if (!targetUser) {
+      throw new TenantUserError('Laboratory staff member not found', 'USER_NOT_FOUND', 404);
+    }
+
+    if (targetUser.isDeleted || targetUser.status === 'deleted') {
+      throw new TenantUserError('Laboratory staff account has already been deleted', 'USER_ALREADY_DELETED', 400);
+    }
+
+    const actorUserId = actor.userId || actor.sub || actor.adminId;
+    const actorEmail = (actor.email || '').toLowerCase().trim();
+    const targetEmail = (targetUser.email || '').toLowerCase().trim();
+
+    if (
+      (actorUserId && actorUserId === targetUser.userId) ||
+      (actorEmail && targetEmail && actorEmail === targetEmail)
+    ) {
+      throw new TenantUserError(
+        'Cannot delete your own administrator account. Another laboratory administrator must perform this action if required.',
+        'CANNOT_DELETE_SELF',
+        400
+      );
+    }
+
+    if ([USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR].includes(targetUser.role)) {
+      const activeAdminCount = Array.from(tenantUsers.values()).filter(
+        (u) =>
+          [USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR].includes(u.role) &&
+          u.isActive &&
+          !u.isDeleted &&
+          u.status !== 'deleted'
+      ).length;
+
+      if (activeAdminCount <= 1) {
+        throw new TenantUserError(
+          'Cannot delete the last active Laboratory Administrator account. A laboratory must retain at least one active administrator.',
+          'LAST_ADMIN_PROTECTED',
+          400
+        );
+      }
+    }
+
+    targetUser.isDeleted = true;
+    targetUser.isActive = false;
+    targetUser.status = 'deleted';
+    targetUser.deletedAt = new Date();
+    targetUser.deletedBy = actorEmail || actorUserId || 'administrator';
+    targetUser.updatedAt = new Date();
+
+    return typeof targetUser.toSafeJSON === 'function' ? targetUser.toSafeJSON() : targetUser;
   }
 
   /**

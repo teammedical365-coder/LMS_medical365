@@ -28,4 +28,7 @@ tenantUserRouter.patch('/:userId/status', requirePermission('users:manage'), ten
 // Assign role to user
 tenantUserRouter.patch('/:userId/role', requirePermission('users:manage'), tenantUserController.assignUserRole);
 
+// Safely soft-delete a staff member from this tenant
+tenantUserRouter.delete('/:userId', requirePermission('users:manage'), tenantUserController.deleteUser);
+
 export default tenantUserRouter;

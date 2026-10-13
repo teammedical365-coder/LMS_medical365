@@ -44,6 +44,7 @@ import {
   Search,
   IndianRupee,
   Receipt,
+   X,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';

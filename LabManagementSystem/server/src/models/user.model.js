@@ -66,6 +66,25 @@ export const UserSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: String,
+      default: null,
+    },
+    status: {
+      type: String,
+      enum: ['active', 'deactivated', 'deleted'],
+      default: 'active',
+      index: true,
+    },
     lastLoginAt: {
       type: Date,
       default: null,
@@ -105,6 +124,10 @@ UserSchema.methods.toSafeJSON = function () {
     department: obj.department,
     phone: obj.phone,
     isActive: obj.isActive,
+    isDeleted: Boolean(obj.isDeleted),
+    status: obj.status || (obj.isDeleted ? 'deleted' : obj.isActive ? 'active' : 'deactivated'),
+    deletedAt: obj.deletedAt || null,
+    deletedBy: obj.deletedBy || null,
     lastLoginAt: obj.lastLoginAt,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,

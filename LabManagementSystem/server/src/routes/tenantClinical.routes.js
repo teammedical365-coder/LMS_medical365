@@ -43,12 +43,13 @@ tenantClinicalRouter.get('/samples', requirePermission('samples:view'), tenantCl
 tenantClinicalRouter.get('/samples/recollections', requirePermission('samples:view'), tenantClinicalController.listRecollectionTasks);
 tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.resolveRecollectionTask);
 tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);
-tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.put('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.patch('/samples/status', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.put('/samples/status', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.patch('/samples/:sampleId', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.put('/samples/:sampleId', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.put('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.patch('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.put('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.patch('/samples/:sampleId', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.put('/samples/:sampleId', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.post('/samples/:sampleId/results', requirePermission('samples:process'), tenantClinicalController.recordSampleResults);
 
 // ---------------------------------------------------------------------------
 // TEST CATALOG

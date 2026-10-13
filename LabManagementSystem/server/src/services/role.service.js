@@ -474,17 +474,27 @@ class RoleService {
           await roleDoc.save();
         } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
           let updated = false;
-          if (!existing.permissions.includes('tests:view')) {
-            existing.permissions.push('tests:view');
+          // Strict Separation of Duties (SoD): sample_collection / phlebotomist only has collection privileges
+          const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
+          const filtered = existing.permissions.filter((p) => allowedForCollector.includes(p));
+          for (const perm of allowedForCollector) {
+            if (!filtered.includes(perm)) filtered.push(perm);
+          }
+          if (filtered.length !== existing.permissions.length || !existing.permissions.every((p) => filtered.includes(p))) {
+            existing.permissions = filtered;
             updated = true;
           }
-          if (!existing.permissions.includes('samples:collect')) {
-            existing.permissions.push('samples:collect');
-            updated = true;
+          if (updated) {
+            await existing.save();
           }
-          if (!existing.permissions.includes('samples:view')) {
-            existing.permissions.push('samples:view');
-            updated = true;
+        } else if (existing.code === 'lab_technician') {
+          let updated = false;
+          const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
+          for (const p of techRequired) {
+            if (!existing.permissions.includes(p)) {
+              existing.permissions.push(p);
+              updated = true;
+            }
           }
           if (updated) {
             await existing.save();
@@ -524,9 +534,16 @@ class RoleService {
         };
         tenantRoles.set(roleId, mockRole);
       } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
-        if (!existing.permissions.includes('tests:view')) existing.permissions.push('tests:view');
-        if (!existing.permissions.includes('samples:collect')) existing.permissions.push('samples:collect');
-        if (!existing.permissions.includes('samples:view')) existing.permissions.push('samples:view');
+        const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
+        existing.permissions = existing.permissions.filter((p) => allowedForCollector.includes(p));
+        for (const perm of allowedForCollector) {
+          if (!existing.permissions.includes(perm)) existing.permissions.push(perm);
+        }
+      } else if (existing.code === 'lab_technician') {
+        const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
+        for (const p of techRequired) {
+          if (!existing.permissions.includes(p)) existing.permissions.push(p);
+        }
       }
     }
   }
@@ -628,17 +645,26 @@ class RoleService {
 
       if (['phlebotomist', 'sample_collection'].includes(role.code)) {
         let modified = false;
-        if (!role.permissions.includes('tests:view')) {
-          role.permissions.push('tests:view');
+        const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
+        const filtered = role.permissions.filter((p) => allowedForCollector.includes(p));
+        for (const perm of allowedForCollector) {
+          if (!filtered.includes(perm)) filtered.push(perm);
+        }
+        if (filtered.length !== role.permissions.length || !role.permissions.every((p) => filtered.includes(p))) {
+          role.permissions = filtered;
           modified = true;
         }
-        if (!role.permissions.includes('samples:collect')) {
-          role.permissions.push('samples:collect');
-          modified = true;
+        if (modified && typeof role.save === 'function') {
+          await role.save();
         }
-        if (!role.permissions.includes('samples:view')) {
-          role.permissions.push('samples:view');
-          modified = true;
+      } else if (role.code === 'lab_technician') {
+        let modified = false;
+        const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
+        for (const p of techRequired) {
+          if (!role.permissions.includes(p)) {
+            role.permissions.push(p);
+            modified = true;
+          }
         }
         if (modified && typeof role.save === 'function') {
           await role.save();
@@ -652,9 +678,16 @@ class RoleService {
     for (const r of tenantRoles.values()) {
       if (r.roleId === roleIdOrCode || r.code === roleIdOrCode.toLowerCase()) {
         if (['phlebotomist', 'sample_collection'].includes(r.code)) {
-          if (!r.permissions.includes('tests:view')) r.permissions.push('tests:view');
-          if (!r.permissions.includes('samples:collect')) r.permissions.push('samples:collect');
-          if (!r.permissions.includes('samples:view')) r.permissions.push('samples:view');
+          const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
+          r.permissions = r.permissions.filter((p) => allowedForCollector.includes(p));
+          for (const perm of allowedForCollector) {
+            if (!r.permissions.includes(perm)) r.permissions.push(perm);
+          }
+        } else if (r.code === 'lab_technician') {
+          const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
+          for (const p of techRequired) {
+            if (!r.permissions.includes(p)) r.permissions.push(p);
+          }
         }
         return typeof r.toSafeJSON === 'function' ? r.toSafeJSON() : r;
       }

@@ -1,12 +1,17 @@
 /**
  * Lab Management System (LMS) - Specimen & Samples Page (Phase 6 Deepening)
  * 
- * Features:
- * - Multi-Tube Specimen Bench with tube indicators (e.g. Tube 1/2) and test badges
- * - Central Receipt / Triage Workflow (pending -> collected -> received -> in_analysis -> completed)
+ * ISO 15189 Clinical Laboratory Compliant:
+ * - Multi-Tube Specimen Bench with tube derivation (e.g. Tube 1/2) and test badges
+ * - Strict Sequential State Validation: Specimen MUST be received before analysis
+ * - Separation of Duties (SoD) Bench Actions Matrix:
+ *   - Phlebotomist: Collect, Label, Info ONLY
+ *   - Lab Technician: Receive, Analyze (guarded), Reject, Info ONLY (NO Collect, NO primary Label)
+ * - Result Entry & Analyte Feeding Modal integration
+ * - Consultant Pathologist Review & Sign-Off Queue with digital signature authorization
  * - 50 x 25 mm Code 128 Printable Barcode Labels with preview and thermal print engine
- * - Clinical Specimen Rejection modal with mandatory reasons (Hemolysis, QNS, Clotted, etc.)
- * - Actionable Recollection Queue with one-click resolution and replacement tube generation
+ * - Clinical Specimen Rejection modal with mandatory clinical reasons
+ * - Actionable Recollection Queue with replacement tube generation
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -26,7 +31,13 @@ import {
   Info,
   Calendar,
   Building2,
-  Tag
+  Tag,
+  FileCheck,
+  ShieldCheck,
+  CheckCircle2,
+  FileText,
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import clinicalService from '../../services/clinicalService';
@@ -34,20 +45,71 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import ResultEntryModal from './ResultEntryModal';
 
 export function SamplesPage() {
   const { user, tenant } = useAuth();
   const tenantId = tenant?.tenantId || user?.tenantId;
 
-  const [activeTab, setActiveTab] = useState('bench'); // 'bench' | 'recollections'
+  // Separation of Duties (SoD) Role Alignment
+  const userRole = (user?.role || '').toLowerCase();
+  const roleDef = user?.roleDefinition || null;
+  const userPermissions = user?.permissions || roleDef?.permissions || [];
+  const isSuperAdmin = user?.accountType === 'PLATFORM_SUPER_ADMIN';
+
+  const isLabAdmin =
+    Boolean(isSuperAdmin) ||
+    userRole === 'lab_admin' ||
+    userRole === 'lab_director' ||
+    userPermissions.includes('*');
+
+  // Phlebotomist / Sample Collector Role Guard
+  const isSampleCollector =
+    !isLabAdmin &&
+    (userRole === 'sample_collection' ||
+      userRole === 'phlebotomist' ||
+      userRole === 'sample_collector' ||
+      userRole === 'phlebotomy' ||
+      (userPermissions.includes('samples:collect') &&
+        !userPermissions.includes('samples:process') &&
+        !userPermissions.includes('samples:receive')));
+
+  // Laboratory Technician (Bench testing & Data Entry)
+  const isLabTechnician =
+    !isLabAdmin &&
+    (userRole === 'lab_technician' ||
+      userRole === 'technician' ||
+      (userPermissions.includes('samples:process') &&
+        !userPermissions.includes('reports:verify')));
+
+  // Consultant Pathologist (Verification & Sign-off)
+  const isPathologist =
+    isLabAdmin ||
+    userRole === 'pathologist' ||
+    userRole === 'consultant_pathologist' ||
+    userPermissions.includes('reports:verify');
+
+  const [activeTab, setActiveTab] = useState('bench'); // 'bench' | 'recollections' | 'verification'
   const [samples, setSamples] = useState([]);
   const [recollections, setRecollections] = useState([]);
+  const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Result Entry Modal state
+  const [resultEntrySample, setResultEntrySample] = useState(null);
+
+  // Pathologist Sign-Off Modal state
+  const [signOffReport, setSignOffReport] = useState(null);
+  const [signOffFindings, setSignOffFindings] = useState('');
+  const [signOffNotes, setSignOffNotes] = useState('');
+  const [signOffAgreed, setSignOffAgreed] = useState(false);
+  const [isSigningOff, setIsSigningOff] = useState(false);
+  const [signOffError, setSignOffError] = useState(null);
 
   // Modals state
   const [selectedSample, setSelectedSample] = useState(null);
@@ -85,10 +147,23 @@ export function SamplesPage() {
     }
   }, [tenantId]);
 
+  const fetchReports = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const res = await clinicalService.getReports(tenantId);
+      if (res.success && Array.isArray(res.data)) {
+        setReports(res.data);
+      }
+    } catch {
+      // Non-blocking for reports
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     fetchSamples();
     fetchRecollections();
-  }, [fetchSamples, fetchRecollections]);
+    fetchReports();
+  }, [fetchSamples, fetchRecollections, fetchReports]);
 
   const handleUpdateStatus = async (sampleId, updates) => {
     try {
@@ -99,6 +174,7 @@ export function SamplesPage() {
         setSuccessMsg(`Sample ${res.data.barcode} status updated successfully`);
         await fetchSamples();
         await fetchRecollections();
+        await fetchReports();
         if (selectedSample && selectedSample.sampleId === sampleId) {
           setSelectedSample(res.data);
         }
@@ -324,7 +400,51 @@ export function SamplesPage() {
     }
   };
 
-  // Filtering
+  // Result Entry Success Handler
+  const handleResultEntrySuccess = async (data) => {
+    setSuccessMsg(`Results recorded for specimen ${resultEntrySample?.barcode}. Pushed to Pathologist Review & Sign-Off Queue.`);
+    setResultEntrySample(null);
+    await fetchSamples();
+    await fetchReports();
+    setTimeout(() => setSuccessMsg(null), 4000);
+  };
+
+  // Pathologist Review Modal Open Handler
+  const handleOpenSignOff = (report) => {
+    setSignOffReport(report);
+    setSignOffFindings(report.findings || 'All analyte test parameters correlated and within expected clinical limits.');
+    setSignOffNotes('');
+    setSignOffAgreed(false);
+    setSignOffError(null);
+  };
+
+  // Pathologist Sign-Off Confirm Handler
+  const handleConfirmSignOff = async (e) => {
+    if (e) e.preventDefault();
+    if (!signOffReport || !signOffAgreed) return;
+
+    try {
+      setIsSigningOff(true);
+      setSignOffError(null);
+      const res = await clinicalService.approveReport(tenantId, signOffReport.reportId, {
+        findings: signOffFindings,
+        verificationNotes: signOffNotes,
+      });
+      if (res.success) {
+        setSuccessMsg(`Diagnostic Report ${res.data.reportNumber} digitally signed & authorized by Consultant Pathologist.`);
+        setSignOffReport(null);
+        await fetchReports();
+        await fetchSamples();
+        setTimeout(() => setSuccessMsg(null), 4000);
+      }
+    } catch (err) {
+      setSignOffError(err.response?.data?.message || err.message || 'Failed to sign off report');
+    } finally {
+      setIsSigningOff(false);
+    }
+  };
+
+  // Filtering for Active Bench
   const filteredSamples = samples.filter((s) => {
     const term = searchTerm.toLowerCase();
     const matchesSearch =
@@ -344,6 +464,11 @@ export function SamplesPage() {
 
   const pendingRecollectionsCount = recollections.filter((r) => r.status === 'pending').length;
 
+  // Filter reports pending pathologist review
+  const pendingVerificationReports = reports.filter(
+    (r) => r.status === 'pending_review' || (r.status === 'draft' && Array.isArray(r.items) && r.items.some((it) => it.parameterResults?.length > 0))
+  );
+
   const getCollectionBadge = (status) => {
     switch (status) {
       case 'received': return <Badge variant="blue">Received in Lab</Badge>;
@@ -356,6 +481,7 @@ export function SamplesPage() {
   const getProcessingBadge = (status) => {
     switch (status) {
       case 'completed': return <Badge variant="success">Completed</Badge>;
+      case 'results_entered': return <Badge variant="purple">Pending Verification</Badge>;
       case 'in_analysis': return <Badge variant="purple">In Analysis</Badge>;
       case 'recollection_requested': return <Badge variant="danger">Recollection Requested</Badge>;
       case 'rejected': return <Badge variant="danger">Rejected</Badge>;
@@ -367,7 +493,7 @@ export function SamplesPage() {
     <>
       <PageHeader
         title="Specimen Accessioning & Sample Tracking"
-        description="Multi-tube specimen derivation, Code 128 barcode labelling, laboratory receipt triage, and recollection management."
+        description="Multi-tube specimen derivation, Code 128 barcode labelling, laboratory receipt triage, result entry, and pathologist sign-off."
       />
 
       {successMsg && (
@@ -383,7 +509,7 @@ export function SamplesPage() {
       )}
 
       {/* Tabs Navigation */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
         <button
           className={`btn ${activeTab === 'bench' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('bench')}
@@ -392,6 +518,28 @@ export function SamplesPage() {
           <FlaskConical size={14} />
           Active Specimen Bench ({samples.length})
         </button>
+
+        <button
+          className={`btn ${activeTab === 'verification' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          onClick={() => setActiveTab('verification')}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <FileCheck size={14} />
+          Pathologist Verification Queue
+          {pendingVerificationReports.length > 0 && (
+            <span style={{ 
+              background: 'var(--purple-600, #9333ea)', 
+              color: '#fff', 
+              fontSize: '0.7rem', 
+              fontWeight: 700, 
+              padding: '1px 6px', 
+              borderRadius: '999px' 
+            }}>
+              {pendingVerificationReports.length}
+            </span>
+          )}
+        </button>
+
         <button
           className={`btn ${activeTab === 'recollections' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('recollections')}
@@ -543,87 +691,204 @@ export function SamplesPage() {
                           <td>{getProcessingBadge(s.processingStatus)}</td>
 
                           <td style={{ textAlign: 'right' }}>
-                            <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              {/* 1. Collection Progression */}
-                              {s.collectionStatus === 'pending' && (
-                                <button
-                                  className="btn btn-secondary btn-sm"
-                                  onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'collected' })}
-                                  disabled={actionLoading}
-                                  title="Mark specimen collected by phlebotomist"
-                                >
-                                  Collect
-                                </button>
+                            <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                              
+                              {/* =========================================================================
+                                  CASE A: Phlebotomist (isSampleCollector)
+                                  Strictly: Collect (if pending), Label, Info ONLY.
+                                  Hide: Receive, Analyze, Reject.
+                                  ========================================================================= */}
+                              {isSampleCollector && (
+                                <>
+                                  {s.collectionStatus === 'pending' && (
+                                    <button
+                                      className="btn btn-secondary btn-sm"
+                                      onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'collected' })}
+                                      disabled={actionLoading}
+                                      title="Mark specimen collected by phlebotomist"
+                                    >
+                                      Collect
+                                    </button>
+                                  )}
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => handleOpenLabel(s)}
+                                    title="Print 50x25 mm Code 128 barcode label"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
+                                  >
+                                    <Printer size={12} />
+                                    Label
+                                  </button>
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setSelectedSample(s)}
+                                    title="View specimen audit trail"
+                                  >
+                                    Info
+                                  </button>
+                                </>
                               )}
 
-                              {/* 2. Central Receipt / Triage Queue */}
-                              {s.collectionStatus === 'collected' && (
-                                <button
-                                  className="btn btn-primary btn-sm"
-                                  style={{ background: 'var(--primary-600)' }}
-                                  onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'received' })}
-                                  disabled={actionLoading}
-                                  title="Receive & verify specimen at laboratory accessioning desk"
-                                >
-                                  Receive
-                                </button>
+                              {/* =========================================================================
+                                  CASE B: Lab Technician (isLabTechnician)
+                                  Allowed ONLY:
+                                  1. Receive (when specimen is collected)
+                                  2. Analyze (strictly enabled ONLY after receipt; disabled with tooltip before)
+                                  3. Reject (with mandatory clinical rejection reason modal)
+                                  4. Info (read-only specimen audit trail)
+                                  EXPLICITLY REMOVED: Collect and Label!
+                                  ========================================================================= */}
+                              {isLabTechnician && (
+                                <>
+                                  {/* 1. Receive */}
+                                  {s.collectionStatus === 'collected' && (
+                                    <button
+                                      className="btn btn-primary btn-sm"
+                                      style={{ background: 'var(--primary-600)' }}
+                                      onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'received' })}
+                                      disabled={actionLoading}
+                                      title="Receive & verify specimen at laboratory accessioning desk"
+                                    >
+                                      Receive
+                                    </button>
+                                  )}
+
+                                  {/* 2. Analyze: Strict Sequential State Machine */}
+                                  {s.collectionStatus === 'received' ? (
+                                    <button
+                                      className="btn btn-primary btn-sm"
+                                      onClick={() => setResultEntrySample(s)}
+                                      disabled={actionLoading || s.processingStatus === 'completed'}
+                                      title="Enter test analyte results and push to pathologist sign-off queue"
+                                    >
+                                      {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
+                                    </button>
+                                  ) : (
+                                    <span
+                                      title="Sample must be received in lab before analysis"
+                                      style={{ display: 'inline-block', cursor: 'not-allowed' }}
+                                    >
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        disabled
+                                        style={{ opacity: 0.5, pointerEvents: 'none' }}
+                                        title="Sample must be received in lab before analysis"
+                                      >
+                                        Analyze
+                                      </button>
+                                    </span>
+                                  )}
+
+                                  {/* 3. Reject */}
+                                  {s.collectionStatus !== 'rejected' && s.processingStatus !== 'completed' && (
+                                    <button
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ color: 'var(--danger-600, #dc2626)' }}
+                                      onClick={() => handleOpenRejection(s)}
+                                      disabled={actionLoading}
+                                      title="Reject specimen with mandatory clinical reason"
+                                    >
+                                      Reject
+                                    </button>
+                                  )}
+
+                                  {/* 4. Info */}
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setSelectedSample(s)}
+                                    title="View specimen audit trail"
+                                  >
+                                    Info
+                                  </button>
+                                </>
                               )}
 
-                              {/* 3. Analysis */}
-                              {(s.collectionStatus === 'received' || s.collectionStatus === 'collected') && 
-                               s.processingStatus === 'pending' && (
-                                <button
-                                  className="btn btn-primary btn-sm"
-                                  onClick={() => handleUpdateStatus(s.sampleId, { processingStatus: 'in_analysis' })}
-                                  disabled={actionLoading}
-                                  title="Send specimen to analyzer bench"
-                                >
-                                  Analyze
-                                </button>
+                              {/* =========================================================================
+                                  CASE C: Lab Admin & Other Supervisory Roles (isLabAdmin or other)
+                                  Enforces same strict state validation (Receive before Analyze), but with full oversight.
+                                  ========================================================================= */}
+                              {!isSampleCollector && !isLabTechnician && (
+                                <>
+                                  {s.collectionStatus === 'pending' && (
+                                    <button
+                                      className="btn btn-secondary btn-sm"
+                                      onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'collected' })}
+                                      disabled={actionLoading}
+                                      title="Mark specimen collected"
+                                    >
+                                      Collect
+                                    </button>
+                                  )}
+
+                                  {s.collectionStatus === 'collected' && (
+                                    <button
+                                      className="btn btn-primary btn-sm"
+                                      style={{ background: 'var(--primary-600)' }}
+                                      onClick={() => handleUpdateStatus(s.sampleId, { collectionStatus: 'received' })}
+                                      disabled={actionLoading}
+                                      title="Receive & verify specimen at laboratory accessioning desk"
+                                    >
+                                      Receive
+                                    </button>
+                                  )}
+
+                                  {s.collectionStatus === 'received' ? (
+                                    <button
+                                      className="btn btn-primary btn-sm"
+                                      onClick={() => setResultEntrySample(s)}
+                                      disabled={actionLoading || s.processingStatus === 'completed'}
+                                      title="Enter test results and push to pathologist sign-off queue"
+                                    >
+                                      {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
+                                    </button>
+                                  ) : (
+                                    <span
+                                      title="Sample must be received in lab before analysis"
+                                      style={{ display: 'inline-block', cursor: 'not-allowed' }}
+                                    >
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        disabled
+                                        style={{ opacity: 0.5, pointerEvents: 'none' }}
+                                        title="Sample must be received in lab before analysis"
+                                      >
+                                        Analyze
+                                      </button>
+                                    </span>
+                                  )}
+
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => handleOpenLabel(s)}
+                                    title="Print 50x25 mm Code 128 barcode label"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
+                                  >
+                                    <Printer size={12} />
+                                    Label
+                                  </button>
+
+                                  {s.collectionStatus !== 'rejected' && s.processingStatus !== 'completed' && (
+                                    <button
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ color: 'var(--danger-600, #dc2626)' }}
+                                      onClick={() => handleOpenRejection(s)}
+                                      disabled={actionLoading}
+                                      title="Reject specimen with clinical reason"
+                                    >
+                                      Reject
+                                    </button>
+                                  )}
+
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setSelectedSample(s)}
+                                    title="View specimen audit trail"
+                                  >
+                                    Info
+                                  </button>
+                                </>
                               )}
 
-                              {s.processingStatus === 'in_analysis' && (
-                                <button
-                                  className="btn btn-success btn-sm"
-                                  style={{ background: 'var(--teal-600)', color: 'white', border: 'none' }}
-                                  onClick={() => handleUpdateStatus(s.sampleId, { processingStatus: 'completed' })}
-                                  disabled={actionLoading}
-                                  title="Mark bench processing completed"
-                                >
-                                  Complete
-                                </button>
-                              )}
-
-                              {/* 4. Print Label */}
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => handleOpenLabel(s)}
-                                title="Print 50x25 mm Code 128 barcode label"
-                                style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
-                              >
-                                <Printer size={12} />
-                                Label
-                              </button>
-
-                              {/* 5. Rejection Action */}
-                              {s.collectionStatus !== 'rejected' && s.processingStatus !== 'completed' && (
-                                <button
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ color: 'var(--danger-600, #dc2626)' }}
-                                  onClick={() => handleOpenRejection(s)}
-                                  disabled={actionLoading}
-                                  title="Reject specimen with clinical reason"
-                                >
-                                  Reject
-                                </button>
-                              )}
-
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => setSelectedSample(s)}
-                              >
-                                Info
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -635,8 +900,137 @@ export function SamplesPage() {
             )}
           </div>
         </>
+      ) : activeTab === 'verification' ? (
+        /* =========================================================================
+           TAB 2: Consultant Pathologist Verification & Sign-Off Queue
+           ========================================================================= */
+        <div className="card">
+          <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-900)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldCheck size={18} style={{ color: 'var(--primary-blue)' }} />
+                Pathologist Review & Digital Sign-Off Queue
+              </h3>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
+                Cases with entered analytical test results awaiting clinical evaluation, diagnostic remarks, and final digital authorization.
+              </p>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={fetchReports}>
+              Refresh Queue
+            </button>
+          </div>
+
+          {pendingVerificationReports.length === 0 ? (
+            <div style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--slate-500)' }}>
+              <CheckCircle2 size={40} style={{ margin: '0 auto 0.75rem', color: 'var(--teal-500)', opacity: 0.9 }} />
+              <p style={{ fontWeight: 600, color: 'var(--slate-700)', fontSize: '1rem' }}>Verification Queue All Clear</p>
+              <p style={{ fontSize: '0.875rem', marginTop: '0.25rem', maxWidth: '420px', margin: '0.25rem auto 0' }}>
+                All analyzer test runs have either been verified and signed off by the Consultant Pathologist or are still undergoing bench analysis.
+              </p>
+            </div>
+          ) : (
+            <div className="table-container">
+              <table className="lms-table">
+                <thead>
+                  <tr>
+                    <th>Report / Order #</th>
+                    <th>Patient Name & MRN</th>
+                    <th>Diagnostic Panel / Test</th>
+                    <th>Reported Parameters</th>
+                    <th>Drafted By & Timestamp</th>
+                    <th>Clinical Status</th>
+                    <th style={{ textAlign: 'right' }}>Authorization</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingVerificationReports.map((rep) => {
+                    // Extract parameters from items
+                    const allParams = [];
+                    (rep.items || []).forEach((it) => {
+                      if (Array.isArray(it.parameterResults)) {
+                        allParams.push(...it.parameterResults);
+                      }
+                    });
+                    const abnormalCount = allParams.filter((p) => p.isAbnormal).length;
+
+                    return (
+                      <tr key={rep.reportId || rep._id}>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--primary-blue)' }}>
+                              {rep.reportNumber}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+                              {rep.orderNumber}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{rep.patientName}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+                              MRN: {rep.patientMrn || 'N/A'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <span style={{ fontWeight: 600, fontSize: '0.8125rem' }}>
+                            {rep.testName || 'Diagnostic Profile'}
+                          </span>
+                        </td>
+
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                              {allParams.length > 0 ? `${allParams.length} Analytes` : 'Completed'}
+                            </span>
+                            {abnormalCount > 0 && (
+                              <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                                {abnormalCount} Abnormal
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                              {rep.draftedBy || 'Lab Technician'}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)' }}>
+                              {rep.createdAt ? new Date(rep.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <Badge variant="purple">Pending Review</Badge>
+                        </td>
+
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handleOpenSignOff(rep)}
+                          >
+                            <ShieldCheck size={13} />
+                            Review & Sign-Off
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : (
-        /* Recollection Queue Tab */
+        /* =========================================================================
+           TAB 3: Actionable Recollection Queue
+           ========================================================================= */
         <div className="card">
           <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -744,6 +1138,227 @@ export function SamplesPage() {
         </div>
       )}
 
+      {/* =========================================================================
+          RESULT ENTRY MODAL (Technician Analyte Feeding Workstation)
+          ========================================================================= */}
+      <ResultEntryModal
+        isOpen={!!resultEntrySample}
+        onClose={() => setResultEntrySample(null)}
+        sample={resultEntrySample}
+        tenantId={tenantId}
+        onSuccess={handleResultEntrySuccess}
+      />
+
+      {/* =========================================================================
+          PATHOLOGIST REVIEW & DIGITAL SIGN-OFF MODAL
+          ========================================================================= */}
+      <Modal
+        isOpen={!!signOffReport}
+        onClose={() => setSignOffReport(null)}
+        title={signOffReport ? `Pathologist Diagnostic Sign-Off: ${signOffReport.reportNumber}` : 'Pathologist Sign-Off'}
+        size="lg"
+      >
+        {signOffReport && (
+          <form onSubmit={handleConfirmSignOff} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Report Header Banner */}
+            <div style={{
+              background: 'var(--slate-50, #f8fafc)',
+              border: '1px solid var(--border-color, #e2e8f0)',
+              borderRadius: 'var(--radius-md, 8px)',
+              padding: '0.875rem 1rem',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: '12px',
+            }}>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Name</span>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{signOffReport.patientName}</div>
+                <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                  MRN: {signOffReport.patientMrn || 'N/A'}
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Diagnostic Panel</span>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue)' }}>
+                  {signOffReport.testName}
+                </div>
+                <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                  Order: {signOffReport.orderNumber}
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Bench Technician</span>
+                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                  {signOffReport.draftedBy || 'Laboratory Staff'}
+                </div>
+              </div>
+            </div>
+
+            {signOffError && (
+              <div style={{
+                background: 'var(--danger-50, #fef2f2)',
+                border: '1px solid var(--danger-200, #fecaca)',
+                color: 'var(--danger-700, #b91c1c)',
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md, 8px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '0.85rem'
+              }}>
+                <AlertCircle size={16} />
+                <span>{signOffError}</span>
+              </div>
+            )}
+
+            {/* Analyte Results Breakdown */}
+            <div>
+              <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: 'var(--slate-800)' }}>
+                Fed Parameter Results & Reference Ranges:
+              </h4>
+              <div style={{
+                maxHeight: '220px',
+                overflowY: 'auto',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-md, 8px)'
+              }}>
+                <table className="lms-table" style={{ margin: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--slate-100)' }}>
+                    <tr>
+                      <th>Analyte</th>
+                      <th>Observed Result</th>
+                      <th>Unit</th>
+                      <th>Reference Range</th>
+                      <th>Flag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(signOffReport.items || []).flatMap((it, itIdx) => {
+                      if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
+                        return it.parameterResults.map((pr, prIdx) => (
+                          <tr key={`${itIdx}-${prIdx}`} style={{ background: pr.isAbnormal ? '#fff5f5' : undefined }}>
+                            <td style={{ fontWeight: 600 }}>{pr.name || pr.parameterCode}</td>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 700, color: pr.isAbnormal ? '#dc2626' : undefined }}>
+                              {pr.value}
+                            </td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{pr.unit || '—'}</td>
+                            <td style={{ fontSize: '0.75rem' }}>{pr.referenceRange || 'Standard'}</td>
+                            <td>
+                              {pr.isAbnormal ? (
+                                <Badge variant="danger" style={{ fontSize: '0.65rem' }}>ABNORMAL</Badge>
+                              ) : (
+                                <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        ));
+                      }
+                      return (
+                        <tr key={itIdx}>
+                          <td style={{ fontWeight: 600 }}>{it.testName || it.testCode}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{it.resultValue || 'Normal'}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>—</td>
+                          <td style={{ fontSize: '0.75rem' }}>{it.referenceRange || 'Standard'}</td>
+                          <td>
+                            <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Pathologist Clinical Interpretation & Findings */}
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                Pathologist Clinical Remarks & Diagnostic Interpretation *
+              </label>
+              <textarea
+                className="form-input"
+                rows={2}
+                style={{ fontSize: '0.8125rem', resize: 'vertical' }}
+                value={signOffFindings}
+                onChange={(e) => setSignOffFindings(e.target.value)}
+                placeholder="Enter diagnostic impression (e.g. Normocytic normochromic blood picture...)"
+                required
+              />
+            </div>
+
+            {/* Verification Notes */}
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                Verification Notes / Quality Control Certification (Optional)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ fontSize: '0.8125rem' }}
+                value={signOffNotes}
+                onChange={(e) => setSignOffNotes(e.target.value)}
+                placeholder="e.g. Microscopic review correlated. Internal QC batch valid."
+              />
+            </div>
+
+            {/* ISO 15189 Digital Signature Confirmation Checkbox */}
+            <div style={{
+              background: 'var(--primary-50, #eff6ff)',
+              border: '1px solid var(--primary-200, #bfdbfe)',
+              padding: '0.75rem 1rem',
+              borderRadius: 'var(--radius-md, 8px)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px'
+            }}>
+              <input
+                type="checkbox"
+                id="digitalSigCheck"
+                style={{ marginTop: '3px', cursor: 'pointer' }}
+                checked={signOffAgreed}
+                onChange={(e) => setSignOffAgreed(e.target.checked)}
+              />
+              <label htmlFor="digitalSigCheck" style={{ fontSize: '0.8125rem', color: 'var(--primary-900, #1e3a8a)', cursor: 'pointer', lineHeight: 1.4 }}>
+                <strong>Consultant Pathologist Digital Authorization:</strong> I hereby certify under ISO 15189 compliance that I have clinically reviewed, validated, and authorized these analytical test findings for final report issuance.
+              </label>
+            </div>
+
+            {/* Footer Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setSignOffReport(null)}
+                disabled={isSigningOff}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={isSigningOff || !signOffAgreed}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--purple-700, #7e22ce)', borderColor: 'var(--purple-700)' }}
+              >
+                {isSigningOff ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Signing Report...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={16} />
+                    <span>Authorize & Sign-Off Report</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {/* 50 x 25 mm Barcode Label Modal */}
       <Modal
         isOpen={!!labelModalData}
@@ -793,7 +1408,6 @@ export function SamplesPage() {
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
               }}
             >
-              {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #000', paddingBottom: '3px' }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   {labelModalData.labName}
@@ -803,19 +1417,16 @@ export function SamplesPage() {
                 </span>
               </div>
 
-              {/* Patient info */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>{labelModalData.patientName}</span>
                 <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700 }}>{labelModalData.patientMrn}</span>
               </div>
 
-              {/* Code 128 Barcode Vector SVG */}
               <div
                 style={{ margin: '6px auto', display: 'flex', justifyContent: 'center' }}
                 dangerouslySetInnerHTML={{ __html: labelModalData.svg }}
               />
 
-              {/* Footer */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #ccc', paddingTop: '4px', fontSize: '0.65rem' }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{labelModalData.container}</div>
@@ -923,18 +1534,20 @@ export function SamplesPage() {
         title={selectedSample ? `Specimen Details: ${selectedSample.barcode}` : ''}
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                const s = selectedSample;
-                setSelectedSample(null);
-                handleOpenLabel(s);
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <Printer size={14} /> Print Label
-            </button>
-            <button className="btn btn-secondary" onClick={() => setSelectedSample(null)}>
+            {!isLabTechnician && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const s = selectedSample;
+                  setSelectedSample(null);
+                  handleOpenLabel(s);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Printer size={14} /> Print Label
+              </button>
+            )}
+            <button className="btn btn-secondary" onClick={() => setSelectedSample(null)} style={{ marginLeft: 'auto' }}>
               Close
             </button>
           </div>

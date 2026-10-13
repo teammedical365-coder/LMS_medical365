@@ -1,0 +1,636 @@
+/**
+ * Lab Management System (LMS) - Result Entry & Parameter Feeding Modal
+ * 
+ * ISO 15189 Clinical Laboratory Compliant:
+ * - Dynamic parameter mapping based on test code / profile (CBC, LFT, KFT/CMP, LIPID, GLUCOSE, URINE, TSH)
+ * - Strict numerical & categorical result validation with real-time reference range evaluation
+ * - Dynamic Abnormal Flagging (Normal 🟢, High 🔴, Low 🟡)
+ * - Instrument & Reagent Lot traceability
+ * - One-click transition to `results_entered` / `Pending Verification`
+ * - Direct routing into the Pathologist Review & Sign-Off Queue
+ */
+
+import React, { useState, useEffect } from 'react';
+import { 
+  FlaskConical, 
+  Activity, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Loader2, 
+  Sparkles, 
+  Cpu, 
+  Tag, 
+  FileText, 
+  Check, 
+  AlertCircle,
+  Plus,
+  Trash2
+} from 'lucide-react';
+import Modal from '../../components/common/Modal';
+import Badge from '../../components/common/Badge';
+import clinicalService from '../../services/clinicalService';
+
+// Standard Clinical Diagnostic Profiles & Reference Thresholds
+const DEFAULT_TEST_PROFILES = {
+  CBC: [
+    { parameterCode: 'HGB', name: 'Hemoglobin', resultType: 'NUMERIC', unit: 'g/dL', referenceRange: '12.0 - 17.5', lowNormal: 12.0, highNormal: 17.5, defaultValue: '14.2' },
+    { parameterCode: 'RBC', name: 'RBC Count', resultType: 'NUMERIC', unit: 'mil/µL', referenceRange: '4.20 - 5.90', lowNormal: 4.20, highNormal: 5.90, defaultValue: '4.85' },
+    { parameterCode: 'WBC', name: 'Total Leucocyte Count (WBC)', resultType: 'NUMERIC', unit: '/µL', referenceRange: '4500 - 11000', lowNormal: 4500, highNormal: 11000, defaultValue: '7200' },
+    { parameterCode: 'PLT', name: 'Platelet Count', resultType: 'NUMERIC', unit: '/µL', referenceRange: '150000 - 450000', lowNormal: 150000, highNormal: 450000, defaultValue: '260000' },
+    { parameterCode: 'HCT', name: 'Hematocrit (PCV)', resultType: 'NUMERIC', unit: '%', referenceRange: '36.0 - 50.0', lowNormal: 36.0, highNormal: 50.0, defaultValue: '42.5' },
+    { parameterCode: 'MCV', name: 'Mean Corpuscular Volume (MCV)', resultType: 'NUMERIC', unit: 'fL', referenceRange: '80.0 - 100.0', lowNormal: 80.0, highNormal: 100.0, defaultValue: '88.0' },
+    { parameterCode: 'MCH', name: 'Mean Corpuscular Hemoglobin (MCH)', resultType: 'NUMERIC', unit: 'pg', referenceRange: '27.0 - 33.0', lowNormal: 27.0, highNormal: 33.0, defaultValue: '29.4' },
+    { parameterCode: 'MCHC', name: 'MCHC', resultType: 'NUMERIC', unit: 'g/dL', referenceRange: '32.0 - 36.0', lowNormal: 32.0, highNormal: 36.0, defaultValue: '33.8' },
+    { parameterCode: 'NEUT', name: 'Neutrophils', resultType: 'NUMERIC', unit: '%', referenceRange: '40 - 75', lowNormal: 40, highNormal: 75, defaultValue: '62' },
+    { parameterCode: 'LYMPH', name: 'Lymphocytes', resultType: 'NUMERIC', unit: '%', referenceRange: '20 - 45', lowNormal: 20, highNormal: 45, defaultValue: '30' },
+  ],
+  LFT: [
+    { parameterCode: 'TBIL', name: 'Bilirubin Total', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '0.2 - 1.2', lowNormal: 0.2, highNormal: 1.2, defaultValue: '0.8' },
+    { parameterCode: 'DBIL', name: 'Bilirubin Direct', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '0.0 - 0.3', lowNormal: 0.0, highNormal: 0.3, defaultValue: '0.15' },
+    { parameterCode: 'SGPT', name: 'SGPT / ALT', resultType: 'NUMERIC', unit: 'U/L', referenceRange: '7 - 56', lowNormal: 7, highNormal: 56, defaultValue: '28' },
+    { parameterCode: 'SGOT', name: 'SGOT / AST', resultType: 'NUMERIC', unit: 'U/L', referenceRange: '10 - 40', lowNormal: 10, highNormal: 40, defaultValue: '24' },
+    { parameterCode: 'ALP', name: 'Alkaline Phosphatase (ALP)', resultType: 'NUMERIC', unit: 'U/L', referenceRange: '44 - 147', lowNormal: 44, highNormal: 147, defaultValue: '85' },
+    { parameterCode: 'TP', name: 'Total Protein', resultType: 'NUMERIC', unit: 'g/dL', referenceRange: '6.0 - 8.3', lowNormal: 6.0, highNormal: 8.3, defaultValue: '7.1' },
+    { parameterCode: 'ALB', name: 'Albumin', resultType: 'NUMERIC', unit: 'g/dL', referenceRange: '3.5 - 5.5', lowNormal: 3.5, highNormal: 5.5, defaultValue: '4.2' },
+  ],
+  KFT: [
+    { parameterCode: 'BUN', name: 'Blood Urea Nitrogen (BUN)', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '7 - 20', lowNormal: 7, highNormal: 20, defaultValue: '14' },
+    { parameterCode: 'CREAT', name: 'Serum Creatinine', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '0.6 - 1.3', lowNormal: 0.6, highNormal: 1.3, defaultValue: '0.95' },
+    { parameterCode: 'URIC', name: 'Uric Acid', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '3.5 - 7.2', lowNormal: 3.5, highNormal: 7.2, defaultValue: '5.2' },
+    { parameterCode: 'NA', name: 'Serum Sodium (Na+)', resultType: 'NUMERIC', unit: 'mEq/L', referenceRange: '135 - 145', lowNormal: 135, highNormal: 145, defaultValue: '140' },
+    { parameterCode: 'K', name: 'Serum Potassium (K+)', resultType: 'NUMERIC', unit: 'mEq/L', referenceRange: '3.5 - 5.0', lowNormal: 3.5, highNormal: 5.0, defaultValue: '4.3' },
+  ],
+  CMP: [
+    { parameterCode: 'GLU', name: 'Fasting Glucose', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '70 - 100', lowNormal: 70, highNormal: 100, defaultValue: '88' },
+    { parameterCode: 'BUN', name: 'Blood Urea Nitrogen', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '7 - 20', lowNormal: 7, highNormal: 20, defaultValue: '12' },
+    { parameterCode: 'CREAT', name: 'Serum Creatinine', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '0.6 - 1.3', lowNormal: 0.6, highNormal: 1.3, defaultValue: '0.9' },
+    { parameterCode: 'NA', name: 'Sodium', resultType: 'NUMERIC', unit: 'mEq/L', referenceRange: '135 - 145', lowNormal: 135, highNormal: 145, defaultValue: '139' },
+    { parameterCode: 'K', name: 'Potassium', resultType: 'NUMERIC', unit: 'mEq/L', referenceRange: '3.5 - 5.0', lowNormal: 3.5, highNormal: 5.0, defaultValue: '4.1' },
+    { parameterCode: 'CALC', name: 'Calcium Total', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '8.5 - 10.5', lowNormal: 8.5, highNormal: 10.5, defaultValue: '9.4' },
+    { parameterCode: 'SGPT', name: 'ALT / SGPT', resultType: 'NUMERIC', unit: 'U/L', referenceRange: '7 - 56', lowNormal: 7, highNormal: 56, defaultValue: '22' },
+    { parameterCode: 'SGOT', name: 'AST / SGOT', resultType: 'NUMERIC', unit: 'U/L', referenceRange: '10 - 40', lowNormal: 10, highNormal: 40, defaultValue: '20' },
+  ],
+  LIPID: [
+    { parameterCode: 'CHOL', name: 'Total Cholesterol', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '125 - 200', lowNormal: 125, highNormal: 200, defaultValue: '172' },
+    { parameterCode: 'TRIG', name: 'Triglycerides', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '50 - 150', lowNormal: 50, highNormal: 150, defaultValue: '115' },
+    { parameterCode: 'HDL', name: 'HDL Cholesterol (Good)', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '40 - 60', lowNormal: 40, highNormal: 60, defaultValue: '52' },
+    { parameterCode: 'LDL', name: 'LDL Cholesterol (Calculated)', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '60 - 130', lowNormal: 60, highNormal: 130, defaultValue: '97' },
+    { parameterCode: 'VLDL', name: 'VLDL Cholesterol', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '10 - 30', lowNormal: 10, highNormal: 30, defaultValue: '23' },
+  ],
+  HBA1C: [
+    { parameterCode: 'HBA1C', name: 'Hemoglobin A1c (Glycated)', resultType: 'NUMERIC', unit: '%', referenceRange: '4.0 - 5.6', lowNormal: 4.0, highNormal: 5.6, defaultValue: '5.2' },
+    { parameterCode: 'EST_GLU', name: 'Estimated Average Glucose', resultType: 'NUMERIC', unit: 'mg/dL', referenceRange: '70 - 114', lowNormal: 70, highNormal: 114, defaultValue: '103' },
+  ],
+  TSH: [
+    { parameterCode: 'TSH', name: 'Thyroid Stimulating Hormone', resultType: 'NUMERIC', unit: 'µIU/mL', referenceRange: '0.40 - 4.20', lowNormal: 0.40, highNormal: 4.20, defaultValue: '2.15' },
+  ],
+  URINE: [
+    { parameterCode: 'COLOR', name: 'Color', resultType: 'OPTIONS', options: ['Pale Yellow', 'Yellow', 'Amber', 'Straw', 'Cloudy', 'Reddish'], referenceRange: 'Pale Yellow', defaultValue: 'Pale Yellow' },
+    { parameterCode: 'CLARITY', name: 'Appearance / Transparency', resultType: 'OPTIONS', options: ['Clear', 'Slightly Hazy', 'Hazy', 'Cloudy', 'Turbid'], referenceRange: 'Clear', defaultValue: 'Clear' },
+    { parameterCode: 'SP_GRAV', name: 'Specific Gravity', resultType: 'NUMERIC', unit: '', referenceRange: '1.005 - 1.030', lowNormal: 1.005, highNormal: 1.030, defaultValue: '1.018' },
+    { parameterCode: 'PH', name: 'Reaction / pH', resultType: 'NUMERIC', unit: '', referenceRange: '5.0 - 8.0', lowNormal: 5.0, highNormal: 8.0, defaultValue: '6.5' },
+    { parameterCode: 'PROTEIN', name: 'Chemical Protein (Albumin)', resultType: 'OPTIONS', options: ['Nil', 'Trace', '1+ (30 mg/dL)', '2+ (100 mg/dL)', '3+ (300 mg/dL)'], referenceRange: 'Nil', defaultValue: 'Nil' },
+    { parameterCode: 'GLU', name: 'Chemical Glucose (Sugar)', resultType: 'OPTIONS', options: ['Nil', 'Trace', '1+', '2+', '3+', '4+'], referenceRange: 'Nil', defaultValue: 'Nil' },
+    { parameterCode: 'PUS_CELLS', name: 'Pus Cells (WBCs)', resultType: 'NUMERIC', unit: '/HPF', referenceRange: '0 - 5', lowNormal: 0, highNormal: 5, defaultValue: '2' },
+    { parameterCode: 'RBC', name: 'Red Blood Cells', resultType: 'NUMERIC', unit: '/HPF', referenceRange: '0 - 2', lowNormal: 0, highNormal: 2, defaultValue: '0' },
+  ]
+};
+
+export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, onSuccess }) {
+  const [paramsList, setParamsList] = useState([]);
+  const [instrument, setInstrument] = useState('Beckman Coulter DxH 900');
+  const [reagentLot, setReagentLot] = useState('LOT-2026-X89');
+  const [findingsNotes, setFindingsNotes] = useState('Analyzer run validated. Quality control calibrations verified.');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Initialize parameters based on sample tests
+  useEffect(() => {
+    if (!isOpen || !sample) return;
+
+    setError(null);
+    let resolvedParams = [];
+    const testCodes = (sample.testCodes || []).map((c) => String(c).toUpperCase());
+    const testNames = (sample.testNames || []).map((n) => String(n).toUpperCase());
+
+    // Check matching profile templates
+    let matchedProfile = null;
+    for (const code of testCodes) {
+      for (const [key, template] of Object.entries(DEFAULT_TEST_PROFILES)) {
+        if (code.includes(key) || key.includes(code)) {
+          matchedProfile = template;
+          break;
+        }
+      }
+      if (matchedProfile) break;
+    }
+
+    if (!matchedProfile) {
+      for (const name of testNames) {
+        if (name.includes('BLOOD COUNT') || name.includes('CBC') || name.includes('HEMOGRAM')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.CBC;
+          break;
+        }
+        if (name.includes('LIVER') || name.includes('LFT') || name.includes('HEPATIC')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.LFT;
+          break;
+        }
+        if (name.includes('KIDNEY') || name.includes('RENAL') || name.includes('KFT') || name.includes('RFT')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.KFT;
+          break;
+        }
+        if (name.includes('LIPID') || name.includes('CHOLESTEROL')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.LIPID;
+          break;
+        }
+        if (name.includes('METABOLIC') || name.includes('CMP')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.CMP;
+          break;
+        }
+        if (name.includes('URINE') || name.includes('URINALYSIS')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.URINE;
+          break;
+        }
+        if (name.includes('THYROID') || name.includes('TSH')) {
+          matchedProfile = DEFAULT_TEST_PROFILES.TSH;
+          break;
+        }
+      }
+    }
+
+    if (matchedProfile) {
+      resolvedParams = matchedProfile.map((p) => ({
+        parameterCode: p.parameterCode,
+        name: p.name,
+        resultType: p.resultType,
+        unit: p.unit || '',
+        referenceRange: p.referenceRange || '',
+        lowNormal: p.lowNormal !== undefined ? p.lowNormal : null,
+        highNormal: p.highNormal !== undefined ? p.highNormal : null,
+        options: p.options || [],
+        value: '',
+        isAbnormal: false,
+      }));
+    } else {
+      // Fallback single parameter based on test
+      const primaryTestName = sample.testNames?.[0] || sample.testCodes?.[0] || 'Diagnostic Assay';
+      resolvedParams = [
+        {
+          parameterCode: (sample.testCodes?.[0] || 'RESULT').toUpperCase(),
+          name: primaryTestName,
+          resultType: 'NUMERIC',
+          unit: 'units',
+          referenceRange: 'Normal',
+          lowNormal: null,
+          highNormal: null,
+          options: [],
+          value: '',
+          isAbnormal: false,
+        }
+      ];
+    }
+
+    setParamsList(resolvedParams);
+    setFindingsNotes('Analyzer run completed without flags. Controls verified within ±2SD.');
+  }, [isOpen, sample]);
+
+  const handleValueChange = (index, val) => {
+    setParamsList((prev) => {
+      const updated = [...prev];
+      const param = { ...updated[index] };
+      param.value = val;
+
+      // Real-time abnormal threshold evaluation
+      if (param.resultType === 'NUMERIC') {
+        const numVal = parseFloat(val);
+        if (!isNaN(numVal) && param.lowNormal !== null && param.highNormal !== null) {
+          param.isAbnormal = numVal < param.lowNormal || numVal > param.highNormal;
+        } else {
+          param.isAbnormal = false;
+        }
+      } else if (param.resultType === 'OPTIONS') {
+        const refUpper = (param.referenceRange || '').toUpperCase();
+        const valUpper = (val || '').toUpperCase();
+        param.isAbnormal = refUpper && valUpper ? refUpper !== valUpper : false;
+      }
+
+      updated[index] = param;
+      return updated;
+    });
+  };
+
+  const handleAutofillNormal = () => {
+    setParamsList((prev) => {
+      return prev.map((p) => {
+        let defaultVal = '';
+        // Look up default value from preset profiles
+        for (const profile of Object.values(DEFAULT_TEST_PROFILES)) {
+          const match = profile.find((dp) => dp.parameterCode === p.parameterCode);
+          if (match && match.defaultValue) {
+            defaultVal = match.defaultValue;
+            break;
+          }
+        }
+        if (!defaultVal && p.resultType === 'NUMERIC') {
+          if (p.lowNormal !== null && p.highNormal !== null) {
+            defaultVal = ((p.lowNormal + p.highNormal) / 2).toFixed(1);
+          } else {
+            defaultVal = '10.0';
+          }
+        } else if (!defaultVal && p.options?.length > 0) {
+          defaultVal = p.options[0];
+        }
+
+        return {
+          ...p,
+          value: defaultVal,
+          isAbnormal: false,
+        };
+      });
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!sample || !tenantId) return;
+
+    // Check if at least one parameter has a value
+    const hasValues = paramsList.some((p) => p.value !== undefined && p.value !== null && String(p.value).trim() !== '');
+    if (!hasValues) {
+      setError('Please input at least one parameter result before submitting to the verification queue');
+      return;
+    }
+
+    // Validate parameter inputs: prevent invalid numbers and empty required fields
+    for (const p of paramsList) {
+      const raw = p.value !== undefined && p.value !== null ? String(p.value).trim() : '';
+      if (raw === '') {
+        if (p.required) {
+          setError(`Required parameter "${p.name || p.parameterCode}" cannot be empty.`);
+          return;
+        }
+      } else if (p.resultType === 'NUMERIC') {
+        const num = Number(p.value);
+        if (isNaN(num)) {
+          setError(`Parameter "${p.name || p.parameterCode}" must be a valid number.`);
+          return;
+        }
+      }
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      const payload = {
+        parameterResults: paramsList.map((p) => {
+          let val = null;
+          const raw = p.value !== undefined && p.value !== null ? String(p.value).trim() : '';
+          if (p.resultType === 'NUMERIC') {
+            val = raw !== '' ? Number(p.value) : null;
+          } else {
+            val = raw !== '' ? raw : null;
+          }
+          return {
+            parameterCode: p.parameterCode,
+            name: p.name,
+            resultType: p.resultType,
+            value: val,
+            unit: p.unit,
+            referenceRange: p.referenceRange,
+            isAbnormal: Boolean(p.isAbnormal),
+          };
+        }),
+        instrument,
+        reagentLot,
+        findings: findingsNotes,
+      };
+
+      const res = await clinicalService.recordSampleResults(tenantId, sample.sampleId, payload);
+      if (res.success) {
+        if (onSuccess) onSuccess(res.data);
+        onClose();
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to record test results';
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isOpen || !sample) return null;
+
+  const abnormalCount = paramsList.filter((p) => p.isAbnormal).length;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Test Result Entry & Analyzer Feeding Workstation"
+      size="xl"
+    >
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* Specimen Header & Chain-of-Custody Banner */}
+        <div style={{
+          background: 'var(--slate-50, #f8fafc)',
+          border: '1px solid var(--border-color, #e2e8f0)',
+          borderRadius: 'var(--radius-md, 8px)',
+          padding: '0.875rem 1rem',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '12px',
+        }}>
+          <div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Specimen Barcode</span>
+            <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue, #2563eb)' }}>
+              {sample.barcode}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+              {sample.container} • {sample.sampleType}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Details</span>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--slate-900)' }}>
+              {sample.patientName}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', fontFamily: 'monospace' }}>
+              MRN: {sample.patientMrn || 'N/A'} • {sample.orderNumber || 'ORD'}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Tests Ordered</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+              {(sample.testCodes || []).map((code) => (
+                <span key={code} style={{
+                  fontSize: '0.75rem',
+                  padding: '1px 6px',
+                  borderRadius: '3px',
+                  background: 'var(--primary-50, #eff6ff)',
+                  color: 'var(--primary-700, #1d4ed8)',
+                  fontWeight: 700,
+                  fontFamily: 'monospace'
+                }}>
+                  {code}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Receipt Status</span>
+            <div style={{ marginTop: '2px' }}>
+              <Badge variant="blue">Received in Lab (Bench Ready)</Badge>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{
+            background: 'var(--danger-50, #fef2f2)',
+            border: '1px solid var(--danger-200, #fecaca)',
+            color: 'var(--danger-700, #b91c1c)',
+            padding: '0.75rem 1rem',
+            borderRadius: 'var(--radius-md, 8px)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.85rem'
+          }}>
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Toolbar: Autofill & Quality Control Indicators */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--slate-800)' }}>
+              Analyte Feeding Grid ({paramsList.length} Parameters)
+            </span>
+            {abnormalCount > 0 ? (
+              <span style={{
+                background: 'var(--danger-100, #fee2e2)',
+                color: 'var(--danger-700, #b91c1c)',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <AlertTriangle size={12} />
+                {abnormalCount} Abnormal Flag{abnormalCount > 1 ? 's' : ''}
+              </span>
+            ) : (
+              <span style={{
+                background: 'var(--success-100, #dcfce7)',
+                color: 'var(--success-700, #15803d)',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <Check size={12} />
+                Normal Profile
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleAutofillNormal}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', borderColor: 'var(--primary-300)' }}
+            title="Autofill nominal baseline values from laboratory reference standards"
+          >
+            <Sparkles size={13} style={{ color: 'var(--primary-blue)' }} />
+            <span>Autofill Normal Values</span>
+          </button>
+        </div>
+
+        {/* Parameter Entry Table */}
+        <div style={{
+          maxHeight: '340px',
+          overflowY: 'auto',
+          border: '1px solid var(--border-color, #e2e8f0)',
+          borderRadius: 'var(--radius-md, 8px)',
+        }}>
+          <table className="lms-table" style={{ margin: 0 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--slate-100, #f1f5f9)' }}>
+              <tr>
+                <th style={{ width: '30%' }}>Analyte / Parameter</th>
+                <th style={{ width: '25%' }}>Observed Result *</th>
+                <th style={{ width: '15%' }}>Unit</th>
+                <th style={{ width: '20%' }}>Reference Range</th>
+                <th style={{ width: '10%', textAlign: 'center' }}>Flag</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paramsList.map((p, idx) => (
+                <tr key={p.parameterCode} style={{ background: p.isAbnormal ? '#fff5f5' : 'transparent' }}>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--slate-900)', fontSize: '0.8125rem' }}>
+                        {p.name}
+                      </span>
+                      <span style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                        {p.parameterCode}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td>
+                    {p.resultType === 'OPTIONS' ? (
+                      <select
+                        className="form-input"
+                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.8125rem' }}
+                        value={p.value}
+                        onChange={(e) => handleValueChange(idx, e.target.value)}
+                      >
+                        <option value="">-- Select --</option>
+                        {p.options.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="Enter value..."
+                        className="form-input"
+                        style={{
+                          padding: '0.35rem 0.5rem',
+                          fontSize: '0.8125rem',
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          borderColor: p.isAbnormal ? 'var(--danger-500, #ef4444)' : undefined,
+                          background: p.isAbnormal ? '#fff' : undefined,
+                        }}
+                        value={p.value}
+                        onChange={(e) => handleValueChange(idx, e.target.value)}
+                      />
+                    )}
+                  </td>
+
+                  <td>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--slate-600)', fontFamily: 'monospace' }}>
+                      {p.unit || '—'}
+                    </span>
+                  </td>
+
+                  <td>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+                      {p.referenceRange || 'Standard'}
+                    </span>
+                  </td>
+
+                  <td style={{ textAlign: 'center' }}>
+                    {p.value === '' || p.value === undefined ? (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>—</span>
+                    ) : p.isAbnormal ? (
+                      <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                        OUT
+                      </Badge>
+                    ) : (
+                      <Badge variant="success" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                        NORM
+                      </Badge>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Analyzer & Instrument Traceability Metadata */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Cpu size={12} />
+              Testing Analyzer / Instrument
+            </label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ fontSize: '0.8125rem' }}
+              value={instrument}
+              onChange={(e) => setInstrument(e.target.value)}
+              placeholder="e.g. Beckman Coulter DxH 900, Roche Cobas"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Tag size={12} />
+              Reagent Calibration Batch / Lot #
+            </label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ fontSize: '0.8125rem' }}
+              value={reagentLot}
+              onChange={(e) => setReagentLot(e.target.value)}
+              placeholder="e.g. LOT-2026-X89"
+            />
+          </div>
+        </div>
+
+        {/* Clinical Technician Findings & Remarks */}
+        <div className="form-group">
+          <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <FileText size={12} />
+            Bench Notes & Preliminary Observations
+          </label>
+          <textarea
+            className="form-input"
+            rows={2}
+            style={{ fontSize: '0.8125rem', resize: 'vertical' }}
+            value={findingsNotes}
+            onChange={(e) => setFindingsNotes(e.target.value)}
+            placeholder="Enter any bench observations, delta checks, or sample appearance notes..."
+          />
+        </div>
+
+        {/* Footer Actions */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            {submitting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>Feeding Results...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={16} />
+                <span>Save & Push to Pathologist Queue</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

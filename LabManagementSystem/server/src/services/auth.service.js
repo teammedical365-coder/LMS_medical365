@@ -228,7 +228,23 @@ class AuthService {
       throw new AuthenticationError('Invalid laboratory code, email, or password', 'INVALID_CREDENTIALS', 401);
     }
 
-    // 5. Verify user active state
+    // 5. Verify user is not deleted and account is active
+    if (user.isDeleted || user.status === 'deleted') {
+      await auditLogService.recordEvent({
+        action: AUDIT_ACTIONS.AUTH_LOGIN_FAILURE,
+        actorType: 'TENANT_USER',
+        targetTenantId: tenant.tenantId,
+        actorId: user.userId,
+        actorEmail: cleanEmail,
+        details: { reason: 'Account deleted', ipAddress, userAgent },
+      });
+      throw new AuthenticationError(
+        'This laboratory staff account has been deleted. Please contact your laboratory administrator.',
+        'ACCOUNT_DELETED',
+        403
+      );
+    }
+
     if (!user.isActive) {
       throw new AuthenticationError(
         'Laboratory account is inactive or deactivated. Please contact your lab supervisor.',
