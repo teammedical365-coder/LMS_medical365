@@ -61,6 +61,14 @@ export const UserSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    age: {
+      type: Number,
+      default: null,
+    },
+    profilePhoto: {
+      type: String,
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -123,6 +131,8 @@ UserSchema.methods.toSafeJSON = function () {
     roleId: obj.roleId || null,
     department: obj.department,
     phone: obj.phone,
+    age: obj.age,
+    profilePhoto: obj.profilePhoto,
     isActive: obj.isActive,
     isDeleted: Boolean(obj.isDeleted),
     status: obj.status || (obj.isDeleted ? 'deleted' : obj.isActive ? 'active' : 'deactivated'),

@@ -143,6 +143,23 @@ export class SuperAdminController {
   }
 
   /**
+   * DELETE /api/v1/super-admin/laboratories/:id
+   */
+  static async deleteLaboratory(req, res, next) {
+    try {
+      const { id } = req.params;
+      const actor = req.platformAdmin || { type: 'api_key', id: 'system' };
+      const result = await laboratoryManagementService.deleteLaboratory(id, actor);
+      return ApiResponse.success(res, result, 'Laboratory deleted successfully');
+    } catch (err) {
+      if (err instanceof LaboratoryManagementError) {
+        return ApiResponse.error(res, err.message, err.statusCode);
+      }
+      next(err);
+    }
+  }
+
+  /**
    * POST /api/v1/super-admin/laboratories/:id/status
    */
   static async transitionStatus(req, res, next) {

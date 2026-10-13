@@ -40,16 +40,7 @@ export function Sidebar({ isOpen, onClose }) {
     const target = itemPath.replace(/\/+$/, '') || '/';
 
     if (target === '/super-admin') {
-      return current === '/super-admin';
-    }
-    if (target === '/super-admin/laboratories') {
-      return (
-        current === '/super-admin/laboratories' ||
-        (current.startsWith('/super-admin/laboratories/') && current !== '/super-admin/laboratories/new')
-      );
-    }
-    if (target === '/super-admin/laboratories/new') {
-      return current === '/super-admin/laboratories/new';
+      return current === '/super-admin' || current.startsWith('/super-admin/laboratories');
     }
     if (target === '/super-admin/roles') {
       return current === '/super-admin/roles';
@@ -60,16 +51,14 @@ export function Sidebar({ isOpen, onClose }) {
     return current === target || (target !== '/' && current.startsWith(target + '/'));
   };
 
-  // If Platform Super Admin, show ONLY Super Admin platform management
+  // If Platform Super Admin, show ONLY Platform Overview and Roles & Permissions
   if (isSuperAdmin) {
     const superAdminNavigation = [
       {
         section: 'Platform Super Admin',
         items: [
           { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server, color: 'blue' },
-          { key: 'sa_labs', name: 'Laboratories', path: '/super-admin/laboratories', icon: Building2, color: 'emerald' },
           { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck, color: 'purple' },
-          { key: 'sa_register', name: 'Register Laboratory', path: '/super-admin/laboratories/new', icon: PlusCircle, color: 'orange' },
         ],
       },
     ];
@@ -126,15 +115,6 @@ export function Sidebar({ isOpen, onClose }) {
               </div>
             ))}
           </nav>
-
-          <div className="sidebar-footer">
-            <div className="tenant-indicator">
-              <span className="tenant-dot" style={{ backgroundColor: '#2563eb' }} />
-              <div className="tenant-details">
-                <span className="tenant-name">Platform Super Admin</span>
-              </div>
-            </div>
-          </div>
         </aside>
       </>
     );

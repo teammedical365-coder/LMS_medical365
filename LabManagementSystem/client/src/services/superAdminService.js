@@ -101,6 +101,14 @@ export const superAdminService = {
   },
 
   /**
+   * Delete laboratory
+   */
+  async deleteLaboratory(id) {
+    const res = await api.delete(`/super-admin/laboratories/${id}`, { headers: getAdminHeaders() });
+    return res.data;
+  },
+
+  /**
    * Transition laboratory lifecycle status
    */
   async transitionStatus(id, targetStatus, reason = null) {

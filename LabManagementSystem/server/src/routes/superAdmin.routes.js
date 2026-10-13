@@ -23,6 +23,7 @@ router.get('/laboratories/:id', SuperAdminController.getLaboratory);
 router.get('/laboratories/:id/staff', SuperAdminController.getLaboratoryStaff);
 router.post('/laboratories/:id/staff', SuperAdminController.createLaboratoryStaff);
 router.patch('/laboratories/:id', SuperAdminController.updateLaboratory);
+router.delete('/laboratories/:id', SuperAdminController.deleteLaboratory);
 
 // Lifecycle Transitions
 router.post('/laboratories/:id/status', SuperAdminController.transitionStatus);
