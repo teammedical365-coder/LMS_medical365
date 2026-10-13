@@ -298,7 +298,7 @@ export function LaboratoryDetailsPage() {
           }}
         >
           <Link
-            to="/super-admin/laboratories"
+            to="/super-admin"
             className="btn btn-secondary btn-sm"
             style={{
               background: '#ffffff',
@@ -309,7 +309,7 @@ export function LaboratoryDetailsPage() {
             }}
           >
             <ArrowLeft size={14} />
-            <span>Laboratories</span>
+            <span>Platform Overview</span>
           </Link>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -441,11 +441,7 @@ export function LaboratoryDetailsPage() {
                 flexWrap: 'wrap',
               }}
             >
-              <span>Master Tenant ID: <code style={{ color: '#0f172a', fontWeight: 600 }}>{lab.tenantId}</code></span>
-              <span>•</span>
-              <span>Plan: <strong style={{ color: '#0284c7' }}>{lab.subscriptionPlan ? lab.subscriptionPlan.toUpperCase() : 'STANDARD'}</strong></span>
-              <span>•</span>
-              <span>Registered: <strong>{new Date(lab.createdAt || Date.now()).toLocaleDateString()}</strong></span>
+              <span>Registered: <strong style={{ color: '#0f172a' }}>{new Date(lab.createdAt || Date.now()).toLocaleDateString()}</strong></span>
             </div>
           </div>
         </div>

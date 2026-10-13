@@ -63,7 +63,7 @@
 }
 
 .brand-title {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-main);
@@ -319,7 +319,7 @@
 }
 
 .header-portal-name {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-sans);
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-main, #0f172a);
@@ -439,6 +439,19 @@
   flex-direction: column;
   gap: 1.25rem;
   background-color: var(--bg-app);
+}
+
+/* Overview Hero Banner Flush Margin - Removes Top, Left, Right padding */
+.overview-hero-banner-flush {
+  margin: -1.15rem -1.4rem 0 -1.4rem;
+  border-radius: 0 0 16px 16px;
+}
+
+@media (max-width: 768px) {
+  .overview-hero-banner-flush {
+    margin: -0.85rem -1rem 0 -1rem;
+    border-radius: 0 0 12px 12px;
+  }
 }
 
 /* Page Header */

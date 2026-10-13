@@ -82,7 +82,7 @@ class TenantUserService {
       }
     }
 
-    const { email, password, fullName, department, phone } = userData;
+    const { email, password, fullName, department, phone, age, profilePhoto } = userData;
     const role = rawRole;
 
     if (!email || typeof email !== 'string') {
@@ -169,6 +169,8 @@ class TenantUserService {
         roleId: resolvedRoleId,
         department: department?.trim() || null,
         phone: phone?.trim() || null,
+        age: age ? Number(age) : null,
+        profilePhoto: profilePhoto || null,
         isActive: true,
       });
 
@@ -215,6 +217,8 @@ class TenantUserService {
       roleId: resolvedRoleId,
       department: department?.trim() || null,
       phone: phone?.trim() || null,
+      age: age ? Number(age) : null,
+      profilePhoto: profilePhoto || null,
       isActive: true,
       lastLoginAt: null,
       createdAt: new Date(),

@@ -8,6 +8,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import {
   Building2,
   PlusCircle,
+  UserPlus,
   Search,
   Filter,
   RefreshCw,
@@ -30,8 +31,12 @@ import {
   Lock,
   Palette,
   UserCheck,
+  Eye,
+  EyeOff,
+  Camera,
+  Trash2,
+  User,
 } from 'lucide-react';
-import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
@@ -40,15 +45,18 @@ import AdminSecurityBoundary from '../../components/common/AdminSecurityBoundary
 import superAdminService from '../../services/superAdminService';
 
 export function LaboratoriesPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const isRegisterParam = searchParams.get('action') === 'register' || searchParams.get('register') === 'true';
 
   const [laboratories, setLaboratories] = useState([]);
+  const [allLabsForDropdown, setAllLabsForDropdown] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
-  const [showRegisterForm, setShowRegisterForm] = useState(isRegisterParam);
+
+  // Active dedicated form: null | 'laboratory' | 'admin'
+  const [activeForm, setActiveForm] = useState(isRegisterParam ? 'laboratory' : null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,20 +64,17 @@ export function LaboratoriesPage() {
   const [provFilter, setProvFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Registration Form State
-  const initialFormState = {
+  // Dedicated Laboratory Registration Form State
+  const initialLabFormState = {
     name: '',
     code: '',
     legalName: '',
     contactEmail: '',
     contactPhone: '',
     domain: '',
-    timezone: 'UTC',
-    locale: 'en-US',
+    timezone: 'Asia/Kolkata',
+    locale: 'en-IN',
     subscriptionPlan: 'standard',
-    adminFullName: '',
-    adminEmail: '',
-    adminPassword: '',
     displayName: '',
     primaryColor: '#2563EB',
     accentColor: '#22C1DC',
@@ -82,11 +87,71 @@ export function LaboratoriesPage() {
     },
   };
 
-  const [regForm, setRegForm] = useState(initialFormState);
-  const [regLoading, setRegLoading] = useState(false);
-  const [regError, setRegError] = useState(null);
-  const [regSuccess, setRegSuccess] = useState(null);
-  const [regCopied, setRegCopied] = useState(false);
+  const [labForm, setLabForm] = useState(initialLabFormState);
+  const [labErrors, setLabErrors] = useState({});
+  const [labLoading, setLabLoading] = useState(false);
+  const [labError, setLabError] = useState(null);
+  const [labSuccess, setLabSuccess] = useState(null);
+  const [labCopied, setLabCopied] = useState(false);
+
+  // Dedicated Lab Admin Form State
+  const initialAdminFormState = {
+    laboratoryId: '',
+    fullName: '',
+    age: '',
+    email: '',
+    password: '',
+    phone: '',
+    profilePhoto: null,
+    department: 'Administration',
+  };
+
+  const [adminForm, setAdminForm] = useState(initialAdminFormState);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [adminErrors, setAdminErrors] = useState({});
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState(null);
+  const [adminSuccess, setAdminSuccess] = useState(null);
+  const [adminCopied, setAdminCopied] = useState(false);
+
+  // Validation Helpers
+  const validateEmailCom = (email) => {
+    if (!email || !email.trim()) return 'Email is required';
+    const trimmed = email.trim();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!emailRegex.test(trimmed)) {
+      return 'Email must be valid and end with .com (e.g. name@domain.com)';
+    }
+    return '';
+  };
+
+  const validateMobile10 = (phone) => {
+    if (!phone || !phone.trim()) return 'Mobile number is required';
+    const clean = phone.replace(/\D/g, '');
+    if (clean.length !== 10) {
+      return 'Mobile number must be exactly 10 digits';
+    }
+    return '';
+  };
+
+  const validateAge2Digit = (age) => {
+    if (!age || String(age).trim() === '') return 'Age is required';
+    const clean = String(age).replace(/\D/g, '');
+    if (clean.length !== 2) {
+      return 'Age must be a 2-digit number (e.g. 28)';
+    }
+    const num = parseInt(clean, 10);
+    if (num < 18 || num > 99) {
+      return 'Age must be between 18 and 99';
+    }
+    return '';
+  };
+
+  const validatePassword = (pass) => {
+    if (!pass) return 'Password is required';
+    if (pass.length < 8) return 'Password must be at least 8 characters';
+    return '';
+  };
 
   const copyPortalUrl = (url, labId) => {
     if (navigator.clipboard) {
@@ -94,6 +159,17 @@ export function LaboratoriesPage() {
     }
     setCopiedId(labId);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const fetchAllLabsForDropdown = async () => {
+    try {
+      const result = await superAdminService.listLaboratories({ page: 1, limit: 100 });
+      if (result && result.laboratories) {
+        setAllLabsForDropdown(result.laboratories);
+      }
+    } catch {
+      // Fallback silently
+    }
   };
 
   const fetchLabs = async () => {
@@ -109,6 +185,7 @@ export function LaboratoriesPage() {
       });
       setLaboratories(result.laboratories || []);
       setPagination(result.pagination || { page: currentPage, limit: 10, total: 0, totalPages: 1 });
+      fetchAllLabsForDropdown();
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to retrieve laboratories';
       const status = err.response?.status;
@@ -128,76 +205,199 @@ export function LaboratoriesPage() {
     fetchLabs();
   };
 
-  const handleRegInputChange = (e) => {
+  // Lab Registration Input Change Handler
+  const handleLabInputChange = (e) => {
     const { name, value } = e.target;
     if (name.startsWith('addr_')) {
       const field = name.replace('addr_', '');
-      setRegForm((prev) => ({
+      setLabForm((prev) => ({
         ...prev,
         address: { ...prev.address, [field]: value },
       }));
+      if (labErrors[name]) setLabErrors((prev) => ({ ...prev, [name]: '' }));
     } else if (name === 'code') {
-      setRegForm((prev) => ({
+      setLabForm((prev) => ({
         ...prev,
         code: value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''),
       }));
+      if (labErrors.code) setLabErrors((prev) => ({ ...prev, code: '' }));
+    } else if (name === 'contactPhone') {
+      const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+      setLabForm((prev) => ({ ...prev, contactPhone: digitsOnly }));
+      if (labErrors.contactPhone) setLabErrors((prev) => ({ ...prev, contactPhone: '' }));
     } else {
-      setRegForm((prev) => ({ ...prev, [name]: value }));
+      setLabForm((prev) => ({ ...prev, [name]: value }));
+      if (labErrors[name]) setLabErrors((prev) => ({ ...prev, [name]: '' }));
     }
   };
 
-  const handleRegisterSubmit = async (e) => {
+  // Lab Registration Submission
+  const handleLabRegisterSubmit = async (e) => {
     e.preventDefault();
-    setRegLoading(true);
-    setRegError(null);
-    setRegSuccess(null);
+    const errors = {};
+    if (!labForm.name.trim()) errors.name = 'Laboratory name is required';
+    if (!labForm.code.trim()) errors.code = 'Lab code is required';
+    const emailErr = validateEmailCom(labForm.contactEmail);
+    if (emailErr) errors.contactEmail = emailErr;
+    const phoneErr = validateMobile10(labForm.contactPhone);
+    if (phoneErr) errors.contactPhone = phoneErr;
+    if (!labForm.address.city.trim()) errors.addr_city = 'City is required';
+    if (!labForm.address.state.trim()) errors.addr_state = 'State is required';
+
+    if (Object.keys(errors).length > 0) {
+      setLabErrors(errors);
+      return;
+    }
+    setLabErrors({});
+    setLabLoading(true);
+    setLabError(null);
+    setLabSuccess(null);
 
     const payload = {
-      name: regForm.name.trim(),
-      code: regForm.code.trim(),
-      legalName: regForm.legalName.trim() || undefined,
-      email: regForm.contactEmail.trim().toLowerCase(),
-      contactEmail: regForm.contactEmail.trim().toLowerCase(),
-      phone: regForm.contactPhone.trim() || undefined,
-      timezone: regForm.timezone,
-      locale: regForm.locale,
-      subscriptionPlan: regForm.subscriptionPlan,
+      name: labForm.name.trim(),
+      code: labForm.code.trim(),
+      legalName: labForm.legalName.trim() || undefined,
+      email: labForm.contactEmail.trim().toLowerCase(),
+      contactEmail: labForm.contactEmail.trim().toLowerCase(),
+      phone: labForm.contactPhone.trim() || undefined,
+      timezone: labForm.timezone,
+      locale: labForm.locale,
+      subscriptionPlan: labForm.subscriptionPlan,
       address: {
-        street: regForm.address.street.trim(),
-        city: regForm.address.city.trim(),
-        state: regForm.address.state.trim(),
-        postalCode: regForm.address.postalCode.trim(),
-        country: regForm.address.country.trim() || 'India',
+        street: labForm.address.street.trim(),
+        city: labForm.address.city.trim(),
+        state: labForm.address.state.trim(),
+        postalCode: labForm.address.postalCode.trim(),
+        country: labForm.address.country.trim() || 'India',
       },
-      domains: regForm.domain.trim() ? [regForm.domain.trim().toLowerCase()] : undefined,
-      initialAdmin:
-        regForm.adminEmail.trim() && regForm.adminPassword
-          ? {
-              fullName: regForm.adminFullName.trim() || `${regForm.name.trim()} Administrator`,
-              email: regForm.adminEmail.trim().toLowerCase(),
-              password: regForm.adminPassword,
-            }
-          : undefined,
+      domains: labForm.domain.trim() ? [labForm.domain.trim().toLowerCase()] : undefined,
       branding: {
-        displayName: regForm.displayName.trim() || regForm.name.trim(),
-        primaryColor: regForm.primaryColor || '#2563EB',
-        accentColor: regForm.accentColor || '#22C1DC',
+        displayName: labForm.displayName.trim() || labForm.name.trim(),
+        primaryColor: labForm.primaryColor || '#2563EB',
+        accentColor: labForm.accentColor || '#22C1DC',
       },
     };
 
     try {
       const createdLab = await superAdminService.registerLaboratory(payload);
-      setRegSuccess(createdLab);
-      setRegForm(initialFormState);
-      fetchLabs(); // Automatically refresh list below so new lab appears immediately!
+      setLabSuccess(createdLab);
+      setLabForm(initialLabFormState);
+      fetchLabs();
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
-        setRegError('Super Administrator authentication required to register new medical facilities.');
+        setLabError('Super Administrator authentication required to register new medical facilities.');
       } else {
-        setRegError(err.response?.data?.message || err.message || 'Failed to register laboratory');
+        setLabError(err.response?.data?.message || err.message || 'Failed to register laboratory');
       }
     } finally {
-      setRegLoading(false);
+      setLabLoading(false);
+    }
+  };
+
+  // Lab Admin Input Handlers
+  const handleAdminInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'phone') {
+      const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+      setAdminForm((prev) => ({ ...prev, phone: digitsOnly }));
+      if (adminErrors.phone) setAdminErrors((prev) => ({ ...prev, phone: '' }));
+    } else if (name === 'age') {
+      const digitsOnly = value.replace(/\D/g, '').slice(0, 2);
+      setAdminForm((prev) => ({ ...prev, age: digitsOnly }));
+      if (adminErrors.age) setAdminErrors((prev) => ({ ...prev, age: '' }));
+    } else {
+      setAdminForm((prev) => ({ ...prev, [name]: value }));
+      if (adminErrors[name]) setAdminErrors((prev) => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const handleAdminPhotoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setAdminError('Please upload a valid image file (JPG, PNG, WebP).');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setAdminError('Image file size must be under 2MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAdminForm((prev) => ({ ...prev, profilePhoto: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAdminPhoto = () => {
+    setAdminForm((prev) => ({ ...prev, profilePhoto: null }));
+  };
+
+  // Lab Admin Submission
+  const handleAdminSubmit = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!adminForm.laboratoryId) errors.laboratoryId = 'Please choose a laboratory for this administrator.';
+    if (!adminForm.fullName.trim()) errors.fullName = 'Full Name is required.';
+    const ageErr = validateAge2Digit(adminForm.age);
+    if (ageErr) errors.age = ageErr;
+    const emailErr = validateEmailCom(adminForm.email);
+    if (emailErr) errors.email = emailErr;
+    const passErr = validatePassword(adminForm.password);
+    if (passErr) errors.password = passErr;
+    const phoneErr = validateMobile10(adminForm.phone);
+    if (phoneErr) errors.phone = phoneErr;
+
+    if (Object.keys(errors).length > 0) {
+      setAdminErrors(errors);
+      return;
+    }
+    setAdminErrors({});
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminSuccess(null);
+
+    const availableLabs = allLabsForDropdown.length > 0 ? allLabsForDropdown : laboratories;
+    const selectedLab = availableLabs.find(
+      (l) => l.tenantId === adminForm.laboratoryId || l._id === adminForm.laboratoryId || l.id === adminForm.laboratoryId
+    );
+    const labIdentifier = selectedLab ? (selectedLab.tenantId || selectedLab._id) : adminForm.laboratoryId;
+
+    const payload = {
+      fullName: adminForm.fullName.trim(),
+      email: adminForm.email.trim().toLowerCase(),
+      password: adminForm.password,
+      phone: adminForm.phone.trim(),
+      age: adminForm.age ? Number(adminForm.age) : undefined,
+      profilePhoto: adminForm.profilePhoto || undefined,
+      department: adminForm.department.trim() || 'Administration',
+      role: 'lab_admin',
+    };
+
+    try {
+      const createdStaff = await superAdminService.createLaboratoryStaff(labIdentifier, payload);
+      setAdminSuccess({
+        user: createdStaff,
+        lab: selectedLab || { name: 'Laboratory Facility', code: '' },
+      });
+      setAdminForm((prev) => ({
+        ...prev,
+        fullName: '',
+        age: '',
+        email: '',
+        password: '',
+        phone: '',
+        profilePhoto: null,
+      }));
+      fetchLabs();
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setAdminError('Super Administrator authentication required to create laboratory administrators.');
+      } else {
+        setAdminError(err.response?.data?.message || err.message || 'Failed to create laboratory administrator');
+      }
+    } finally {
+      setAdminLoading(false);
     }
   };
 
@@ -231,47 +431,180 @@ export function LaboratoriesPage() {
   };
 
   const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const availableLabs = allLabsForDropdown.length > 0 ? allLabsForDropdown : laboratories;
+  const selectedAdminLab = availableLabs.find(
+    (l) => l.tenantId === adminForm.laboratoryId || l._id === adminForm.laboratoryId || l.id === adminForm.laboratoryId
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <PageHeader
-        title="Laboratory Registry & Tenant Provisioning"
-        description="Master catalog of healthcare diagnostic facilities, tenant lifecycle states, and dedicated database provisioning."
-        actions={
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={fetchLabs} title="Refresh directory">
-              <RefreshCw size={14} />
-              <span>Refresh</span>
-            </button>
-            <button
-              className={`btn ${showRegisterForm ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={() => {
-                setShowRegisterForm((prev) => !prev);
-                setRegSuccess(null);
-                setRegError(null);
+      {/* Central Administration Dashboard Banner (Styled directly as reference in Image 2) */}
+      <div
+        className="card"
+        style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+          padding: '1.25rem 1.5rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div
+            style={{
+              width: '46px',
+              height: '46px',
+              borderRadius: '12px',
+              background: '#eff6ff',
+              border: '1.5px solid #bfdbfe',
+              color: '#2563eb',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 6px rgba(37, 99, 235, 0.08)',
+              flexShrink: 0,
+            }}
+          >
+            <Building2 size={24} />
+          </div>
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: '1.35rem',
+                fontWeight: 800,
+                color: '#0f172a',
+                letterSpacing: '-0.02em',
+                lineHeight: 1.25,
               }}
             >
-              {showRegisterForm ? <X size={15} /> : <PlusCircle size={15} />}
-              <span>{showRegisterForm ? 'Close Registration Form' : 'Register New Laboratory'}</span>
-            </button>
+              Laboratory Administration & Registry
+            </h1>
+            <p
+              style={{
+                margin: '3px 0 0 0',
+                fontSize: '0.825rem',
+                color: '#64748b',
+                fontWeight: 500,
+              }}
+            >
+              Manage all laboratories, staff, and system configurations
+            </p>
           </div>
-        }
-      />
+        </div>
 
-      {/* Embedded Registration Form Section */}
-      {showRegisterForm && (
+        {/* Action Buttons styled precisely from Reference Image 2 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={fetchLabs}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              color: '#475569',
+              fontWeight: 600,
+              padding: '0.55rem 0.95rem',
+              borderRadius: '8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.85rem',
+            }}
+            title="Refresh directory"
+          >
+            <RefreshCw size={14} className={loading ? 'spin' : ''} />
+            <span>Refresh</span>
+          </button>
+
+          {/* + Add Lab Admin Button (Reference Image 2: + Add Hospital Admin style) */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveForm((prev) => (prev === 'admin' ? null : 'admin'));
+              setAdminSuccess(null);
+              setAdminError(null);
+            }}
+            style={{
+              background: activeForm === 'admin' ? '#eff6ff' : '#ffffff',
+              border: '1.5px solid #2563eb',
+              color: '#2563eb',
+              fontWeight: 600,
+              padding: '0.55rem 1.15rem',
+              borderRadius: '8px',
+              fontSize: '0.875rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '7px',
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(37, 99, 235, 0.08)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {activeForm === 'admin' ? <X size={15} /> : <UserPlus size={15} />}
+            <span>{activeForm === 'admin' ? 'Close Admin Form' : '+ Add Lab Admin'}</span>
+          </button>
+
+          {/* + Add Laboratory Button (Reference Image 2: + Add Enterprise Hospital style) */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveForm((prev) => (prev === 'laboratory' ? null : 'laboratory'));
+              setLabSuccess(null);
+              setLabError(null);
+            }}
+            style={{
+              background: activeForm === 'laboratory' ? '#1d4ed8' : '#2563eb',
+              color: '#ffffff',
+              border: '1.5px solid #2563eb',
+              fontWeight: 600,
+              padding: '0.55rem 1.15rem',
+              borderRadius: '8px',
+              fontSize: '0.875rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '7px',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(37, 99, 235, 0.22)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {activeForm === 'laboratory' ? <X size={15} /> : <PlusCircle size={15} />}
+            <span>{activeForm === 'laboratory' ? 'Close Lab Form' : '+ Add Laboratory'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 1. Dedicated Laboratory Registration Form */}
+      {activeForm === 'laboratory' && (
         <div
-          className="card"
+          className="card cool-form-card"
           style={{
-            background: '#ffffff',
-            border: '1.5px solid #0284c7',
-            borderRadius: 'var(--radius-lg, 12px)',
-            boxShadow: '0 8px 24px -4px rgba(2, 132, 199, 0.15)',
+            background: 'linear-gradient(145deg, #f0fdfa 0%, #f0f9ff 50%, #f8fafc 100%)',
+            border: '1.5px solid #bae6fd',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(14, 165, 233, 0.1), 0 8px 10px -6px rgba(14, 165, 233, 0.05)',
             padding: '1.5rem',
             animation: 'modalIn 0.2s ease-out',
+            marginBottom: '1.5rem',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1.25rem',
+              paddingBottom: '0.75rem',
+              borderBottom: '1px solid #e0f2fe',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div
                 style={{
@@ -285,20 +618,20 @@ export function LaboratoriesPage() {
                   justifyContent: 'center',
                 }}
               >
-                <PlusCircle size={20} />
+                <Building2 size={20} />
               </div>
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                  Register New Diagnostic Laboratory
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Register Diagnostic Laboratory
                 </h2>
                 <p style={{ margin: '2px 0 0 0', fontSize: '0.785rem', color: 'var(--slate-500)' }}>
-                  Instantly provision tenant isolation, custom whitelabel login portal, and administrator credentials.
+                  Provision facility access, isolated database, and custom white-label portal.
                 </p>
               </div>
             </div>
 
             <button
-              onClick={() => setShowRegisterForm(false)}
+              onClick={() => setActiveForm(null)}
               className="btn-icon"
               style={{ color: 'var(--slate-400)' }}
               title="Close form"
@@ -308,13 +641,13 @@ export function LaboratoriesPage() {
           </div>
 
           {/* Success Banner */}
-          {regSuccess && (
+          {labSuccess && (
             <div
               style={{
                 background: '#f0fdf4',
                 border: '1px solid #bbf7d0',
                 borderRadius: '8px',
-                padding: '1rem',
+                padding: '0.9rem 1rem',
                 marginBottom: '1.25rem',
                 display: 'flex',
                 flexDirection: 'column',
@@ -323,14 +656,11 @@ export function LaboratoriesPage() {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: 700, fontSize: '0.9rem' }}>
                 <CheckCircle2 size={18} />
-                <span>Laboratory "{regSuccess.name}" ({regSuccess.code}) Registered Successfully!</span>
+                <span>Laboratory "{labSuccess.name}" ({labSuccess.code}) Registered Successfully!</span>
               </div>
-              <p style={{ margin: 0, fontSize: '0.8125rem', color: '#15803d' }}>
-                Dedicated Whitelabel Portal has been generated and isolated database provisioning initiated.
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <code style={{ fontSize: '0.775rem', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px', color: '#166534' }}>
-                  {`${originUrl}/lab/${regSuccess.code.toLowerCase()}`}
+                  {`${originUrl}/lab/${labSuccess.code.toLowerCase()}`}
                 </code>
                 <button
                   type="button"
@@ -338,17 +668,17 @@ export function LaboratoriesPage() {
                   style={{ padding: '3px 8px', fontSize: '0.72rem' }}
                   onClick={() => {
                     if (navigator.clipboard) {
-                      navigator.clipboard.writeText(`${originUrl}/lab/${regSuccess.code.toLowerCase()}`);
-                      setRegCopied(true);
-                      setTimeout(() => setRegCopied(false), 2000);
+                      navigator.clipboard.writeText(`${originUrl}/lab/${labSuccess.code.toLowerCase()}`);
+                      setLabCopied(true);
+                      setTimeout(() => setLabCopied(false), 2000);
                     }
                   }}
                 >
-                  {regCopied ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                  <span>{regCopied ? 'Copied!' : 'Copy Portal URL'}</span>
+                  {labCopied ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
+                  <span>{labCopied ? 'Copied!' : 'Copy Portal URL'}</span>
                 </button>
                 <a
-                  href={`${originUrl}/lab/${regSuccess.code.toLowerCase()}`}
+                  href={`${originUrl}/lab/${labSuccess.code.toLowerCase()}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn btn-primary btn-sm"
@@ -362,13 +692,13 @@ export function LaboratoriesPage() {
           )}
 
           {/* Error Banner */}
-          {regError && (
+          {labError && (
             <div
               style={{
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
                 borderRadius: '8px',
-                padding: '0.85rem 1rem',
+                padding: '0.75rem 1rem',
                 marginBottom: '1.25rem',
                 color: '#b91c1c',
                 fontSize: '0.825rem',
@@ -378,199 +708,431 @@ export function LaboratoriesPage() {
               }}
             >
               <AlertTriangle size={16} />
-              <span>{regError}</span>
+              <span>{labError}</span>
             </div>
           )}
 
-          <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Section 1: Facility Details */}
-            <div>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Building2 size={16} style={{ color: '#0284c7' }} />
-                <span>1. Facility Information</span>
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Laboratory Name *</label>
-                  <input
-                    type="text"
-                    name="name"
-                    className="form-input"
-                    placeholder="e.g. Apex Diagnostics Lab"
-                    value={regForm.name}
-                    onChange={handleRegInputChange}
-                    required
-                  />
-                </div>
+          <form onSubmit={handleLabRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+            {/* Line 1 (3 fields) */}
+            <div className="form-row-3col">
+              {/* Lab Name */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Laboratory Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  className="form-input"
+                  placeholder="e.g. Apex Diagnostics Lab"
+                  value={labForm.name}
+                  onChange={handleLabInputChange}
+                  style={{ borderColor: labErrors.name ? '#ef4444' : undefined }}
+                  required
+                />
+                {labErrors.name && (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.name}
+                  </span>
+                )}
+              </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Unique Lab Code * (Short Prefix)</label>
-                  <input
-                    type="text"
-                    name="code"
-                    className="form-input"
-                    placeholder="e.g. APEX-01"
-                    value={regForm.code}
-                    onChange={handleRegInputChange}
-                    style={{ textTransform: 'uppercase', fontFamily: 'monospace', fontWeight: 700 }}
-                    maxLength={16}
-                    required
-                  />
-                  <span className="form-hint">Used in URLs: /lab/apex-01</span>
-                </div>
+              {/* Lab Code */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Unique Lab Code <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="code"
+                  className="form-input"
+                  placeholder="e.g. APEX-01"
+                  value={labForm.code}
+                  onChange={handleLabInputChange}
+                  style={{
+                    textTransform: 'uppercase',
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    borderColor: labErrors.code ? '#ef4444' : undefined,
+                  }}
+                  maxLength={16}
+                  required
+                />
+                {labErrors.code ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.code}
+                  </span>
+                ) : (
+                  <span className="form-hint">URL slug: /lab/apex-01</span>
+                )}
+              </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Contact Email *</label>
-                  <input
-                    type="email"
-                    name="contactEmail"
-                    className="form-input"
-                    placeholder="lab@apexdiag.com"
-                    value={regForm.contactEmail}
-                    onChange={handleRegInputChange}
-                    required
-                  />
-                </div>
-
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Contact Phone</label>
-                  <input
-                    type="tel"
-                    name="contactPhone"
-                    className="form-input"
-                    placeholder="+91 98765 43210"
-                    value={regForm.contactPhone}
-                    onChange={handleRegInputChange}
-                  />
-                </div>
+              {/* Subscription Plan */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Subscription Plan <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  name="subscriptionPlan"
+                  className="form-select"
+                  value={labForm.subscriptionPlan}
+                  onChange={handleLabInputChange}
+                  required
+                >
+                  <option value="standard">Standard Plan</option>
+                  <option value="professional">Professional Plan</option>
+                  <option value="enterprise">Enterprise Plan</option>
+                </select>
               </div>
             </div>
 
-            {/* Section 2: Initial Administrator Account */}
-            <div>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Shield size={16} style={{ color: '#7c3aed' }} />
-                <span>2. Laboratory Administrator Account</span>
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Admin Full Name *</label>
-                  <input
-                    type="text"
-                    name="adminFullName"
-                    className="form-input"
-                    placeholder="Dr. Rajesh Kumar"
-                    value={regForm.adminFullName}
-                    onChange={handleRegInputChange}
-                    required
-                  />
-                </div>
+            {/* Line 2 (3 fields) */}
+            <div className="form-row-3col">
+              {/* Contact Email (must end with .com) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Contact Email <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  name="contactEmail"
+                  className="form-input"
+                  placeholder="lab@example.com"
+                  value={labForm.contactEmail}
+                  onChange={handleLabInputChange}
+                  style={{ borderColor: labErrors.contactEmail ? '#ef4444' : undefined }}
+                  required
+                />
+                {labErrors.contactEmail ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.contactEmail}
+                  </span>
+                ) : (
+                  <span className="form-hint">Must end with .com</span>
+                )}
+              </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Admin Login Email *</label>
-                  <input
-                    type="email"
-                    name="adminEmail"
-                    className="form-input"
-                    placeholder="admin@apexdiag.com"
-                    value={regForm.adminEmail}
-                    onChange={handleRegInputChange}
-                    required
-                  />
-                </div>
+              {/* Contact Phone (10 digits) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Contact Phone / Mobile <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="tel"
+                  name="contactPhone"
+                  className="form-input"
+                  placeholder="10-digit mobile number"
+                  value={labForm.contactPhone}
+                  onChange={handleLabInputChange}
+                  maxLength={10}
+                  style={{ borderColor: labErrors.contactPhone ? '#ef4444' : undefined }}
+                  required
+                />
+                {labErrors.contactPhone ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.contactPhone}
+                  </span>
+                ) : (
+                  <span className="form-hint">10 digits only</span>
+                )}
+              </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Temporary Password *</label>
-                  <input
-                    type="password"
-                    name="adminPassword"
-                    className="form-input"
-                    placeholder="••••••••••••"
-                    value={regForm.adminPassword}
-                    onChange={handleRegInputChange}
-                    minLength={8}
-                    required
-                  />
-                </div>
+              {/* Legal Registered Entity (Optional) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Legal Entity / Organization
+                </label>
+                <input
+                  type="text"
+                  name="legalName"
+                  className="form-input"
+                  placeholder="e.g. Apex Diagnostics LLP (Optional)"
+                  value={labForm.legalName}
+                  onChange={handleLabInputChange}
+                />
+                <span className="form-hint">Registered legal business name</span>
               </div>
             </div>
 
-            {/* Section 3: Branding & Whitelabel */}
-            <div>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Palette size={16} style={{ color: '#ea580c' }} />
-                <span>3. White-Label Branding</span>
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
+            {/* Line 3 (3 fields) */}
+            <div className="form-row-3col">
+              {/* City */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  City <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="addr_city"
+                  className="form-input"
+                  placeholder="e.g. Mumbai"
+                  value={labForm.address.city}
+                  onChange={handleLabInputChange}
+                  style={{ borderColor: labErrors.addr_city ? '#ef4444' : undefined }}
+                  required
+                />
+                {labErrors.addr_city && (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.addr_city}
+                  </span>
+                )}
+              </div>
+
+              {/* State */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  State <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="addr_state"
+                  className="form-input"
+                  placeholder="e.g. Maharashtra"
+                  value={labForm.address.state}
+                  onChange={handleLabInputChange}
+                  style={{ borderColor: labErrors.addr_state ? '#ef4444' : undefined }}
+                  required
+                />
+                {labErrors.addr_state && (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {labErrors.addr_state}
+                  </span>
+                )}
+              </div>
+
+              {/* Country */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Country
+                </label>
+                <input
+                  type="text"
+                  name="addr_country"
+                  className="form-input"
+                  placeholder="India"
+                  value={labForm.address.country || 'India'}
+                  onChange={handleLabInputChange}
+                />
+                <span className="form-hint">Operating region</span>
+              </div>
+            </div>
+
+            {/* Line 4: White-Label Branding & Portal Configuration Section */}
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.85)',
+                border: '1.5px solid #bae6fd',
+                borderRadius: '12px',
+                padding: '1.15rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.95rem',
+                boxShadow: '0 2px 8px rgba(14, 165, 233, 0.05)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  borderBottom: '1px solid #e0f2fe',
+                  paddingBottom: '0.6rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Palette size={16} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '0.925rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                      White-Label Branding & Custom Domain
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      Configure facility brand identity, colors, and dedicated whitelabel portal.
+                    </span>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    color: '#0369a1',
+                    background: '#e0f2fe',
+                    padding: '3px 8px',
+                    borderRadius: '20px',
+                  }}
+                >
+                  <Sparkles size={12} />
+                  White-Label Portal
+                </span>
+              </div>
+
+              {/* White-Label Inputs (3 columns) */}
+              <div className="form-row-3col">
+                {/* Display Brand Name */}
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Display Brand Name</label>
+                  <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                    White-Label Brand Display Name
+                  </label>
                   <input
                     type="text"
                     name="displayName"
                     className="form-input"
-                    placeholder="Apex Diagnostics & Imaging"
-                    value={regForm.displayName}
-                    onChange={handleRegInputChange}
+                    placeholder={labForm.name ? labForm.name : 'e.g. Apex Diagnostics Network'}
+                    value={labForm.displayName}
+                    onChange={handleLabInputChange}
                   />
+                  <span className="form-hint">Displayed on patient reports & portal banner</span>
                 </div>
 
+                {/* Custom Domain / Subdomain */}
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Primary Brand Color</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="color"
-                      name="primaryColor"
-                      value={regForm.primaryColor}
-                      onChange={handleRegInputChange}
-                      style={{ width: '40px', height: '36px', padding: 0, border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
-                    />
-                    <input
-                      type="text"
-                      name="primaryColor"
-                      className="form-input"
-                      value={regForm.primaryColor}
-                      onChange={handleRegInputChange}
-                      style={{ fontFamily: 'monospace' }}
-                    />
+                  <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                    Custom Hostname / Subdomain
+                  </label>
+                  <input
+                    type="text"
+                    name="domain"
+                    className="form-input"
+                    placeholder="e.g. apex.lab.medical365.local"
+                    value={labForm.domain}
+                    onChange={handleLabInputChange}
+                  />
+                  <span className="form-hint">For tenant hostname resolution (Optional)</span>
+                </div>
+
+                {/* Brand Colors */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                    Brand Colors (Primary & Accent)
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="color"
+                        name="primaryColor"
+                        value={labForm.primaryColor || '#2563EB'}
+                        onChange={handleLabInputChange}
+                        style={{ width: '36px', height: '36px', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', padding: 0 }}
+                        title="Choose Primary Brand Color"
+                      />
+                      <input
+                        type="text"
+                        name="primaryColor"
+                        className="form-input"
+                        value={labForm.primaryColor || '#2563EB'}
+                        onChange={handleLabInputChange}
+                        style={{ fontFamily: 'monospace', fontSize: '0.75rem', padding: '6px 8px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="color"
+                        name="accentColor"
+                        value={labForm.accentColor || '#22C1DC'}
+                        onChange={handleLabInputChange}
+                        style={{ width: '36px', height: '36px', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', padding: 0 }}
+                        title="Choose Accent Color"
+                      />
+                      <input
+                        type="text"
+                        name="accentColor"
+                        className="form-input"
+                        value={labForm.accentColor || '#22C1DC'}
+                        onChange={handleLabInputChange}
+                        style={{ fontFamily: 'monospace', fontSize: '0.75rem', padding: '6px 8px' }}
+                      />
+                    </div>
                   </div>
+                  <span className="form-hint">Colors used across portal UI & patient reports</span>
                 </div>
+              </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Accent Color</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="color"
-                      name="accentColor"
-                      value={regForm.accentColor}
-                      onChange={handleRegInputChange}
-                      style={{ width: '40px', height: '36px', padding: 0, border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
+              {/* Live Whitelabel Portal Preview Bar */}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px dashed #bae6fd',
+                  borderRadius: '8px',
+                  padding: '0.65rem 0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Globe size={15} style={{ color: labForm.primaryColor || '#2563EB' }} />
+                  <span style={{ fontSize: '0.775rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                    Generated Whitelabel URL:
+                  </span>
+                  <code style={{ fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1', padding: '3px 8px', borderRadius: '4px' }}>
+                    {`${originUrl}/lab/${(labForm.code || 'your-lab-code').toLowerCase()}`}
+                  </code>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: '#64748b' }}>
+                    <span>Live Theme Preview:</span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '14px',
+                        height: '14px',
+                        borderRadius: '50%',
+                        background: labForm.primaryColor || '#2563EB',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                      }}
+                      title="Primary Color"
                     />
-                    <input
-                      type="text"
-                      name="accentColor"
-                      className="form-input"
-                      value={regForm.accentColor}
-                      onChange={handleRegInputChange}
-                      style={{ fontFamily: 'monospace' }}
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '14px',
+                        height: '14px',
+                        borderRadius: '50%',
+                        background: labForm.accentColor || '#22C1DC',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                      }}
+                      title="Accent Color"
                     />
+                    <span style={{ fontWeight: 600, color: labForm.primaryColor || '#2563EB', marginLeft: '4px' }}>
+                      {labForm.displayName || labForm.name || 'Sample Laboratory'}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Form Actions */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '0.75rem', borderTop: '1px solid #e0f2fe' }}>
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => setShowRegisterForm(false)}
-                disabled={regLoading}
+                onClick={() => setActiveForm(null)}
+                disabled={labLoading}
               >
                 Cancel
               </button>
 
-              <button type="submit" className="btn btn-primary" disabled={regLoading}>
-                {regLoading ? (
+              <button type="submit" className="btn btn-primary" disabled={labLoading}>
+                {labLoading ? (
                   <>
                     <RefreshCw size={14} className="spin" />
                     <span>Provisioning Laboratory...</span>
@@ -579,6 +1141,451 @@ export function LaboratoriesPage() {
                   <>
                     <CheckCircle2 size={15} />
                     <span>Register & Provision Laboratory</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 2. Dedicated Laboratory Administrator Form */}
+      {activeForm === 'admin' && (
+        <div
+          className="card cool-form-card"
+          style={{
+            background: 'linear-gradient(145deg, #f0fdfa 0%, #f0f9ff 50%, #f8fafc 100%)',
+            border: '1.5px solid #bae6fd',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(14, 165, 233, 0.1), 0 8px 10px -6px rgba(14, 165, 233, 0.05)',
+            padding: '1.5rem',
+            animation: 'modalIn 0.2s ease-out',
+            marginBottom: '1.5rem',
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1.25rem',
+              paddingBottom: '0.75rem',
+              borderBottom: '1px solid #e0f2fe',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <UserPlus size={20} />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Add Laboratory Administrator
+                </h2>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.785rem', color: 'var(--slate-500)' }}>
+                  Provision dedicated administrator credentials for diagnostic facility operations.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveForm(null)}
+              className="btn-icon"
+              style={{ color: 'var(--slate-400)' }}
+              title="Close form"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Success Banner */}
+          {adminSuccess && (
+            <div
+              style={{
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '8px',
+                padding: '0.9rem 1rem',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: 700, fontSize: '0.9rem' }}>
+                <CheckCircle2 size={18} />
+                <span>
+                  Administrator "{adminSuccess.user?.fullName || adminForm.fullName}" ({adminSuccess.user?.email || adminForm.email}) Created Successfully!
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.8125rem', color: '#15803d' }}>
+                Assigned to <strong>{adminSuccess.lab?.name}</strong> ({adminSuccess.lab?.code}). Credentials are now active.
+              </p>
+              {adminSuccess.lab?.code && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                  <code style={{ fontSize: '0.775rem', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px', color: '#166534' }}>
+                    {`${originUrl}/lab/${adminSuccess.lab.code.toLowerCase()}`}
+                  </code>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(`${originUrl}/lab/${adminSuccess.lab.code.toLowerCase()}`);
+                        setAdminCopied(true);
+                        setTimeout(() => setAdminCopied(false), 2000);
+                      }
+                    }}
+                  >
+                    {adminCopied ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
+                    <span>{adminCopied ? 'Copied!' : 'Copy Portal URL'}</span>
+                  </button>
+                  <a
+                    href={`${originUrl}/lab/${adminSuccess.lab.code.toLowerCase()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-primary btn-sm"
+                    style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                  >
+                    <ExternalLink size={12} />
+                    <span>Open Portal</span>
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {adminError && (
+            <div
+              style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+                padding: '0.75rem 1rem',
+                marginBottom: '1.25rem',
+                color: '#b91c1c',
+                fontSize: '0.825rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <AlertTriangle size={16} />
+              <span>{adminError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAdminSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+            {/* Line 1 (3 fields) */}
+            <div className="form-row-3col">
+              {/* Target Diagnostic Laboratory */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Target Diagnostic Laboratory <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  name="laboratoryId"
+                  className="form-select"
+                  value={adminForm.laboratoryId}
+                  onChange={handleAdminInputChange}
+                  style={{ borderColor: adminErrors.laboratoryId ? '#ef4444' : undefined }}
+                  required
+                >
+                  <option value="">-- Choose Laboratory Facility --</option>
+                  {availableLabs.map((lab) => (
+                    <option key={lab.tenantId || lab._id} value={lab.tenantId || lab._id}>
+                      {lab.name} ({lab.code})
+                    </option>
+                  ))}
+                </select>
+                {adminErrors.laboratoryId ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.laboratoryId}
+                  </span>
+                ) : (
+                  <span className="form-hint">
+                    {availableLabs.length === 0
+                      ? 'No laboratories registered yet.'
+                      : 'Select assigned diagnostic facility.'}
+                  </span>
+                )}
+              </div>
+
+              {/* Admin Full Name */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Admin Full Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="fullName"
+                  className="form-input"
+                  placeholder="e.g. Dr. Rajesh Kumar"
+                  value={adminForm.fullName}
+                  onChange={handleAdminInputChange}
+                  style={{ borderColor: adminErrors.fullName ? '#ef4444' : undefined }}
+                  required
+                />
+                {adminErrors.fullName && (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.fullName}
+                  </span>
+                )}
+              </div>
+
+              {/* Age (Strictly 2 digits: 18 - 99) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Age <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  name="age"
+                  className="form-input"
+                  placeholder="2-digit age (e.g. 32)"
+                  value={adminForm.age}
+                  onChange={handleAdminInputChange}
+                  maxLength={2}
+                  style={{ borderColor: adminErrors.age ? '#ef4444' : undefined }}
+                  required
+                />
+                {adminErrors.age ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.age}
+                  </span>
+                ) : (
+                  <span className="form-hint">2 digits (18 - 99)</span>
+                )}
+              </div>
+            </div>
+
+            {/* Line 2 (3 fields) */}
+            <div className="form-row-3col">
+              {/* Admin Login Email (Strictly ends with .com) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Admin Email <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  className="form-input"
+                  placeholder="admin@hospital.com"
+                  value={adminForm.email}
+                  onChange={handleAdminInputChange}
+                  style={{ borderColor: adminErrors.email ? '#ef4444' : undefined }}
+                  required
+                />
+                {adminErrors.email ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.email}
+                  </span>
+                ) : (
+                  <span className="form-hint">Must end with .com</span>
+                )}
+              </div>
+
+              {/* Mobile Number (Strictly 10 digits) */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="tel"
+                  name="phone"
+                  className="form-input"
+                  placeholder="10-digit mobile number"
+                  value={adminForm.phone}
+                  onChange={handleAdminInputChange}
+                  maxLength={10}
+                  style={{ borderColor: adminErrors.phone ? '#ef4444' : undefined }}
+                  required
+                />
+                {adminErrors.phone ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.phone}
+                  </span>
+                ) : (
+                  <span className="form-hint">10 digits only</span>
+                )}
+              </div>
+
+              {/* Password (NOT temporary password) with Show/Hide toggle */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Password <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
+                    name="password"
+                    className="form-input"
+                    placeholder="Enter password (min 8 chars)"
+                    value={adminForm.password}
+                    onChange={handleAdminInputChange}
+                    minLength={8}
+                    style={{
+                      paddingRight: '38px',
+                      borderColor: adminErrors.password ? '#ef4444' : undefined,
+                    }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword((prev) => !prev)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    tabIndex={-1}
+                  >
+                    {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {adminErrors.password ? (
+                  <span style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px', display: 'block' }}>
+                    {adminErrors.password}
+                  </span>
+                ) : (
+                  <span className="form-hint">Minimum 8 characters</span>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Row: Simple Profile Photo Upload & Department */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: '1rem',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.75)',
+                padding: '0.9rem 1.15rem',
+                borderRadius: '10px',
+                border: '1px solid #bae6fd',
+              }}
+            >
+              {/* Profile Photo (Optional - Clean modern simple avatar uploader) */}
+              <div>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600, marginBottom: '6px', display: 'block' }}>
+                  Profile Photo <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Optional)</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      background: adminForm.profilePhoto ? 'transparent' : '#e0f2fe',
+                      border: '2px solid #bae6fd',
+                      overflow: 'hidden',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {adminForm.profilePhoto ? (
+                      <img
+                        src={adminForm.profilePhoto}
+                        alt="Profile Preview"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <User size={22} style={{ color: '#0284c7' }} />
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label
+                      htmlFor="adminPhotoUpload"
+                      className="btn btn-secondary btn-sm"
+                      style={{ cursor: 'pointer', margin: 0, padding: '5px 12px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <Camera size={13} />
+                      <span>{adminForm.profilePhoto ? 'Change Photo' : 'Upload Photo'}</span>
+                    </label>
+                    <input
+                      id="adminPhotoUpload"
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleAdminPhotoUpload}
+                    />
+                    {adminForm.profilePhoto && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAdminPhoto}
+                        className="btn btn-danger btn-sm"
+                        style={{ padding: '5px 8px', fontSize: '0.75rem' }}
+                        title="Remove photo"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                    <span style={{ fontSize: '0.725rem', color: '#64748b' }}>JPG/PNG max 2MB</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Department / Designation */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                  Department / Designation
+                </label>
+                <input
+                  type="text"
+                  name="department"
+                  className="form-input"
+                  placeholder="e.g. Administration / Lab In-Charge"
+                  value={adminForm.department}
+                  onChange={handleAdminInputChange}
+                />
+              </div>
+            </div>
+
+            {/* Form Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '0.75rem', borderTop: '1px solid #e0f2fe' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setActiveForm(null)}
+                disabled={adminLoading}
+              >
+                Cancel
+              </button>
+
+              <button type="submit" className="btn btn-primary" disabled={adminLoading}>
+                {adminLoading ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    <span>Creating Administrator...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserCheck size={15} />
+                    <span>Create Administrator Account</span>
                   </>
                 )}
               </button>
@@ -681,7 +1688,7 @@ export function LaboratoriesPage() {
                 : 'No diagnostic laboratories have been onboarded to this multi-tenant platform yet.'
             }
             action={
-              <button onClick={() => setShowRegisterForm(true)} className="btn btn-primary">
+              <button onClick={() => setActiveForm('laboratory')} className="btn btn-primary">
                 <PlusCircle size={15} />
                 <span>Onboard First Laboratory</span>
               </button>

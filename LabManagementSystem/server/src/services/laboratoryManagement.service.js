@@ -572,6 +572,43 @@ class LaboratoryManagementService {
   }
 
   /**
+   * Delete laboratory and clean up associated records
+   */
+  async deleteLaboratory(idOrTenantId, actor = {}) {
+    const existing = await this.getLaboratoryById(idOrTenantId);
+    const tenantId = existing.tenantId;
+
+    if (this.isMongoActive()) {
+      await TenantModel.deleteOne({ $or: [{ tenantId }, { _id: existing.id || existing._id }] });
+      try {
+        if (mongoose.connection && mongoose.connection.collection) {
+          await mongoose.connection.collection('users').deleteMany({ tenantId });
+        }
+      } catch (err) {
+        logger.warn(`[DELETE_LAB] Non-critical user cleanup warning for ${tenantId}: ${err.message}`);
+      }
+
+      await auditLogService.logEvent({
+        action: 'LABORATORY_DELETED',
+        targetTenantId: tenantId,
+        actor,
+        metadata: { name: existing.name, code: existing.code },
+      });
+      return { success: true, tenantId, code: existing.code };
+    }
+
+    // In-memory
+    this.memoryTenants.delete(tenantId);
+    await auditLogService.logEvent({
+      action: 'LABORATORY_DELETED',
+      targetTenantId: tenantId,
+      actor,
+      metadata: { name: existing.name, code: existing.code },
+    });
+    return { success: true, tenantId, code: existing.code };
+  }
+
+  /**
    * Transition laboratory lifecycle status
    */
   async transitionStatus(idOrTenantId, targetStatus, reason = null, actor = {}) {
