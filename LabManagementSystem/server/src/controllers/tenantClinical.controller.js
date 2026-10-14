@@ -113,6 +113,19 @@ export class TenantClinicalController {
     }
   }
 
+  static async getSample(req, res, next) {
+    try {
+      const { tenantId, sampleId } = req.params;
+      const sample = await tenantClinicalService.getSampleById(tenantId, sampleId);
+      return ApiResponse.success(res, sample, 'Sample retrieved successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   static async updateSampleStatus(req, res, next) {
     try {
       const { tenantId } = req.params;

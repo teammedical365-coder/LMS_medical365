@@ -302,3 +302,46 @@ p {
 @media (max-width: 640px) {
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* Dropdown Menu Constrained 3-Item Visibility with Smooth Scroll */
+.custom-select-dropdown,
+.dropdown-menu,
+.custom-dropdown-list,
+.select-scroll-3 {
+  max-height: 118px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+
+.custom-select-dropdown::-webkit-scrollbar,
+.dropdown-menu::-webkit-scrollbar,
+.custom-dropdown-list::-webkit-scrollbar,
+.select-scroll-3::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-track,
+.dropdown-menu::-webkit-scrollbar-track,
+.custom-dropdown-list::-webkit-scrollbar-track,
+.select-scroll-3::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-thumb,
+.dropdown-menu::-webkit-scrollbar-thumb,
+.custom-dropdown-list::-webkit-scrollbar-thumb,
+.select-scroll-3::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-thumb:hover,
+.dropdown-menu::-webkit-scrollbar-thumb:hover,
+.custom-dropdown-list::-webkit-scrollbar-thumb:hover,
+.select-scroll-3::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+

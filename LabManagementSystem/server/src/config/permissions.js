@@ -213,7 +213,7 @@ export const DEFAULT_LAB_ROLES = [
     name: 'Front Desk / Patient Intake',
     description: 'Registers incoming patients, schedules tests, and generates requisition intake orders.',
     dashboardPath: '/patients',
-    navigationItems: ['dashboard', 'patients', 'orders'],
+    navigationItems: ['dashboard', 'patients'],
     permissions: [
       'patients:view', 'patients:create', 'patients:update',
       'orders:view', 'orders:create',

@@ -38,6 +38,9 @@ export const clinicalService = {
   getSamples: (tenantId, params = {}) =>
     api.get(`/tenants/${tenantId}/samples`, { params }).then((res) => res.data),
 
+  getSampleById: (tenantId, sampleId) =>
+    api.get(`/tenants/${tenantId}/samples/${encodeURIComponent(sampleId)}`).then((res) => res.data),
+
   updateSampleStatus: (tenantId, sampleId, updates) =>
     api.patch(`/tenants/${tenantId}/samples/${sampleId}/status`, updates).then((res) => res.data),
 

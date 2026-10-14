@@ -40,6 +40,7 @@ tenantClinicalRouter.get('/orders/:orderId/labels', requirePermission('samples:v
 // SPECIMEN & SAMPLE TRACKING & RECOLLECTION
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/samples', requirePermission('samples:view'), tenantClinicalController.listSamples);
+tenantClinicalRouter.get('/samples/:sampleId', requirePermission('samples:view'), tenantClinicalController.getSample);
 tenantClinicalRouter.get('/samples/recollections', requirePermission('samples:view'), tenantClinicalController.listRecollectionTasks);
 tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.resolveRecollectionTask);
 tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);

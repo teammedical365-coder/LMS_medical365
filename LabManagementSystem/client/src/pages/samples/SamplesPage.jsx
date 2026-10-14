@@ -244,11 +244,22 @@ export function SamplesPage() {
 
   const printLabelHtml = (labelData) => {
     if (!labelData) return;
-    const printWindow = window.open('', '_blank', 'width=460,height=320');
+    const printWindow = window.open('', '_blank', 'width=520,height=340');
     if (!printWindow) {
       notify.warning('Please allow popups to print barcode labels');
       return;
     }
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const hours = String(now.getHours() % 12 || 12).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+    const realTimeTimestamp = `${day}/${month}/${year} ${hours}:${minutes}:${seconds} ${ampm}`;
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -256,7 +267,7 @@ export function SamplesPage() {
           <title>Specimen Label - ${labelData.barcode}</title>
           <style>
             @page {
-              size: 50mm 25mm;
+              size: 60mm 25mm;
               margin: 0;
             }
             * {
@@ -265,9 +276,9 @@ export function SamplesPage() {
               padding: 0;
             }
             body {
-              width: 50mm;
+              width: 60mm;
               height: 25mm;
-              padding: 1.5mm 2mm;
+              padding: 1.5mm 2.5mm;
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
               background: #fff;
               color: #000;
@@ -280,8 +291,8 @@ export function SamplesPage() {
               display: flex;
               justify-content: space-between;
               align-items: center;
-              font-size: 7pt;
-              font-weight: 700;
+              font-size: 7.5pt;
+              font-weight: 800;
               line-height: 1.1;
               border-bottom: 0.5px solid #000;
               padding-bottom: 0.5mm;
@@ -289,7 +300,7 @@ export function SamplesPage() {
             .hdr-lab {
               text-transform: uppercase;
               letter-spacing: 0.2px;
-              max-width: 34mm;
+              max-width: 42mm;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
@@ -298,7 +309,7 @@ export function SamplesPage() {
               font-size: 6.5pt;
               background: #000;
               color: #fff;
-              padding: 0.2mm 1mm;
+              padding: 0.2mm 1.5mm;
               border-radius: 1px;
               font-weight: 800;
             }
@@ -306,21 +317,21 @@ export function SamplesPage() {
               display: flex;
               justify-content: space-between;
               align-items: baseline;
-              font-size: 7pt;
+              font-size: 7.5pt;
               line-height: 1.1;
               margin-top: 0.5mm;
             }
             .patient-name {
-              font-weight: 700;
-              max-width: 32mm;
+              font-weight: 800;
+              max-width: 38mm;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
             }
             .patient-mrn {
               font-family: monospace;
-              font-size: 6.5pt;
-              font-weight: 700;
+              font-size: 7pt;
+              font-weight: 800;
             }
             .barcode-wrap {
               display: flex;
@@ -329,7 +340,7 @@ export function SamplesPage() {
               margin: 0.3mm 0;
             }
             .barcode-wrap svg {
-              width: 44mm;
+              width: 54mm;
               height: 11mm;
               display: block;
             }
@@ -337,22 +348,24 @@ export function SamplesPage() {
               display: flex;
               justify-content: space-between;
               align-items: flex-end;
-              font-size: 5.5pt;
-              line-height: 1;
-              border-top: 0.5px solid #ccc;
+              font-size: 6pt;
+              line-height: 1.1;
+              border-top: 0.5px solid #000;
               padding-top: 0.5mm;
             }
             .ftr-tests {
-              font-weight: 600;
-              max-width: 30mm;
+              font-weight: 700;
+              max-width: 28mm;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
             }
             .ftr-date {
               font-family: monospace;
-              font-size: 5pt;
-              color: #333;
+              font-size: 6.5pt;
+              font-weight: 800;
+              color: #000;
+              white-space: nowrap;
             }
           </style>
         </head>
@@ -370,7 +383,7 @@ export function SamplesPage() {
           </div>
           <div class="ftr">
             <div class="ftr-tests">${labelData.container || 'Specimen'} | ${labelData.testsSummary || ''}</div>
-            <div class="ftr-date">${labelData.collectionDate || ''}</div>
+            <div class="ftr-date">${realTimeTimestamp}</div>
           </div>
           <script>
             window.onload = function() {
@@ -533,6 +546,34 @@ export function SamplesPage() {
     }
   };
 
+  const handleScannerEnter = async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = searchTerm.trim();
+      if (!query) return;
+
+      const localMatch = samples.find(
+        (s) => s.barcode?.toUpperCase() === query.toUpperCase() || s.sampleId === query
+      );
+      if (localMatch) {
+        setSelectedSample(localMatch);
+        notify.success(`Specimen found: ${localMatch.barcode} (${localMatch.patientName})`);
+        return;
+      }
+
+      try {
+        const res = await clinicalService.getSampleById(tenantId, query);
+        if (res.data) {
+          setSamples((prev) => [res.data, ...prev.filter((s) => s.sampleId !== res.data.sampleId)]);
+          setSelectedSample(res.data);
+          notify.success(`Specimen found: ${res.data.barcode} (${res.data.patientName})`);
+        }
+      } catch (err) {
+        notify.error(err, { fallback: `Barcode '${query}' not found in laboratory records` });
+      }
+    }
+  };
+
   // Filtering for Active Bench
   const filteredSamples = samples.filter((s) => {
     const term = searchTerm.toLowerCase();
@@ -660,11 +701,12 @@ export function SamplesPage() {
                 <Search size={16} style={{ color: 'var(--slate-400)' }} />
                 <input
                   type="text"
-                  placeholder="Scan or search barcode (BAR-...), MRN, Patient, or Order #..."
+                  placeholder="Scan or search barcode (e.g. JPL-100-01, CHN-100-01), MRN, Patient, or Order #..."
                   className="form-input"
                   style={{ border: 'none', padding: '0.35rem 0', width: '100%' }}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={handleScannerEnter}
                 />
               </div>
 
@@ -802,7 +844,7 @@ export function SamplesPage() {
                                   <button
                                     className="btn btn-secondary btn-sm"
                                     onClick={() => handleOpenLabel(s)}
-                                    title="Print 50x25 mm Code 128 barcode label"
+                                    title="Print 60x25 mm Code 128 barcode label"
                                     style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
                                   >
                                     <Printer size={12} />
@@ -949,7 +991,7 @@ export function SamplesPage() {
                                   <button
                                     className="btn btn-secondary btn-sm"
                                     onClick={() => handleOpenLabel(s)}
-                                    title="Print 50x25 mm Code 128 barcode label"
+                                    title="Print 60x25 mm Code 128 barcode label"
                                     style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
                                   >
                                     <Printer size={12} />
@@ -1564,7 +1606,7 @@ export function SamplesPage() {
         })()}
       </Modal>
 
-      {/* 50 x 25 mm Barcode Label Modal */}
+      {/* 60 x 25 mm Barcode Label Modal */}
       <Modal
         isOpen={!!labelModalData}
         onClose={() => setLabelModalData(null)}
@@ -1572,7 +1614,7 @@ export function SamplesPage() {
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
-              Standard: 50 × 25 mm • Code 128
+              Standard: 60 × 25 mm • Code 128
             </span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button className="btn btn-secondary" onClick={() => setLabelModalData(null)}>
@@ -1584,7 +1626,7 @@ export function SamplesPage() {
                 onClick={() => printLabelHtml(labelModalData)}
               >
                 <Printer size={14} />
-                Print Label (50x25 mm)
+                Print Label (60x25 mm)
               </button>
             </div>
           </div>
@@ -1593,13 +1635,13 @@ export function SamplesPage() {
         {labelModalData && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
             <p style={{ fontSize: '0.8125rem', color: 'var(--slate-600)', textAlign: 'center' }}>
-              Thermal roll print preview formatted to physical dimensions of <strong>50 mm × 25 mm</strong>:
+              Thermal roll print preview formatted to physical dimensions of <strong>60 mm × 25 mm</strong>:
             </p>
 
             {/* Label Visual Simulation Card */}
             <div
               style={{
-                width: '320px',
+                width: '380px',
                 minHeight: '160px',
                 border: '2px solid #000',
                 borderRadius: '4px',
@@ -1614,17 +1656,17 @@ export function SamplesPage() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #000', paddingBottom: '3px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   {labelModalData.labName}
                 </span>
-                <span style={{ fontSize: '0.7rem', background: '#000', color: '#fff', padding: '1px 6px', borderRadius: '2px', fontWeight: 700 }}>
+                <span style={{ fontSize: '0.7rem', background: '#000', color: '#fff', padding: '1px 6px', borderRadius: '2px', fontWeight: 800 }}>
                   {labelModalData.tubeTag}
                 </span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>{labelModalData.patientName}</span>
-                <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700 }}>{labelModalData.patientMrn}</span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 800 }}>{labelModalData.patientName}</span>
+                <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 800 }}>{labelModalData.patientMrn}</span>
               </div>
 
               <div
@@ -1632,13 +1674,13 @@ export function SamplesPage() {
                 dangerouslySetInnerHTML={{ __html: labelModalData.svg }}
               />
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #ccc', paddingTop: '4px', fontSize: '0.65rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #000', paddingTop: '4px', fontSize: '0.65rem' }}>
                 <div>
-                  <div style={{ fontWeight: 700 }}>{labelModalData.container}</div>
-                  <div style={{ color: '#444' }}>{labelModalData.testsSummary}</div>
+                  <div style={{ fontWeight: 800 }}>{labelModalData.container}</div>
+                  <div style={{ color: '#222', fontWeight: 600 }}>{labelModalData.testsSummary}</div>
                 </div>
-                <div style={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#555', textAlign: 'right' }}>
-                  {labelModalData.collectionDate}
+                <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', fontWeight: 800, color: '#000', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                 </div>
               </div>
             </div>

@@ -24,7 +24,6 @@ import {
   Calendar,
   X,
   CheckCircle2,
-  Timer,
   ArrowRight,
   UserCheck,
   Stethoscope,
@@ -36,7 +35,6 @@ import {
   QrCode,
   FileCheck,
   Loader2,
-  Layers,
   Search,
   Receipt,
   AlertCircle,
@@ -93,6 +91,7 @@ export function DashboardPage() {
   const [queuePage, setQueuePage] = useState(1);
   const [reportQueueFilter, setReportQueueFilter] = useState('actionable'); // 'actionable' | 'pending' | 'approved' | 'rejected' | 'all'
   const [reportQueuePage, setReportQueuePage] = useState(1);
+  const [recentOrdersPage, setRecentOrdersPage] = useState(1);
 
   const tenantId = user?.tenantId || tenant?.tenantId;
   const userRole = (user?.role || 'lab_admin').toLowerCase();
@@ -218,6 +217,12 @@ export function DashboardPage() {
   };
 
   const recentOrders = dashboardData?.recentOrders || [];
+  const RECENT_ORDERS_PAGE_SIZE = 5;
+  const totalRecentOrdersPages = Math.max(1, Math.ceil(recentOrders.length / RECENT_ORDERS_PAGE_SIZE));
+  const currentRecentOrdersPage = Math.min(recentOrdersPage, totalRecentOrdersPages);
+  const startOrderIdx = (currentRecentOrdersPage - 1) * RECENT_ORDERS_PAGE_SIZE;
+  const displayedRecentOrders = recentOrders.slice(startOrderIdx, startOrderIdx + RECENT_ORDERS_PAGE_SIZE);
+
   const recentReports = dashboardData?.recentReports || [];
   const recentSamples = dashboardData?.recentSamples || [];
 
@@ -943,14 +948,14 @@ export function DashboardPage() {
       <div
         className="overview-hero-banner overview-hero-banner-flush"
         style={{
-          background: 'linear-gradient(135deg, #e0f2fe 0%, #ecfdf5 45%, #f0fdf4 100%)',
+          background: 'linear-gradient(135deg, #fdf4ff 0%, #f5f3ff 45%, #eff6ff 100%)',
           borderRadius: '0 0 16px 16px',
           padding: '1.5rem 1.75rem',
           color: '#0f172a',
-          boxShadow: '0 4px 20px -2px rgba(2, 132, 199, 0.08), 0 2px 6px rgba(16, 185, 129, 0.05)',
+          boxShadow: '0 4px 20px -2px rgba(124, 58, 237, 0.05), 0 2px 6px rgba(15, 23, 42, 0.03)',
           position: 'relative',
           overflow: 'hidden',
-          borderBottom: '1.5px solid #bae6fd',
+          borderBottom: '1.5px solid #e9d5ff',
           borderTop: 'none',
           borderLeft: 'none',
           borderRight: 'none',
@@ -960,107 +965,90 @@ export function DashboardPage() {
         <div
           style={{
             position: 'absolute',
-            top: '-50%',
-            right: '-10%',
-            width: '380px',
-            height: '380px',
-            background: 'radial-gradient(circle, rgba(167, 243, 208, 0.45) 0%, rgba(224, 242, 254, 0) 70%)',
+            top: '-40%',
+            right: '-5%',
+            width: '360px',
+            height: '360px',
+            background: 'radial-gradient(circle, rgba(196, 181, 253, 0.35) 0%, rgba(245, 243, 255, 0) 70%)',
             pointerEvents: 'none',
           }}
         />
         <div
           style={{
             position: 'absolute',
-            bottom: '-50%',
-            left: '20%',
+            bottom: '-40%',
+            left: '15%',
             width: '320px',
             height: '320px',
-            background: 'radial-gradient(circle, rgba(186, 230, 253, 0.4) 0%, rgba(240, 253, 244, 0) 70%)',
+            background: 'radial-gradient(circle, rgba(167, 243, 208, 0.3) 0%, rgba(240, 253, 244, 0) 70%)',
             pointerEvents: 'none',
           }}
         />
 
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.45rem', flexWrap: 'wrap' }}>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
-                  border: '1px solid #bfdbfe',
-                  borderRadius: '20px',
-                  padding: '3px 12px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  color: '#1d4ed8',
-                  boxShadow: '0 2px 6px rgba(37, 99, 235, 0.08)',
-                }}
-              >
-                <Sparkles size={12} color="#2563eb" />
-                <span>{labName}</span>
-                {labCode && <span style={{ opacity: 0.7 }}>• {labCode}</span>}
-              </span>
-
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '20px',
-                  padding: '3px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  color: '#059669',
-                }}
-              >
-                <ShieldCheck size={12} color="#059669" />
-                <span style={{ textTransform: 'capitalize' }}>{roleDisplayName}</span>
-              </span>
-
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '20px',
-                  padding: '3px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 500,
-                  color: '#64748b',
-                }}
-              >
-                <Calendar size={12} color="#64748b" />
-                <span>{formattedDate}</span>
-              </span>
-            </div>
-
             <h1
               style={{
                 fontSize: 'clamp(1.4rem, 2.5vw, 1.85rem)',
                 fontWeight: 800,
-                background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 50%, #0d9488 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
                 lineHeight: 1.25,
                 margin: '0 0 0.35rem 0',
                 letterSpacing: '-0.02em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
               }}
             >
-              {getGreeting()}, {userName}! 👋
+              <span
+                style={{
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #9333ea 50%, #a855f7 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
+              >
+                {getGreeting()}, {userName}!
+              </span>
+              <span
+                role="img"
+                aria-label="wave"
+                style={{
+                  display: 'inline-block',
+                  fontSize: '1.45rem',
+                  lineHeight: 1,
+                  WebkitTextFillColor: 'initial',
+                }}
+              >
+                👋
+              </span>
             </h1>
 
-            <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569', lineHeight: 1.45, maxWidth: '640px' }}>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.45, maxWidth: '640px' }}>
               Welcome back to {labName}. Here is your live laboratory overview and operational summary today.
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', marginLeft: 'auto' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(6px)',
+                border: '1px solid #e2e8f0',
+                borderRadius: '20px',
+                padding: '4px 12px',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: '#64748b',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+              }}
+            >
+              <Calendar size={13} style={{ color: '#7c3aed' }} />
+              <span>{formattedDate}</span>
+            </span>
+
             <button
               onClick={fetchDashboard}
               style={{
@@ -1113,8 +1101,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Workstation View Toggle Tabs */}
-      {(isLabAdmin || isPathologist || isLabTechnician || isReceptionist) && (
+      {/* Workstation View Toggle Tabs (For Non-Admin Clinical Staff) */}
+      {!isLabAdmin && (isPathologist || isLabTechnician) && (
         <div
           style={{
             display: 'flex',
@@ -1124,85 +1112,49 @@ export function DashboardPage() {
             paddingBottom: '2px',
           }}
         >
-          <button
-            onClick={() => setWorkstationView('all')}
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              border: 'none',
-              background: 'none',
-              color: workstationView === 'all' ? 'var(--primary-blue)' : 'var(--slate-500)',
-              borderBottom: workstationView === 'all' ? '2px solid var(--primary-blue)' : '2px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <Layers size={16} />
-            <span>Executive Laboratory Overview</span>
-          </button>
+          {isPathologist && (
+            <button
+              onClick={() => setWorkstationView('pathologist')}
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                border: 'none',
+                background: 'none',
+                color: workstationView === 'pathologist' ? '#b91c1c' : 'var(--slate-500)',
+                borderBottom: workstationView === 'pathologist' ? '2px solid #b91c1c' : '2px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <Stethoscope size={16} />
+              <span>Pathologist Sign-Off Queue ({metrics.pendingReviewReports})</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setWorkstationView('pathologist')}
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              border: 'none',
-              background: 'none',
-              color: workstationView === 'pathologist' ? '#b91c1c' : 'var(--slate-500)',
-              borderBottom: workstationView === 'pathologist' ? '2px solid #b91c1c' : '2px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <Stethoscope size={16} />
-            <span>Pathologist Sign-Off Queue ({metrics.pendingReviewReports})</span>
-          </button>
-
-          <button
-            onClick={() => setWorkstationView('technician')}
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              border: 'none',
-              background: 'none',
-              color: workstationView === 'technician' ? '#2563eb' : 'var(--slate-500)',
-              borderBottom: workstationView === 'technician' ? '2px solid #2563eb' : '2px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <FlaskConical size={16} />
-            <span>Analyzer Testing Bench ({metrics.inAnalysisSamples})</span>
-          </button>
-
-          <button
-            onClick={() => setWorkstationView('receptionist')}
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              border: 'none',
-              background: 'none',
-              color: workstationView === 'receptionist' ? '#0284c7' : 'var(--slate-500)',
-              borderBottom: workstationView === 'receptionist' ? '2px solid #0284c7' : '2px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <Users size={16} />
-            <span>Reception & Intake Desk ({todaySummary.todayOrders ?? metrics.todayOrders ?? 0})</span>
-          </button>
+          {isLabTechnician && (
+            <button
+              onClick={() => setWorkstationView('technician')}
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                border: 'none',
+                background: 'none',
+                color: workstationView === 'technician' ? '#2563eb' : 'var(--slate-500)',
+                borderBottom: workstationView === 'technician' ? '2px solid #2563eb' : '2px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <FlaskConical size={16} />
+              <span>Analyzer Testing Bench ({metrics.inAnalysisSamples})</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1768,133 +1720,7 @@ export function DashboardPage() {
         </section>
       )}
 
-      {/* ========================================================================= */}
-      {/* 3. DEDICATED PATIENT INTAKE & BILLING RECEPTION DESK WORKSTATION */}
-      {/* ========================================================================= */}
-      {(isReceptionist || workstationView === 'receptionist') && (
-        <section style={{ marginBottom: '1.75rem' }}>
-          {/* Receptionist Intake & Billing KPI Banner */}
-          <div
-            style={{
-              background: 'linear-gradient(135deg, #0e7490 0%, #0369a1 100%)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '1.5rem',
-              color: 'white',
-              marginBottom: '1.25rem',
-              boxShadow: 'var(--shadow-md)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <Users size={22} style={{ color: '#bae6fd' }} />
-                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: 'white' }}>
-                    Patient Intake & Billing Reception Desk
-                  </h2>
-                </div>
-                <p style={{ fontSize: '0.875rem', color: '#bae6fd', margin: 0, maxWidth: '650px' }}>
-                  Front desk intake portal: Patient registration, test booking, fee settlement, and requisition tracking.
-                </p>
-              </div>
 
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.todayOrders ?? metrics.todayOrders ?? 0}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Today's Bookings</div>
-                </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>{todaySummary.pendingOrders ?? metrics.pendingOrders ?? 0}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Pending Orders</div>
-                </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>₹{(metrics.totalRevenue || 0).toLocaleString()}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Settled Collections</div>
-                </div>
-                <div style={{ background: 'rgba(255, 255, 255, 0.15)', padding: '8px 16px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.375rem', fontWeight: 700 }}>₹{(metrics.totalOutstanding || 0).toLocaleString()}</div>
-                  <div style={{ fontSize: '0.6875rem', color: '#bae6fd' }}>Outstanding Balance</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Receptionist Quick Action Strip */}
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
-              <Link
-                to="/patients?register=true"
-                style={{
-                  fontSize: '0.8125rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'white',
-                  color: '#0369a1',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  textDecoration: 'none',
-                }}
-              >
-                <Users size={14} />
-                <span>New Patient Intake & Order</span>
-              </Link>
-              <Link
-                to="/orders"
-                style={{
-                  fontSize: '0.8125rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'rgba(255,255,255,0.15)',
-                  color: 'white',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontWeight: 500,
-                  textDecoration: 'none',
-                }}
-              >
-                <ClipboardList size={14} />
-                <span>Quick Order Booking</span>
-              </Link>
-              <Link
-                to="/billing"
-                style={{
-                  fontSize: '0.8125rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'rgba(255,255,255,0.15)',
-                  color: 'white',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontWeight: 500,
-                  textDecoration: 'none',
-                }}
-              >
-                <CreditCard size={14} />
-                <span>Billing & Fee Collections</span>
-              </Link>
-              <Link
-                to="/patients"
-                style={{
-                  fontSize: '0.8125rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'rgba(255,255,255,0.15)',
-                  color: 'white',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontWeight: 500,
-                  textDecoration: 'none',
-                }}
-              >
-                <Search size={14} />
-                <span>Lookup Patient Profiles</span>
-              </Link>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* ========================================================================= */}
       {/* 4. DYNAMIC OPERATIONAL OVERVIEW (Rendered for Permitted Roles) */}
@@ -1946,17 +1772,6 @@ export function DashboardPage() {
                   subtitle="Diagnostic releases today"
                   icon={CheckCircle2}
                   colorScheme="green"
-                />
-                <StatCard
-                  title="Average Report TAT Today"
-                  value={loading ? '...' : (todaySummary.formattedTat || 'N/A')}
-                  subtitle={
-                    todaySummary.tatReportCount > 0
-                      ? `Across ${todaySummary.tatReportCount} released report${todaySummary.tatReportCount === 1 ? '' : 's'}`
-                      : 'No released reports with valid timestamps'
-                  }
-                  icon={Timer}
-                  colorScheme="purple"
                 />
               </div>
             </section>
@@ -2047,7 +1862,7 @@ export function DashboardPage() {
                         </td>
                       </tr>
                     ) : (
-                      recentOrders.map((order) => (
+                      displayedRecentOrders.map((order) => (
                         <tr key={order.orderId || order.orderNumber}>
                           <td>
                             <strong style={{ color: 'var(--primary-700)', fontFamily: 'monospace' }}>
@@ -2090,129 +1905,43 @@ export function DashboardPage() {
                   </tbody>
                 </table>
               </div>
-            </section>
-          )}
 
-          {/* Reception Billing & Collections Ledger Summary (Receptionist & Front Desk) */}
-          {(isReceptionist || workstationView === 'receptionist') && (
-            <section className="card" style={{ marginBottom: '1.5rem' }}>
-              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Receipt size={18} style={{ color: '#0d9488' }} />
-                  <h2 className="card-title">Front Desk Billing & Collections Ledger</h2>
+              {/* Pagination & Summary Footer for Recent Laboratory Activity (5 records per page) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--slate-50, #f8fafc)', borderTop: '1px solid var(--border-color, #e2e8f0)', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                  Showing <strong>{recentOrders.length === 0 ? 0 : startOrderIdx + 1}</strong> to <strong>{Math.min(startOrderIdx + RECENT_ORDERS_PAGE_SIZE, recentOrders.length)}</strong> of <strong>{recentOrders.length}</strong> requisitions
                 </div>
-                <Link to="/billing" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Open Billing Ledger</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </div>
-
-              <div style={{ padding: '1.25rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-                  <div style={{ padding: '1rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--slate-200)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced</div>
-                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--slate-900)', marginTop: '4px' }}>
-                      ₹{((metrics.totalRevenue || 0) + (metrics.totalOutstanding || 0)).toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>Gross requisition billings</div>
+                {totalRecentOrdersPages > 1 && (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={currentRecentOrdersPage <= 1}
+                      onClick={() => setRecentOrdersPage((p) => Math.max(1, p - 1))}
+                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <ChevronLeft size={13} />
+                      <span>Prev</span>
+                    </button>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                      Page {currentRecentOrdersPage} of {totalRecentOrdersPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={currentRecentOrdersPage >= totalRecentOrdersPages}
+                      onClick={() => setRecentOrdersPage((p) => Math.min(totalRecentOrdersPages, p + 1))}
+                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <span>Next</span>
+                      <ChevronRight size={13} />
+                    </button>
                   </div>
-
-                  <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: 'var(--radius-md)', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>Settled Collections</div>
-                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#166534', marginTop: '4px' }}>
-                      ₹{(metrics.totalRevenue || 0).toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: '2px' }}>Receipted payments</div>
-                  </div>
-
-                  <div style={{ padding: '1rem', background: '#fffbeb', borderRadius: 'var(--radius-md)', border: '1px solid #fde68a' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#92400e', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance Due</div>
-                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#b45309', marginTop: '4px' }}>
-                      ₹{(metrics.totalOutstanding || 0).toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#92400e', marginTop: '2px' }}>Pending front desk collection</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', background: 'var(--slate-100)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)' }}>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
-                    Collect patient dues directly during requisition booking or settle balances from the Billing page.
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <Link to="/patients?register=true" className="btn btn-secondary btn-sm">
-                      Intake Patient With Payment
-                    </Link>
-                    <Link to="/billing" className="btn btn-primary btn-sm">
-                      Collect Invoice Dues
-                    </Link>
-                  </div>
-                </div>
+                )}
               </div>
             </section>
           )}
 
-          {/* Laboratory Staff Directory Section */}
-          {!isReceptionist && hasPermission('users:view') && (
-            <section className="card">
-              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Users size={18} style={{ color: 'var(--primary-blue, #2563eb)' }} />
-                  <h2 className="card-title">
-                    Laboratory Staff & Team Directory ({dashboardData?.staff?.length || 0})
-                  </h2>
-                </div>
-                <Link to="/users" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Manage Staff Members</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </div>
-
-              <div className="table-container">
-                <table className="lms-table">
-                  <thead>
-                    <tr>
-                      <th>Staff Member</th>
-                      <th>Email</th>
-                      <th>Assigned Role</th>
-                      <th>Department / Phone</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!dashboardData?.staff || dashboardData.staff.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
-                          No staff members registered for this laboratory yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      dashboardData.staff.map((member) => (
-                        <tr key={member.userId || member.email}>
-                          <td>
-                            <span style={{ fontWeight: 600, color: 'var(--slate-900)' }}>{member.fullName}</span>
-                          </td>
-                          <td>
-                            <span style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>{member.email}</span>
-                          </td>
-                          <td>
-                            <Badge variant={member.role === 'lab_admin' ? 'blue' : 'purple'}>
-                              {member.role ? member.role.replace(/_/g, ' ') : 'Staff'}
-                            </Badge>
-                          </td>
-                          <td>{member.department || 'Diagnostic Operations'}</td>
-                          <td>
-                            <Badge variant={member.isActive ? 'success' : 'slate'}>
-                              {member.isActive ? 'Active' : 'Deactivated'}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
         </>
       )}
 

@@ -200,10 +200,17 @@ export function PatientProfileView({
                 </div>
 
                 {/* Blood Group */}
-                <div className="blood-group-badge">
-                  <Droplet size={13} style={{ marginRight: '4px' }} />
-                  <span>{patient.bloodGroup || 'O+'}</span>
-                </div>
+                {patient.bloodGroup ? (
+                  <div className="blood-group-badge">
+                    <Droplet size={13} style={{ marginRight: '4px' }} />
+                    <span>{patient.bloodGroup}</span>
+                  </div>
+                ) : (
+                  <div className="blood-group-badge" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #cbd5e1' }}>
+                    <Droplet size={13} style={{ marginRight: '4px' }} />
+                    <span>Not Specified</span>
+                  </div>
+                )}
 
                 {/* Age & Gender */}
                 <span style={{ fontSize: '0.825rem', color: '#334155', fontWeight: 600 }}>
@@ -353,8 +360,8 @@ export function PatientProfileView({
               <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>Referring Physician</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Stethoscope size={14} style={{ color: '#0284c7' }} />
-                <span style={{ fontWeight: 600, color: '#334155' }}>
-                  {patient.orderingPhysician || 'Self / Walk-in'}
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                  {patient.orderingPhysician || patient.referredBy || (orders.length > 0 && orders[0]?.orderingPhysician) || 'Self / Walk-in'}
                 </span>
               </div>
             </div>

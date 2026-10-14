@@ -119,6 +119,9 @@ export function Sidebar({ isOpen, onClose }) {
       if (r === 'lab_admin' || r === 'lab_director') {
         return user.roleDefinition.navigationItems.filter((key) => !disallowedForLabAdmin.includes(key));
       }
+      if (r === 'receptionist') {
+        return user.roleDefinition.navigationItems.filter((key) => key !== 'orders');
+      }
       return user.roleDefinition.navigationItems;
     }
     const perms = user?.permissions || user?.roleDefinition?.permissions || [];
@@ -128,7 +131,7 @@ export function Sidebar({ isOpen, onClose }) {
     // Derive navigation items directly from granted module permissions
     const derived = ['dashboard'];
     if (perms.some((p) => p.startsWith('patients:'))) derived.push('patients');
-    if (perms.some((p) => p.startsWith('orders:'))) derived.push('orders');
+    if (r !== 'receptionist' && perms.some((p) => p.startsWith('orders:'))) derived.push('orders');
     if (perms.some((p) => p.startsWith('samples:'))) derived.push('samples');
     if (perms.some((p) => p.startsWith('tests:'))) derived.push('tests');
     if (perms.some((p) => p.startsWith('reports:'))) derived.push('reports');
@@ -136,6 +139,9 @@ export function Sidebar({ isOpen, onClose }) {
     if (perms.some((p) => p.startsWith('users:') || p.startsWith('roles:'))) derived.push('users');
     if (perms.some((p) => p.startsWith('audit:'))) derived.push('audit');
     if (perms.some((p) => p.startsWith('settings:'))) derived.push('settings');
+    if (r === 'receptionist') {
+      return derived.filter((k) => k !== 'orders');
+    }
     return derived;
   })();
 

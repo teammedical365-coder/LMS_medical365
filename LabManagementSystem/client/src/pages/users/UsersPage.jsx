@@ -31,7 +31,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
-import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ConfirmModal from '../../components/common/ConfirmModal';
@@ -415,14 +414,6 @@ export function UsersPage() {
         }
       />
 
-      {/* Lab Admin Role Governance Notice */}
-      {!isSuperAdmin && (
-        <StatusBanner
-          type="info"
-          badgeText="Role Governance"
-          message="Roles and clinical permissions are centrally managed by Platform Super Admin. Simply select the desired role from the dropdown when creating or updating laboratory staff."
-        />
-      )}
 
       {/* Success / Error Alerts */}
       {errorBanner && (

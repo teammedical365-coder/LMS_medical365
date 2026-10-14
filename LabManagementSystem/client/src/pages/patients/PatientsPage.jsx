@@ -61,6 +61,7 @@ import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ConfirmModal from '../../components/common/ConfirmModal';
+import CustomSelect from '../../components/common/CustomSelect';
 import notify from '../../utils/notify';
 import PatientProfileView from './PatientProfileView';
 
@@ -68,10 +69,10 @@ const INITIAL_FORM_STATE = {
   fullName: '',
   age: '',
   gender: 'female',
-  bloodGroup: 'O+',
+  bloodGroup: '', // Initially blank - user selects manually
   phone: '',
   email: '',
-  orderingPhysician: 'Self / Walk-in',
+  orderingPhysician: '', // Blank initially - user enters custom doctor name or Self
   address: '',
   medicalHistory: '',
   priority: 'routine',
@@ -670,9 +671,10 @@ export function PatientsPage() {
         gender: formData.gender,
         phone: formData.phone.trim(),
         email: formData.email.trim(),
-        bloodGroup: formData.bloodGroup,
+        bloodGroup: formData.bloodGroup ? formData.bloodGroup.trim() : '',
         address: formData.address?.trim() || null,
-        orderingPhysician: formData.orderingPhysician?.trim() || 'Self / Walk-in',
+        orderingPhysician: formData.orderingPhysician?.trim() || 'Self',
+        referredBy: formData.orderingPhysician?.trim() || 'Self',
         medicalHistory: formData.medicalHistory?.trim() || null,
         priority: formData.priority,
         items: hasTests
@@ -823,7 +825,8 @@ export function PatientsPage() {
             gender: patient.gender || 'female',
             phone: patient.phone || '',
             email: patient.email || '',
-            bloodGroup: patient.bloodGroup || 'O+',
+            bloodGroup: patient.bloodGroup || '',
+            orderingPhysician: patient.orderingPhysician || patient.referredBy || '',
             address: patient.address || '',
           }));
         }}
@@ -959,19 +962,18 @@ export function PatientsPage() {
             </div>
 
             {/* Blood group selector */}
-            <select
-              value={bloodFilter}
-              onChange={(e) => setBloodFilter(e.target.value)}
-              className="form-select"
-              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem', width: 'auto', borderRadius: '8px' }}
-            >
-              <option value="ALL">All Blood Groups</option>
-              {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
-                <option key={bg} value={bg}>
-                  {bg}
-                </option>
-              ))}
-            </select>
+            <div style={{ width: '165px' }}>
+              <CustomSelect
+                id="bloodFilter"
+                value={bloodFilter}
+                onChange={(e) => setBloodFilter(e.target.value)}
+                options={[
+                  { value: 'ALL', label: 'All Blood Groups' },
+                  ...['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => ({ value: bg, label: bg })),
+                ]}
+                maxVisibleItems={3}
+              />
+            </div>
 
             <button
               className="btn btn-secondary btn-sm"
@@ -1154,7 +1156,7 @@ export function PatientsPage() {
                           }}
                         >
                           <HeartPulse size={12} style={{ marginRight: '4px', color: '#ef4444' }} />
-                          {p.bloodGroup || 'O+'}
+                          {p.bloodGroup || '-'}
                         </span>
                       </td>
 
@@ -1393,7 +1395,7 @@ export function PatientsPage() {
               <div>
                 <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Demographics</span>
                 <p style={{ margin: '2px 0 0' }}>
-                  {intakeSuccessResult.patient?.age ? `${intakeSuccessResult.patient?.age} yrs` : 'N/A'} • {intakeSuccessResult.patient?.gender} • {intakeSuccessResult.patient?.bloodGroup || 'O+'}
+                  {intakeSuccessResult.patient?.age ? `${intakeSuccessResult.patient?.age} yrs` : 'N/A'} • {intakeSuccessResult.patient?.gender} • {intakeSuccessResult.patient?.bloodGroup || 'Not specified'}
                 </p>
               </div>
 
@@ -1557,15 +1559,17 @@ export function PatientsPage() {
                 <label className="form-label" style={{ fontWeight: 600 }}>
                   Gender <span style={{ color: '#ef4444' }}>*</span>
                 </label>
-                <select
-                  className="form-select"
+                <CustomSelect
+                  id="patientGender"
                   value={formData.gender}
                   onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                >
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                  <option value="other">Other</option>
-                </select>
+                  options={[
+                    { value: 'female', label: 'Female' },
+                    { value: 'male', label: 'Male' },
+                    { value: 'other', label: 'Other' },
+                  ]}
+                  maxVisibleItems={3}
+                />
               </div>
 
               {/* Row 2, Col 1: Mobile Number * (10 Digits only) */}
@@ -1602,32 +1606,35 @@ export function PatientsPage() {
               {/* Row 2, Col 3: Blood Group */}
               <div className="form-group">
                 <label className="form-label" style={{ fontWeight: 600 }}>Blood Group</label>
-                <select
-                  className="form-select"
+                <CustomSelect
+                  id="patientBloodGroup"
                   value={formData.bloodGroup}
+                  placeholder="Select Blood Group"
                   onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}
-                >
-                  <option value="A+">A+</option>
-                  <option value="A-">A-</option>
-                  <option value="B+">B+</option>
-                  <option value="B-">B-</option>
-                  <option value="AB+">AB+</option>
-                  <option value="AB-">AB-</option>
-                  <option value="O+">O+</option>
-                  <option value="O-">O-</option>
-                </select>
+                  options={[
+                    { value: '', label: 'Select Blood Group' },
+                    { value: 'A+', label: 'A+' },
+                    { value: 'A-', label: 'A-' },
+                    { value: 'B+', label: 'B+' },
+                    { value: 'B-', label: 'B-' },
+                    { value: 'AB+', label: 'AB+' },
+                    { value: 'AB-', label: 'AB-' },
+                    { value: 'O+', label: 'O+' },
+                    { value: 'O-', label: 'O-' },
+                  ]}
+                  maxVisibleItems={3}
+                />
               </div>
 
-              {/* Row 3, Col 1: Attending / Referring Physician * */}
+              {/* Row 3, Col 1: Referred By / Attending Doctor */}
               <div className="form-group">
                 <label className="form-label" style={{ fontWeight: 600 }}>
-                  Attending Physician <span style={{ color: '#ef4444' }}>*</span>
+                  Referred By / Attending Doctor
                 </label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Dr. A. Sharma or Self / Walk-in"
-                  required
+                  placeholder="Enter Doctor Name or Self (e.g. Dr. Sharma)"
                   value={formData.orderingPhysician}
                   onChange={(e) => setFormData({ ...formData, orderingPhysician: e.target.value })}
                 />
@@ -1733,21 +1740,16 @@ export function PatientsPage() {
                     <Layers size={13} style={{ color: '#0284c7' }} />
                     <span>1. Test Category</span>
                   </label>
-                  <select
-                    className="form-select"
+                  <CustomSelect
+                    id="testCategorySelect"
                     value={selectedCategory}
                     onChange={(e) => {
                       setSelectedCategory(e.target.value);
                       setSelectedTestDropdownCode('');
                     }}
-                    style={{ background: '#ffffff', fontWeight: 600 }}
-                  >
-                    {availableCategories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
+                    options={availableCategories.map((cat) => ({ value: cat, label: cat }))}
+                    maxVisibleItems={3}
+                  />
                 </div>
 
                 {/* Dropdown 2: Select Test with Price */}
@@ -1756,26 +1758,34 @@ export function PatientsPage() {
                     <TestTube2 size={13} style={{ color: '#0d9488' }} />
                     <span>2. Select Diagnostic Test (with Price)</span>
                   </label>
-                  <select
-                    className="form-select"
+                  <CustomSelect
+                    id="testSelect"
                     value={selectedTestDropdownCode}
                     onChange={(e) => setSelectedTestDropdownCode(e.target.value)}
-                    style={{ background: '#ffffff', fontWeight: 500 }}
-                    disabled={catalogLoading || testsForSelectedCategory.length === 0}
-                  >
-                    <option value="">
-                      {catalogLoading
+                    placeholder={
+                      catalogLoading
                         ? 'Loading catalog tests...'
                         : testsForSelectedCategory.length === 0
                         ? '-- No tests found in this category --'
-                        : `-- Choose Test (${testsForSelectedCategory.length} available) --`}
-                    </option>
-                    {testsForSelectedCategory.map((t) => (
-                      <option key={t.code || t._id} value={t.code}>
-                        {t.name} ({t.code}) — ₹{Number(t.price || 0).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
+                        : `-- Choose Test (${testsForSelectedCategory.length} available) --`
+                    }
+                    disabled={catalogLoading || testsForSelectedCategory.length === 0}
+                    options={[
+                      {
+                        value: '',
+                        label: catalogLoading
+                          ? 'Loading catalog tests...'
+                          : testsForSelectedCategory.length === 0
+                          ? '-- No tests found in this category --'
+                          : `-- Choose Test (${testsForSelectedCategory.length} available) --`,
+                      },
+                      ...testsForSelectedCategory.map((t) => ({
+                        value: t.code,
+                        label: `${t.name} (${t.code}) — ₹${Number(t.price || 0).toLocaleString()}`,
+                      })),
+                    ]}
+                    maxVisibleItems={3}
+                  />
                 </div>
 
                 {/* Button: Add Test */}

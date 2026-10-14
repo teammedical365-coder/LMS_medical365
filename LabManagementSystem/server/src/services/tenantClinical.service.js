@@ -65,6 +65,46 @@ export function sanitizeSearchQuery(input, maxLength = MAX_SEARCH_LENGTH) {
   return escapeRegex(trimmed);
 }
 
+/**
+ * Derives a standardized 3-letter uppercase laboratory prefix for MRNs and barcodes.
+ * (e.g. JaipurLab -> JPR, Chonexa Lab -> CHN, Delhi -> DLH)
+ */
+export function getLabPrefix(lab) {
+  if (!lab) return 'LAB';
+  const explicit = (lab.prefix || lab.branding?.prefix || '').trim().toUpperCase();
+  if (explicit && explicit.length >= 2 && explicit.length <= 6) return explicit;
+
+  const code = (lab.code || '').trim().toLowerCase();
+  const name = (lab.branding?.displayName || lab.name || '').trim().toLowerCase();
+
+  // Known city / common lab overrides
+  if (name.includes('jaipur') || code.includes('jpl') || code.includes('jp')) return 'JPL';
+  if (name.includes('chon') || code.includes('ch')) return 'CHN';
+  if (name.includes('delhi') || code.includes('dl')) return 'DLH';
+  if (name.includes('mumbai') || code.includes('mum') || code.includes('bom')) return 'MUM';
+  if (name.includes('kolkata') || code.includes('kol') || code.includes('cal')) return 'KOL';
+  if (name.includes('chennai') || code.includes('che') || code.includes('maa')) return 'MAA';
+  if (name.includes('bangalore') || name.includes('bengaluru') || code.includes('blr')) return 'BLR';
+  if (name.includes('hyderabad') || code.includes('hyd')) return 'HYD';
+  if (name.includes('pune') || code.includes('pun')) return 'PUN';
+  if (name.includes('ahmedabad') || code.includes('ahm')) return 'AHM';
+
+  // Generic 3-letter uppercase prefix from code or name
+  const codeLetters = code.replace(/[^a-z]/g, '');
+  if (codeLetters.length >= 3) return codeLetters.slice(0, 3).toUpperCase();
+
+  const cleanName = name
+    .replace(/\b(laboratory|diagnostics|clinic|hospital|centre|center)\b/gi, '')
+    .replace(/[^a-z]/g, '');
+
+  if (cleanName.length >= 3) return cleanName.slice(0, 3).toUpperCase();
+
+  const rawLetters = (name + code).replace(/[^a-z]/g, '');
+  if (rawLetters.length >= 3) return rawLetters.slice(0, 3).toUpperCase();
+
+  return (rawLetters + 'LAB').slice(0, 3).toUpperCase();
+}
+
 export function isValidIanaTimezone(tz) {
   if (!tz || typeof tz !== 'string' || !tz.trim()) return false;
   try {
@@ -286,7 +326,7 @@ class TenantClinicalService {
   async createPatient(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const dob = data.dob || data.dateOfBirth || (data.age ? `Age: ${data.age}` : '');
-    const { firstName, lastName, gender, phone, email, address, medicalHistory, bloodGroup, age } = data;
+    const { firstName, lastName, gender, phone, email, address, medicalHistory, bloodGroup, age, orderingPhysician, referredBy } = data;
 
     if (!firstName || !lastName) {
       throw new ClinicalServiceError('Patient first and last names are required', 'VALIDATION_ERROR', 400);
@@ -297,7 +337,45 @@ class TenantClinicalService {
 
     const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
     const patientId = this.generateId('pat');
-    const mrn = `MRN-${Date.now().toString().slice(-6)}`;
+
+    let prefix = 'LAB';
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+      prefix = getLabPrefix(lab);
+    } catch (e) {
+      // fallback
+    }
+
+    let nextNumber = 1;
+    if (PatientModel) {
+      const regex = new RegExp(`^${prefix}-(\\d+)`, 'i');
+      const latest = await PatientModel.find({ tenantId, mrn: regex })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean();
+      let maxSeq = 0;
+      for (const p of latest) {
+        const match = p.mrn.match(regex);
+        if (match && match[1]) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
+      }
+      nextNumber = maxSeq + 1;
+    } else {
+      const mem = this.memoryPatients.get(tenantId);
+      nextNumber = (mem ? mem.size : 0) + 1;
+    }
+
+    let mrn = `${prefix}-${String(nextNumber).padStart(3, '0')}`;
+    if (PatientModel) {
+      while (await PatientModel.findOne({ tenantId, mrn })) {
+        nextNumber++;
+        mrn = `${prefix}-${String(nextNumber).padStart(3, '0')}`;
+      }
+    }
+
+    const resolvedDoctor = (orderingPhysician || referredBy || data.physicianName || '').trim();
 
     if (PatientModel) {
       const doc = new PatientModel({
@@ -311,7 +389,9 @@ class TenantClinicalService {
         gender: (gender || 'other').toString().toLowerCase(),
         phone: phone?.trim() || null,
         email: email?.trim().toLowerCase() || null,
-        bloodGroup: bloodGroup?.trim() || 'O+',
+        bloodGroup: bloodGroup?.trim() || '',
+        orderingPhysician: resolvedDoctor,
+        referredBy: resolvedDoctor,
         address: address?.trim() || null,
         medicalHistory: medicalHistory?.trim() || null,
       });
@@ -334,7 +414,9 @@ class TenantClinicalService {
       gender,
       phone,
       email,
-      bloodGroup: bloodGroup || 'O+',
+      bloodGroup: bloodGroup?.trim() || '',
+      orderingPhysician: resolvedDoctor,
+      referredBy: resolvedDoctor,
       address,
       medicalHistory,
       createdAt: new Date(),
@@ -349,6 +431,8 @@ class TenantClinicalService {
   async registerPatientWithOrder(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
 
+    const resolvedDoctor = (data.orderingPhysician || data.referredBy || data.physicianName || '').trim();
+
     // 1. Create Patient Demographics
     const patientData = {
       firstName: data.firstName,
@@ -358,7 +442,9 @@ class TenantClinicalService {
       gender: data.gender,
       phone: data.phone,
       email: data.email,
-      bloodGroup: data.bloodGroup || 'O+',
+      bloodGroup: data.bloodGroup?.trim() || '',
+      orderingPhysician: resolvedDoctor,
+      referredBy: resolvedDoctor,
       address: data.address,
       medicalHistory: data.medicalHistory,
     };
@@ -419,17 +505,46 @@ class TenantClinicalService {
         tenantId,
         $or: [{ patientId }, { mrn: patientId }],
       });
-      return doc ? doc.toSafeJSON() : null;
+      if (!doc) return null;
+      const safe = doc.toSafeJSON();
+      if (!safe.orderingPhysician && !safe.referredBy) {
+        try {
+          const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+          if (OrderModel) {
+            const latestOrder = await OrderModel.findOne({ tenantId, patientId: safe.patientId }).sort({ createdAt: -1 });
+            if (latestOrder && latestOrder.orderingPhysician && latestOrder.orderingPhysician !== 'Self / Walk-in') {
+              safe.orderingPhysician = latestOrder.orderingPhysician;
+              safe.referredBy = latestOrder.orderingPhysician;
+            }
+          }
+        } catch (_) {}
+      }
+      return safe;
     }
 
     const tenantMap = this.memoryPatients.get(tenantId);
     if (!tenantMap) return null;
-    const direct = tenantMap.get(patientId);
-    if (direct) return direct.toSafeJSON ? direct.toSafeJSON() : direct;
-    for (const p of tenantMap.values()) {
-      if (p.mrn === patientId || p.patientId === patientId) {
-        return p.toSafeJSON ? p.toSafeJSON() : p;
+    let direct = tenantMap.get(patientId);
+    if (!direct) {
+      for (const p of tenantMap.values()) {
+        if (p.mrn === patientId || p.patientId === patientId) {
+          direct = p;
+          break;
+        }
       }
+    }
+    if (direct) {
+      const safe = direct.toSafeJSON ? direct.toSafeJSON() : { ...direct };
+      if (!safe.orderingPhysician && !safe.referredBy && this.memoryOrders.has(tenantId)) {
+        const orders = Array.from(this.memoryOrders.get(tenantId).values())
+          .filter((o) => o.patientId === safe.patientId)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if (orders.length > 0 && orders[0].orderingPhysician && orders[0].orderingPhysician !== 'Self / Walk-in') {
+          safe.orderingPhysician = orders[0].orderingPhysician;
+          safe.referredBy = orders[0].orderingPhysician;
+        }
+      }
+      return safe;
     }
     return null;
   }
@@ -639,13 +754,31 @@ class TenantClinicalService {
   // -------------------------------------------------------------------------
   async listSamples(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { collectionStatus, processingStatus, limit = 50 } = query;
-    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const { collectionStatus, processingStatus, search, barcode, limit = 50 } = query;
+    let SampleModel = null;
+    try {
+      SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    } catch (_) {}
 
     if (SampleModel) {
       const filter = { tenantId };
       if (collectionStatus) filter.collectionStatus = collectionStatus;
       if (processingStatus) filter.processingStatus = processingStatus;
+
+      if (barcode && typeof barcode === 'string' && barcode.trim()) {
+        const cleanBc = escapeRegex(barcode.trim());
+        filter.barcode = new RegExp(`^${cleanBc}$`, 'i');
+      } else if (search && typeof search === 'string' && search.trim()) {
+        const cleanTerm = escapeRegex(search.trim());
+        filter.$or = [
+          { barcode: new RegExp(cleanTerm, 'i') },
+          { sampleId: new RegExp(cleanTerm, 'i') },
+          { patientName: new RegExp(cleanTerm, 'i') },
+          { patientMrn: new RegExp(cleanTerm, 'i') },
+          { orderNumber: new RegExp(cleanTerm, 'i') },
+        ];
+      }
+
       const list = await SampleModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
       return list.map((s) => s.toSafeJSON());
     }
@@ -654,12 +787,70 @@ class TenantClinicalService {
     let list = Array.from(tenantMap.values());
     if (collectionStatus) list = list.filter((s) => s.collectionStatus === collectionStatus);
     if (processingStatus) list = list.filter((s) => s.processingStatus === processingStatus);
+    if (barcode && typeof barcode === 'string' && barcode.trim()) {
+      const term = barcode.trim().toLowerCase();
+      list = list.filter((s) => s.barcode?.toLowerCase() === term || s.sampleId?.toLowerCase() === term);
+    } else if (search && typeof search === 'string' && search.trim()) {
+      const term = search.trim().toLowerCase();
+      list = list.filter((s) =>
+        s.barcode?.toLowerCase().includes(term) ||
+        s.sampleId?.toLowerCase().includes(term) ||
+        s.patientName?.toLowerCase().includes(term) ||
+        s.patientMrn?.toLowerCase().includes(term) ||
+        s.orderNumber?.toLowerCase().includes(term)
+      );
+    }
     return list;
   }
 
+  async getSampleById(tenantId, sampleIdOrBarcode) {
+    await tenantUserService.assertTenantReady(tenantId);
+    if (!sampleIdOrBarcode || typeof sampleIdOrBarcode !== 'string' || !sampleIdOrBarcode.trim()) {
+      throw new ClinicalServiceError('A valid sample ID or barcode is required', 'INVALID_PARAM', 400);
+    }
+
+    const cleanId = sampleIdOrBarcode.trim();
+    let SampleModel = null;
+    try {
+      SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    } catch (_) {}
+
+    let sample = null;
+    if (SampleModel) {
+      const escaped = escapeRegex(cleanId);
+      const doc = await SampleModel.findOne({
+        tenantId,
+        $or: [
+          { sampleId: cleanId },
+          { barcode: cleanId },
+          { barcode: new RegExp(`^${escaped}$`, 'i') },
+        ],
+      });
+      if (doc) sample = doc.toSafeJSON();
+    } else {
+      const tenantMap = this.memorySamples.get(tenantId);
+      if (tenantMap) {
+        sample = tenantMap.get(cleanId) || Array.from(tenantMap.values()).find(
+          (s) => s.barcode?.toLowerCase() === cleanId.toLowerCase() || s.sampleId === cleanId
+        );
+        if (sample && sample.toSafeJSON) sample = sample.toSafeJSON();
+      }
+    }
+
+    if (!sample) {
+      throw new ClinicalServiceError(`Sample or barcode '${cleanId}' not found in laboratory records`, 'SAMPLE_NOT_FOUND', 404);
+    }
+
+    return sample;
+  }
+
   async createSamplesForOrder(tenantId, order) {
-    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
-    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    let SampleModel = null;
+    let OrderModel = null;
+    try {
+      SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+      OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    } catch (_) {}
 
     // 1. Idempotency Check: If samples already exist for this order, return existing records
     if (SampleModel) {
@@ -709,7 +900,72 @@ class TenantClinicalService {
 
     const groups = Array.from(tubeGroups.values());
     const totalTubes = groups.length;
-    const cleanOrderNum = (order.orderNumber || 'ORD-000').replace('ORD-', '');
+
+    let labPrefix = 'LAB';
+    try {
+      const lab = await laboratoryManagementService.getLaboratoryByTenantId(tenantId);
+      if (lab) labPrefix = getLabPrefix(lab);
+    } catch (_) {}
+
+    let nextSampleSeq = 100;
+    if (SampleModel) {
+      const existingSamples = await SampleModel.find({
+        tenantId,
+        barcode: new RegExp(`^${labPrefix}-\\d+`, 'i'),
+      }).sort({ createdAt: -1 }).limit(100);
+
+      let maxSeq = 99;
+      for (const s of existingSamples) {
+        if (!s.barcode) continue;
+        const m3 = s.barcode.match(new RegExp(`^${labPrefix}-(\\d+)-(\\d+)`, 'i'));
+        if (m3) {
+          const num = parseInt(m3[1], 10);
+          if (num > maxSeq) maxSeq = num;
+          continue;
+        }
+        const m2 = s.barcode.match(new RegExp(`^${labPrefix}-(\\d+)`, 'i'));
+        if (m2) {
+          const num = parseInt(m2[1], 10);
+          if (num > maxSeq) maxSeq = num;
+        }
+      }
+      nextSampleSeq = Math.max(100, maxSeq + 1);
+
+      // Prevent duplicate identifiers during concurrent sample creation
+      let collision = true;
+      while (collision) {
+        collision = false;
+        for (let i = 0; i < totalTubes; i++) {
+          const tubeIdx = i + 1;
+          const candidateBarcode = `${labPrefix}-${nextSampleSeq}-${String(tubeIdx).padStart(2, '0')}`;
+          const existing = await SampleModel.findOne({ tenantId, barcode: candidateBarcode });
+          if (existing) {
+            nextSampleSeq++;
+            collision = true;
+            break;
+          }
+        }
+      }
+    } else if (this.memorySamples.has(tenantId)) {
+      const samples = Array.from(this.memorySamples.get(tenantId).values());
+      let maxSeq = 99;
+      for (const s of samples) {
+        if (!s.barcode) continue;
+        const m3 = s.barcode.match(new RegExp(`^${labPrefix}-(\\d+)-(\\d+)`, 'i'));
+        if (m3) {
+          const num = parseInt(m3[1], 10);
+          if (num > maxSeq) maxSeq = num;
+          continue;
+        }
+        const m2 = s.barcode.match(new RegExp(`^${labPrefix}-(\\d+)`, 'i'));
+        if (m2) {
+          const num = parseInt(m2[1], 10);
+          if (num > maxSeq) maxSeq = num;
+        }
+      }
+      nextSampleSeq = Math.max(100, maxSeq + 1);
+    }
+
     const createdSamples = [];
     const itemToSampleMap = new Map();
 
@@ -717,7 +973,7 @@ class TenantClinicalService {
       const group = groups[i];
       const tubeIndex = i + 1;
       const sampleId = this.generateId('smp');
-      const barcode = `BAR-${cleanOrderNum}-${String(tubeIndex).padStart(2, '0')}`;
+      const barcode = `${labPrefix}-${nextSampleSeq}-${String(tubeIndex).padStart(2, '0')}`;
       const itemIds = group.items.map((it) => it.itemId);
       const testCodes = group.items.map((it) => it.testCode);
       const testNames = group.items.map((it) => it.testName);

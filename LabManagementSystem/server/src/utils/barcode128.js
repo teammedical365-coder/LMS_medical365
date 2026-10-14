@@ -61,8 +61,14 @@ export function encodeCode128B(text) {
 
 /**
  * Generate clean vector SVG for a Code 128 barcode
+ * Uses run-length consolidation and crispEdges for flawless optical scanner readability.
  */
 export function generateBarcodeSvg(text, options = {}) {
+  const cleanText = String(text || '').trim().toUpperCase();
+  if (!cleanText) {
+    throw new Error('Barcode text cannot be empty');
+  }
+
   const {
     barHeight = 40,
     moduleWidth = 1.2,
@@ -70,7 +76,7 @@ export function generateBarcodeSvg(text, options = {}) {
     showText = true,
   } = options;
 
-  const binary = encodeCode128B(text);
+  const binary = encodeCode128B(cleanText);
   const totalModules = binary.length + quietZoneModules * 2;
   const svgWidth = totalModules * moduleWidth;
   const textHeight = showText ? 14 : 0;
@@ -78,20 +84,33 @@ export function generateBarcodeSvg(text, options = {}) {
 
   let rects = '';
   let currentX = quietZoneModules * moduleWidth;
+  let barRun = 0;
 
   for (let i = 0; i < binary.length; i++) {
     if (binary[i] === '1') {
-      rects += `<rect x="${currentX.toFixed(2)}" y="0" width="${moduleWidth.toFixed(2)}" height="${barHeight}" fill="#000000" />`;
+      barRun++;
+    } else {
+      if (barRun > 0) {
+        const barWidth = barRun * moduleWidth;
+        const barX = currentX - barWidth;
+        rects += `<rect x="${barX.toFixed(2)}" y="0" width="${barWidth.toFixed(2)}" height="${barHeight}" fill="#000000" />`;
+        barRun = 0;
+      }
     }
     currentX += moduleWidth;
+  }
+  if (barRun > 0) {
+    const barWidth = barRun * moduleWidth;
+    const barX = currentX - barWidth;
+    rects += `<rect x="${barX.toFixed(2)}" y="0" width="${barWidth.toFixed(2)}" height="${barHeight}" fill="#000000" />`;
   }
 
   let textElement = '';
   if (showText) {
-    textElement = `<text x="${(svgWidth / 2).toFixed(2)}" y="${(barHeight + 11).toFixed(2)}" text-anchor="middle" font-family="monospace" font-size="9" font-weight="600" fill="#000000">${text}</text>`;
+    textElement = `<text x="${(svgWidth / 2).toFixed(2)}" y="${(barHeight + 11).toFixed(2)}" text-anchor="middle" font-family="monospace" font-size="9" font-weight="700" fill="#000000" letter-spacing="0.5">${cleanText}</text>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth.toFixed(2)} ${svgHeight.toFixed(2)}" width="${svgWidth.toFixed(2)}" height="${svgHeight.toFixed(2)}" preserveAspectRatio="xMidYMid meet" style="background:#ffffff;display:block;">${rects}${textElement}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth.toFixed(2)} ${svgHeight.toFixed(2)}" width="${svgWidth.toFixed(2)}" height="${svgHeight.toFixed(2)}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" style="background:#ffffff;display:block;">${rects}${textElement}</svg>`;
 }
 
 /**
@@ -137,10 +156,11 @@ export function resolveSpecimenContainer(specimenType, explicitContainer) {
  * Generate full 50x25mm Label Document (HTML / SVG)
  */
 export function generate50x25Label(sample, tenantBranding = {}) {
-  const barcodeSvg = generateBarcodeSvg(sample.barcode, {
+  const canonicalBarcode = String(sample.barcode || sample.sampleId || '').trim().toUpperCase();
+  const barcodeSvg = generateBarcodeSvg(canonicalBarcode, {
     barHeight: 28,
-    moduleWidth: 0.95,
-    quietZoneModules: 8,
+    moduleWidth: 1.15,
+    quietZoneModules: 10,
     showText: true,
   });
 
@@ -149,7 +169,7 @@ export function generate50x25Label(sample, tenantBranding = {}) {
   const patientInitialsOrName = sample.patientName ? sample.patientName.slice(0, 22) : 'Patient';
   const tubeTag = sample.totalTubes > 1 ? `Tube ${sample.tubeIndex}/${sample.totalTubes}` : 'Tube 1/1';
   const testsSummary = (sample.testCodes && sample.testCodes.length > 0)
-    ? sample.testCodes.join(', ').slice(0, 24)
+    ? sample.testCodes.join(', ').slice(0, 28)
     : (sample.sampleType || 'Specimen');
   const collectionDate = sample.collectedAt
     ? new Date(sample.collectedAt).toISOString().slice(0, 16).replace('T', ' ')
@@ -157,7 +177,7 @@ export function generate50x25Label(sample, tenantBranding = {}) {
 
   return {
     dimensions: {
-      widthMm: 50,
+      widthMm: 60,
       heightMm: 25,
       standard: 'Code 128 (Subset B)',
     },
