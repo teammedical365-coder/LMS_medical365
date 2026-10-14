@@ -29,6 +29,7 @@ import {
 import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
 import clinicalService from '../../services/clinicalService';
+import { classifyResult, parseReferenceRange, isGenericReferenceRange } from '../../utils/clinicalClassification';
 
 // Standard Clinical Diagnostic Profiles & Reference Thresholds
 const DEFAULT_TEST_PROFILES = {
@@ -104,95 +105,233 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initialize parameters based on sample tests
+  // Initialize parameters based on sample tests, order item snapshots, and custom test catalog
   useEffect(() => {
     if (!isOpen || !sample) return;
 
+    let isMounted = true;
     setError(null);
-    let resolvedParams = [];
-    const testCodes = (sample.testCodes || []).map((c) => String(c).toUpperCase());
-    const testNames = (sample.testNames || []).map((n) => String(n).toUpperCase());
 
-    // Check matching profile templates
-    let matchedProfile = null;
-    for (const code of testCodes) {
-      for (const [key, template] of Object.entries(DEFAULT_TEST_PROFILES)) {
-        if (code.includes(key) || key.includes(code)) {
-          matchedProfile = template;
-          break;
+    async function loadTestParameters() {
+      let resolvedParams = [];
+      const testCodes = (sample.testCodes || []).map((c) => String(c).toUpperCase());
+      const testNames = (sample.testNames || []).map((n) => String(n).toUpperCase());
+
+      // 1. First check if order-linked items have structured parameters (including custom Admin tests)
+      let order = null;
+      if (sample.orderId && tenantId) {
+        try {
+          const res = await clinicalService.getOrder(tenantId, sample.orderId);
+          if (res.success && res.data) {
+            order = res.data;
+          }
+        } catch {
+          // fallback to catalog
         }
       }
-      if (matchedProfile) break;
-    }
 
-    if (!matchedProfile) {
-      for (const name of testNames) {
-        if (name.includes('BLOOD COUNT') || name.includes('CBC') || name.includes('HEMOGRAM')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.CBC;
-          break;
+      if (order && Array.isArray(order.items)) {
+        const targetItemIds = Array.isArray(sample.itemIds) ? sample.itemIds : [];
+        const matchedItems = order.items.filter(
+          (it) => testCodes.includes(it.testCode?.toUpperCase()) || targetItemIds.includes(it.itemId) || order.items.length === 1
+        );
+
+        for (const it of matchedItems) {
+          if (Array.isArray(it.parameters) && it.parameters.length > 0) {
+            for (const p of it.parameters) {
+              const parsed = parseReferenceRange(p);
+              const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
+                || (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
+                || '—';
+              resolvedParams.push({
+                parameterCode: p.parameterCode || p.code,
+                name: p.name || p.parameterCode,
+                resultType: p.resultType || 'NUMERIC',
+                unit: p.unit || '',
+                referenceRange: resolvedRef,
+                lowNormal: parsed.lowNormal,
+                highNormal: parsed.highNormal,
+                criticalLow: parsed.criticalLow,
+                criticalHigh: parsed.criticalHigh,
+                isOneSided: parsed.isOneSided,
+                operator: parsed.operator,
+                expectedValue: parsed.expectedValue,
+                options: Array.isArray(p.options) ? p.options : [],
+                value: '',
+                isAbnormal: false,
+                flag: 'MISSING',
+                flagLabel: 'Missing',
+                displayFlag: '—',
+                required: p.required || false,
+              });
+            }
+          }
         }
-        if (name.includes('LIVER') || name.includes('LFT') || name.includes('HEPATIC')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.LFT;
-          break;
+      }
+
+      // 2. If no parameters resolved from order, check Test Catalog (Hospital Admin custom tests)
+      if (resolvedParams.length === 0 && tenantId) {
+        try {
+          const catalogRes = await clinicalService.getTestCatalog(tenantId);
+          if (catalogRes.success && Array.isArray(catalogRes.data)) {
+            for (const code of testCodes) {
+              const catalogMatch = catalogRes.data.find(
+                (t) => (t.code || '').toUpperCase() === code || (t.testId && t.testId === code)
+              );
+              if (catalogMatch && Array.isArray(catalogMatch.parameters) && catalogMatch.parameters.length > 0) {
+                for (const p of catalogMatch.parameters) {
+                  const parsed = parseReferenceRange(p);
+                  const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
+                    || (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
+                    || '—';
+                  resolvedParams.push({
+                    parameterCode: p.parameterCode || p.code,
+                    name: p.name || p.parameterCode,
+                    resultType: p.resultType || 'NUMERIC',
+                    unit: p.unit || '',
+                    referenceRange: resolvedRef,
+                    lowNormal: parsed.lowNormal,
+                    highNormal: parsed.highNormal,
+                    criticalLow: parsed.criticalLow,
+                    criticalHigh: parsed.criticalHigh,
+                    isOneSided: parsed.isOneSided,
+                    operator: parsed.operator,
+                    expectedValue: parsed.expectedValue,
+                    options: Array.isArray(p.options) ? p.options : [],
+                    value: '',
+                    isAbnormal: false,
+                    flag: 'MISSING',
+                    flagLabel: 'Missing',
+                    displayFlag: '—',
+                    required: p.required || false,
+                  });
+                }
+              }
+            }
+          }
+        } catch {
+          // fallback to presets
         }
-        if (name.includes('KIDNEY') || name.includes('RENAL') || name.includes('KFT') || name.includes('RFT')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.KFT;
-          break;
+      }
+
+      // 3. Fallback to predefined diagnostic profiles
+      if (resolvedParams.length === 0) {
+        let matchedProfile = null;
+        for (const code of testCodes) {
+          for (const [key, template] of Object.entries(DEFAULT_TEST_PROFILES)) {
+            if (code.includes(key) || key.includes(code)) {
+              matchedProfile = template;
+              break;
+            }
+          }
+          if (matchedProfile) break;
         }
-        if (name.includes('LIPID') || name.includes('CHOLESTEROL')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.LIPID;
-          break;
+
+        if (!matchedProfile) {
+          for (const name of testNames) {
+            if (name.includes('BLOOD COUNT') || name.includes('CBC') || name.includes('HEMOGRAM')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.CBC;
+              break;
+            }
+            if (name.includes('LIVER') || name.includes('LFT') || name.includes('HEPATIC')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.LFT;
+              break;
+            }
+            if (name.includes('KIDNEY') || name.includes('RENAL') || name.includes('KFT') || name.includes('RFT')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.KFT;
+              break;
+            }
+            if (name.includes('LIPID') || name.includes('CHOLESTEROL')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.LIPID;
+              break;
+            }
+            if (name.includes('METABOLIC') || name.includes('CMP')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.CMP;
+              break;
+            }
+            if (name.includes('URINE') || name.includes('URINALYSIS')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.URINE;
+              break;
+            }
+            if (name.includes('THYROID') || name.includes('TSH')) {
+              matchedProfile = DEFAULT_TEST_PROFILES.TSH;
+              break;
+            }
+          }
         }
-        if (name.includes('METABOLIC') || name.includes('CMP')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.CMP;
-          break;
+
+        if (matchedProfile) {
+          resolvedParams = matchedProfile.map((p) => {
+            const parsed = parseReferenceRange(p);
+            const resolvedRef = (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
+              || (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
+              || '—';
+            return {
+              parameterCode: p.parameterCode,
+              name: p.name,
+              resultType: p.resultType,
+              unit: p.unit || '',
+              referenceRange: resolvedRef,
+              lowNormal: p.lowNormal !== undefined ? p.lowNormal : parsed.lowNormal,
+              highNormal: p.highNormal !== undefined ? p.highNormal : parsed.highNormal,
+              criticalLow: parsed.criticalLow,
+              criticalHigh: parsed.criticalHigh,
+              isOneSided: parsed.isOneSided,
+              operator: parsed.operator,
+              expectedValue: parsed.expectedValue,
+              options: p.options || [],
+              value: '',
+              isAbnormal: false,
+              flag: 'MISSING',
+              flagLabel: 'Missing',
+              displayFlag: '—',
+            };
+          });
         }
-        if (name.includes('URINE') || name.includes('URINALYSIS')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.URINE;
-          break;
-        }
-        if (name.includes('THYROID') || name.includes('TSH')) {
-          matchedProfile = DEFAULT_TEST_PROFILES.TSH;
-          break;
-        }
+      }
+
+      // 4. Fallback single parameter based on sample tests
+      if (resolvedParams.length === 0) {
+        const primaryTestName = sample.testNames?.[0] || sample.testCodes?.[0] || 'Diagnostic Assay';
+        const parsed = parseReferenceRange(sample.referenceRange || '');
+        const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
+          || (!isGenericReferenceRange(sample.referenceRange) ? sample.referenceRange : null)
+          || '—';
+        resolvedParams = [
+          {
+            parameterCode: (sample.testCodes?.[0] || 'RESULT').toUpperCase(),
+            name: primaryTestName,
+            resultType: 'NUMERIC',
+            unit: sample.unit || 'units',
+            referenceRange: resolvedRef,
+            lowNormal: parsed.lowNormal,
+            highNormal: parsed.highNormal,
+            criticalLow: parsed.criticalLow,
+            criticalHigh: parsed.criticalHigh,
+            isOneSided: parsed.isOneSided,
+            operator: parsed.operator,
+            options: [],
+            value: '',
+            isAbnormal: false,
+            flag: 'MISSING',
+            flagLabel: 'Missing',
+            displayFlag: '—',
+          }
+        ];
+      }
+
+      if (isMounted) {
+        setParamsList(resolvedParams);
+        setFindingsNotes('Analyzer run completed without flags. Controls verified within ±2SD.');
       }
     }
 
-    if (matchedProfile) {
-      resolvedParams = matchedProfile.map((p) => ({
-        parameterCode: p.parameterCode,
-        name: p.name,
-        resultType: p.resultType,
-        unit: p.unit || '',
-        referenceRange: p.referenceRange || '',
-        lowNormal: p.lowNormal !== undefined ? p.lowNormal : null,
-        highNormal: p.highNormal !== undefined ? p.highNormal : null,
-        options: p.options || [],
-        value: '',
-        isAbnormal: false,
-      }));
-    } else {
-      // Fallback single parameter based on test
-      const primaryTestName = sample.testNames?.[0] || sample.testCodes?.[0] || 'Diagnostic Assay';
-      resolvedParams = [
-        {
-          parameterCode: (sample.testCodes?.[0] || 'RESULT').toUpperCase(),
-          name: primaryTestName,
-          resultType: 'NUMERIC',
-          unit: 'units',
-          referenceRange: 'Normal',
-          lowNormal: null,
-          highNormal: null,
-          options: [],
-          value: '',
-          isAbnormal: false,
-        }
-      ];
-    }
+    loadTestParameters();
 
-    setParamsList(resolvedParams);
-    setFindingsNotes('Analyzer run completed without flags. Controls verified within ±2SD.');
-  }, [isOpen, sample]);
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, sample, tenantId]);
 
   const handleValueChange = (index, val) => {
     setParamsList((prev) => {
@@ -200,19 +339,13 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
       const param = { ...updated[index] };
       param.value = val;
 
-      // Real-time abnormal threshold evaluation
-      if (param.resultType === 'NUMERIC') {
-        const numVal = parseFloat(val);
-        if (!isNaN(numVal) && param.lowNormal !== null && param.highNormal !== null) {
-          param.isAbnormal = numVal < param.lowNormal || numVal > param.highNormal;
-        } else {
-          param.isAbnormal = false;
-        }
-      } else if (param.resultType === 'OPTIONS') {
-        const refUpper = (param.referenceRange || '').toUpperCase();
-        const valUpper = (val || '').toUpperCase();
-        param.isAbnormal = refUpper && valUpper ? refUpper !== valUpper : false;
-      }
+      // Authoritative clinical classification
+      const classification = classifyResult(val, param);
+      param.isAbnormal = classification.isAbnormal;
+      param.flag = classification.flag;
+      param.flagLabel = classification.flagLabel;
+      param.displayFlag = classification.displayFlag;
+      param.status = classification.status;
 
       updated[index] = param;
       return updated;
@@ -233,18 +366,31 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         }
         if (!defaultVal && p.resultType === 'NUMERIC') {
           if (p.lowNormal !== null && p.highNormal !== null) {
-            defaultVal = ((p.lowNormal + p.highNormal) / 2).toFixed(1);
+            const mid = (p.lowNormal + p.highNormal) / 2;
+            defaultVal = Number.isInteger(mid) ? String(mid) : mid.toFixed(1);
+          } else if (p.highNormal !== null) {
+            const mid = p.highNormal * 0.75;
+            defaultVal = Number.isInteger(mid) ? String(mid) : mid.toFixed(1);
+          } else if (p.lowNormal !== null) {
+            const mid = p.lowNormal * 1.25;
+            defaultVal = Number.isInteger(mid) ? String(mid) : mid.toFixed(1);
           } else {
             defaultVal = '10.0';
           }
         } else if (!defaultVal && p.options?.length > 0) {
-          defaultVal = p.options[0];
+          defaultVal = p.expectedValue || p.options[0];
         }
+
+        const classification = classifyResult(defaultVal, p);
 
         return {
           ...p,
           value: defaultVal,
-          isAbnormal: false,
+          isAbnormal: classification.isAbnormal,
+          flag: classification.flag,
+          flagLabel: classification.flagLabel,
+          displayFlag: classification.displayFlag,
+          status: classification.status,
         };
       });
     });
@@ -299,6 +445,7 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
             unit: p.unit,
             referenceRange: p.referenceRange,
             isAbnormal: Boolean(p.isAbnormal),
+            flag: p.flag || (p.isAbnormal ? 'ABNORMAL' : 'NORMAL'),
           };
         }),
         instrument,
@@ -535,6 +682,18 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
                   <td style={{ textAlign: 'center' }}>
                     {p.value === '' || p.value === undefined ? (
                       <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>—</span>
+                    ) : p.flag === 'CRITICAL_LOW' || p.flag === 'CRITICAL_HIGH' ? (
+                      <Badge variant="danger" style={{ background: '#991b1b', color: '#fff', fontSize: '0.65rem', padding: '1px 5px' }}>
+                        CRIT
+                      </Badge>
+                    ) : p.flag === 'LOW' ? (
+                      <Badge style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a', fontSize: '0.65rem', padding: '1px 5px' }}>
+                        LOW
+                      </Badge>
+                    ) : p.flag === 'HIGH' ? (
+                      <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                        HIGH
+                      </Badge>
                     ) : p.isAbnormal ? (
                       <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
                         OUT

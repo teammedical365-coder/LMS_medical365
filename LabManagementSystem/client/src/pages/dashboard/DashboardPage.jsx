@@ -58,7 +58,7 @@ import ResultEntryModal from '../samples/ResultEntryModal';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
 import api from '../../services/api';
-import clinicalService from '../../services/clinicalService';
+import { classifyResult, isGenericReferenceRange } from '../../utils/clinicalClassification';
 
 export function DashboardPage() {
   const { user, isSuperAdmin } = useAuth();
@@ -2266,19 +2266,45 @@ export function DashboardPage() {
                                 <tbody>
                                   {it.parameterResults.map((pr, pidx) => {
                                     const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                    const evalRes = classifyResult(pr.value, pr);
+                                    const isAbnormal = Boolean(pr.isAbnormal || evalRes?.isAbnormal);
+                                    const flag = (pr.flag && pr.flag !== 'NORMAL')
+                                      ? pr.flag
+                                      : evalRes?.flag && evalRes.flag !== 'UNCLASSIFIED'
+                                        ? evalRes.flag
+                                        : isAbnormal
+                                          ? 'ABNORMAL'
+                                          : (pr.flag === 'NORMAL' && !isAbnormal)
+                                            ? 'NORMAL'
+                                            : evalRes?.flag || 'UNCLASSIFIED';
+
+                                    const refInterval = (!isGenericReferenceRange(pr.referenceRange) ? pr.referenceRange : null)
+                                      || (!isGenericReferenceRange(evalRes?.referenceRangeDisplay) ? evalRes.referenceRangeDisplay : null)
+                                      || (pr.lowNormal !== null && pr.highNormal !== null && pr.lowNormal !== undefined && pr.highNormal !== undefined && pr.lowNormal !== '' && pr.highNormal !== ''
+                                        ? `${pr.lowNormal} - ${pr.highNormal}`
+                                        : '—');
+
                                     return (
-                                      <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff5f5' : isBlank ? '#fffbeb' : undefined }}>
+                                      <tr key={pidx} style={{ background: isAbnormal ? '#fff5f5' : isBlank ? '#fffbeb' : undefined }}>
                                         <td style={{ fontWeight: 600 }}>{pr.name || pr.parameterCode}</td>
-                                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: pr.isAbnormal ? '#dc2626' : undefined }}>
+                                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: isAbnormal ? '#dc2626' : undefined }}>
                                           {isBlank ? <span style={{ color: '#c2410c', fontStyle: 'italic' }}>Missing result</span> : pr.value}
                                         </td>
                                         <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{pr.unit || '—'}</td>
-                                        <td style={{ fontSize: '0.75rem' }}>{pr.referenceRange || 'Standard'}</td>
+                                        <td style={{ fontSize: '0.75rem' }}>{refInterval}</td>
                                         <td>
                                           {isBlank ? (
                                             <Badge variant="warning" style={{ fontSize: '0.65rem' }}>MISSING</Badge>
-                                          ) : pr.isAbnormal ? (
+                                          ) : flag === 'CRITICAL_LOW' || flag === 'CRITICAL_HIGH' ? (
+                                            <Badge variant="danger" style={{ background: '#991b1b', color: '#fff', fontSize: '0.65rem' }}>CRITICAL</Badge>
+                                          ) : flag === 'LOW' ? (
+                                            <Badge style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a', fontSize: '0.65rem' }}>LOW</Badge>
+                                          ) : flag === 'HIGH' ? (
+                                            <Badge variant="danger" style={{ fontSize: '0.65rem' }}>HIGH</Badge>
+                                          ) : isAbnormal ? (
                                             <Badge variant="danger" style={{ fontSize: '0.65rem' }}>ABNORMAL</Badge>
+                                          ) : flag === 'UNCLASSIFIED' ? (
+                                            <Badge variant="secondary" style={{ fontSize: '0.65rem' }}>REVIEW</Badge>
                                           ) : (
                                             <Badge variant="success" style={{ fontSize: '0.65rem' }}>NORMAL</Badge>
                                           )}

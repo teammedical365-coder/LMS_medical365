@@ -143,6 +143,7 @@ const ParameterResultSchema = new mongoose.Schema(
     unit: { type: String, default: '' },
     referenceRange: { type: String, default: '' },
     isAbnormal: { type: Boolean, default: false },
+    flag: { type: String, default: null },
     enteredAt: { type: Date, default: Date.now },
     enteredBy: { type: String, default: null },
   },

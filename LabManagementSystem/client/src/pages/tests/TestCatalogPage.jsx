@@ -32,7 +32,7 @@ const DEFAULT_FORM = {
   specimenType: 'Whole Blood (EDTA)',
   price: '',
   turnaroundHours: 24,
-  referenceRange: 'Normal reference range',
+  referenceRange: '',
   parameters: [],
 };
 
@@ -314,7 +314,7 @@ export function TestCatalogPage() {
       specimenType: formData.specimenType.trim(),
       price: Number(formData.price) || 0,
       turnaroundHours: Number(formData.turnaroundHours) || 24,
-      referenceRange: formData.referenceRange.trim() || 'Standard reference interval',
+      referenceRange: formData.referenceRange.trim() || '',
       parameters: formattedParams,
     };
 

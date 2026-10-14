@@ -18,6 +18,7 @@ import laboratoryManagementService from './laboratoryManagement.service.js';
 import auditLogService from './auditLog.service.js';
 import ReportVerificationModel from '../models/reportVerification.model.js';
 import { resolveSpecimenContainer, generateBarcodeSvg, generate50x25Label } from '../utils/barcode128.js';
+import { classifyResult, parseReferenceRange, isGenericReferenceRange } from '../utils/clinicalClassification.js';
 import logger from '../utils/logger.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -89,6 +90,19 @@ export function formatTatDuration(minutes) {
     return `${hours}h`;
   }
   return `${hours}h ${remainingMins}m`;
+}
+
+export function calculateAge(dobString) {
+  if (!dobString) return '';
+  const dob = new Date(dobString);
+  if (isNaN(dob.getTime())) return String(dobString);
+  const now = new Date();
+  let years = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+    years--;
+  }
+  return years >= 0 ? `${years} Y` : '';
 }
 
 /**
@@ -516,7 +530,13 @@ class TenantClinicalService {
         ? Number(it.price)
         : (catalogMatch ? Number(catalogMatch.price) || 0 : 0);
       const resolvedName = it.testName || it.name || (catalogMatch ? catalogMatch.name : 'Diagnostic Panel');
-      const resolvedRef = it.referenceRange || (catalogMatch ? catalogMatch.referenceRange : 'Normal');
+      const rawCatRef = catalogMatch?.referenceRange;
+      const resolvedRef = (it.referenceRange && !isGenericReferenceRange(it.referenceRange))
+        ? it.referenceRange
+        : (rawCatRef && !isGenericReferenceRange(rawCatRef))
+          ? rawCatRef
+          : null;
+      const resolvedDept = it.department || catalogMatch?.department || 'Clinical Pathology';
 
       // Immutable snapshot of structured parameters from catalog at time of requisition
       const paramSnapshot = (catalogMatch?.parameters && Array.isArray(catalogMatch.parameters) && catalogMatch.parameters.length > 0)
@@ -531,6 +551,7 @@ class TenantClinicalService {
         itemId: `item_${idx + 1}`,
         testCode: codeKey || `TEST-${idx + 1}`,
         testName: resolvedName,
+        department: resolvedDept,
         price: resolvedPrice,
         specimenType: rawSpecimen,
         container: resolvedContainer,
@@ -1174,17 +1195,53 @@ class TenantClinicalService {
 
     const { parameterResults = [], findings, notes, instrument, reagentLot } = resultData;
 
-    // Validate parameterResults strictly (Fix A)
+    // Fetch associated order first to access configured test and parameter metadata
+    let order = null;
+    if (sample.orderId) {
+      if (OrderModel) {
+        order = await OrderModel.findOne({ tenantId, orderId: sample.orderId });
+      } else {
+        const oMap = this.memoryOrders.get(tenantId);
+        order = oMap?.get(sample.orderId);
+      }
+    }
+
+    const targetCodes = Array.isArray(sample.testCodes) ? sample.testCodes : [];
+    const targetItemIds = Array.isArray(sample.itemIds) ? sample.itemIds : [];
+    const matchedItems = order?.items
+      ? order.items.filter((it) => targetCodes.includes(it.testCode) || targetItemIds.includes(it.itemId) || order.items.length === 1)
+      : [];
+
+    // Index all parameters configured on matched order items (including custom Hospital Admin tests)
+    const configuredParamsMap = new Map();
+    for (const item of matchedItems) {
+      if (Array.isArray(item.parameters)) {
+        for (const p of item.parameters) {
+          const code = (p.parameterCode || p.code || '').trim().toUpperCase();
+          if (code && !configuredParamsMap.has(code)) {
+            configuredParamsMap.set(code, p);
+          }
+        }
+      }
+    }
+
+    // Patient demographics for age/gender specific reference intervals
+    const demographics = {
+      gender: order?.patientGender || '',
+    };
+
+    // Validate parameterResults strictly with authoritative classification
     const validatedParameterResults = [];
     if (Array.isArray(parameterResults)) {
       for (const pr of parameterResults) {
         const pCode = (pr.parameterCode || pr.code || '').trim().toUpperCase();
-        const pName = pr.name || pr.parameterCode || pCode || 'Parameter';
-        const pType = (pr.resultType || 'NUMERIC').toUpperCase();
+        const paramDef = configuredParamsMap.get(pCode) || pr;
+        const pName = paramDef.name || pr.name || pCode || 'Parameter';
+        const pType = (paramDef.resultType || pr.resultType || 'NUMERIC').toUpperCase();
         let val = pr.value;
 
         if (pType === 'NUMERIC') {
-          if (val === '' || val === undefined || (val === null && pr.required)) {
+          if (val === '' || val === undefined || (val === null && (pr.required || paramDef.required))) {
             throw new ClinicalServiceError(
               `Invalid numeric value for parameter '${pName}'. Empty input cannot be evaluated as zero.`,
               'INVALID_NUMERIC_VALUE',
@@ -1204,7 +1261,7 @@ class TenantClinicalService {
           }
         } else if (pType === 'OPTIONS') {
           if (val === undefined || val === null || String(val).trim() === '') {
-            if (pr.required) {
+            if (pr.required || paramDef.required) {
               throw new ClinicalServiceError(
                 `Value required for parameter '${pName}'`,
                 'REQUIRED_PARAMETER_MISSING',
@@ -1218,7 +1275,7 @@ class TenantClinicalService {
         } else {
           // TEXT
           if (val === undefined || val === null || String(val).trim() === '') {
-            if (pr.required) {
+            if (pr.required || paramDef.required) {
               throw new ClinicalServiceError(
                 `Value required for parameter '${pName}'`,
                 'REQUIRED_PARAMETER_MISSING',
@@ -1231,14 +1288,23 @@ class TenantClinicalService {
           }
         }
 
+        // Authoritative independent clinical classification (Problem B fix)
+        const classification = classifyResult(val, paramDef || pr, demographics);
+        const refDisplay = (!isGenericReferenceRange(classification.referenceRangeDisplay) ? classification.referenceRangeDisplay : null)
+          || (!isGenericReferenceRange(pr.referenceRange) ? pr.referenceRange : null)
+          || (!isGenericReferenceRange(paramDef?.referenceRange) ? paramDef.referenceRange : null)
+          || '—';
+        const unit = pr.unit || paramDef?.unit || '';
+
         validatedParameterResults.push({
           parameterCode: pCode || 'PARAM',
           name: pName,
           resultType: pType,
           value: val,
-          unit: pr.unit || '',
-          referenceRange: pr.referenceRange || '',
-          isAbnormal: Boolean(pr.isAbnormal),
+          unit,
+          referenceRange: refDisplay,
+          isAbnormal: classification.isAbnormal,
+          flag: classification.flag,
           enteredAt: new Date(),
           enteredBy: actor.email || 'Lab Technician',
         });
@@ -1249,22 +1315,8 @@ class TenantClinicalService {
     sample.processingStatus = 'results_entered';
     if (sample.save) await sample.save();
 
-    // Now update associated order items
-    let order = null;
-    if (sample.orderId) {
-      if (OrderModel) {
-        order = await OrderModel.findOne({ tenantId, orderId: sample.orderId });
-      } else {
-        const oMap = this.memoryOrders.get(tenantId);
-        order = oMap?.get(sample.orderId);
-      }
-    }
-
     let report = null;
     if (order) {
-      const targetCodes = Array.isArray(sample.testCodes) ? sample.testCodes : [];
-      const targetItemIds = Array.isArray(sample.itemIds) ? sample.itemIds : [];
-
       let anyItemUpdated = false;
       let hasAbnormal = false;
 
@@ -1275,8 +1327,8 @@ class TenantClinicalService {
           it.status = 'results_entered';
           if (validatedParameterResults.length > 0) {
             it.parameterResults = validatedParameterResults;
-            if (it.parameterResults.some((p) => p.isAbnormal)) {
-              it.isAbnormal = true;
+            it.isAbnormal = it.parameterResults.some((p) => p.isAbnormal);
+            if (it.isAbnormal) {
               hasAbnormal = true;
             }
             it.resultValue = it.parameterResults
@@ -1901,14 +1953,6 @@ class TenantClinicalService {
           }
           val = Number(val);
 
-          // Evaluate abnormal flag against reference range if configured
-          if (paramDef?.referenceRanges && Array.isArray(paramDef.referenceRanges) && paramDef.referenceRanges.length > 0) {
-            const ref = paramDef.referenceRanges[0];
-            if (ref) {
-              if (ref.lowNormal !== undefined && ref.lowNormal !== null && val < ref.lowNormal) itemAbnormal = true;
-              if (ref.highNormal !== undefined && ref.highNormal !== null && val > ref.highNormal) itemAbnormal = true;
-            }
-          }
         } else if (resultType === 'OPTIONS') {
           const validOpts = Array.isArray(paramDef?.options) ? paramDef.options : [];
           if (validOpts.length > 0) {
@@ -1936,14 +1980,13 @@ class TenantClinicalService {
           val = String(val).trim();
         }
 
+        // Authoritative independent clinical classification (Problem B fix)
+        const classification = classifyResult(val, paramDef || entry);
         const unit = entry.unit || paramDef?.unit || '';
-        let refDisplay = entry.referenceRange || '';
-        if (!refDisplay && paramDef?.referenceRanges && paramDef.referenceRanges.length > 0) {
-          const r = paramDef.referenceRanges[0];
-          refDisplay = (r.lowNormal !== undefined && r.highNormal !== undefined)
-            ? `${r.lowNormal} - ${r.highNormal} ${unit}`.trim()
-            : (r.notes || '');
-        }
+        const refDisplay = (!isGenericReferenceRange(classification.referenceRangeDisplay) ? classification.referenceRangeDisplay : null)
+          || (!isGenericReferenceRange(entry.referenceRange) ? entry.referenceRange : null)
+          || (!isGenericReferenceRange(paramDef?.referenceRange) ? paramDef?.referenceRange : null)
+          || '—';
 
         storedParamResults.push({
           parameterCode: code,
@@ -1952,16 +1995,15 @@ class TenantClinicalService {
           value: val,
           unit,
           referenceRange: refDisplay,
-          isAbnormal: itemAbnormal,
+          isAbnormal: classification.isAbnormal,
+          flag: classification.flag,
           enteredAt: new Date(),
           enteredBy: actor.email || 'Lab Technician',
         });
       }
 
       targetItem.parameterResults = storedParamResults;
-      if (storedParamResults.some((p) => p.isAbnormal)) {
-        isAbnormal = true;
-      }
+      isAbnormal = storedParamResults.some((p) => p.isAbnormal);
 
       // Generate composite resultValue string if omitted
       if (!hasSingleResult && storedParamResults.length > 0) {
@@ -1969,6 +2011,12 @@ class TenantClinicalService {
           .map((p) => `${p.name || p.parameterCode}: ${p.value}${p.unit ? ' ' + p.unit : ''}`)
           .join(', ');
       }
+    } else if (hasSingleResult) {
+      // Authoritative validation of single result against target item's reference range
+      const singleClassification = classifyResult(resultValue, {
+        referenceRange: targetItem.referenceRange || referenceRange,
+      });
+      isAbnormal = singleClassification.isAbnormal;
     }
 
     if (resultValue) {
@@ -2565,6 +2613,148 @@ class TenantClinicalService {
     };
   }
 
+  async enrichReportData(tenantId, report) {
+    if (!report) return report;
+    const safeJson = report.toSafeJSON ? report.toSafeJSON() : { ...report };
+
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+
+    let order = null;
+    if (safeJson.orderId) {
+      if (OrderModel) {
+        order = await OrderModel.findOne({ tenantId, orderId: safeJson.orderId });
+      } else {
+        const oMap = this.memoryOrders.get(tenantId);
+        order = oMap?.get(safeJson.orderId);
+      }
+    }
+
+    let patient = null;
+    const patientLookupId = order?.patientId || safeJson.patientId;
+    if (patientLookupId) {
+      if (PatientModel) {
+        patient = await PatientModel.findOne({ tenantId, patientId: patientLookupId });
+      } else {
+        const pMap = this.memoryPatients.get(tenantId);
+        patient = pMap?.get(patientLookupId);
+      }
+    }
+    if (!patient && (safeJson.patientMrn || order?.patientMrn)) {
+      const mrn = safeJson.patientMrn || order?.patientMrn;
+      if (PatientModel) {
+        patient = await PatientModel.findOne({ tenantId, mrn });
+      }
+    }
+
+    let samples = [];
+    if (safeJson.orderId) {
+      if (SampleModel) {
+        samples = await SampleModel.find({ tenantId, orderId: safeJson.orderId }).sort({ tubeIndex: 1 });
+      } else {
+        const sMap = this.memorySamples.get(tenantId);
+        if (sMap) {
+          samples = Array.from(sMap.values()).filter((s) => s.orderId === safeJson.orderId);
+        }
+      }
+    }
+
+    let lab = null;
+    try {
+      lab = await laboratoryManagementService.getLaboratory(tenantId);
+    } catch {}
+
+    const patientAge = patient?.age || (patient?.dob ? calculateAge(patient.dob) : '');
+    const patientGender = patient?.gender ? patient.gender.toUpperCase() : '';
+    const patientDob = patient?.dob || '';
+    const patientPhone = patient?.phone || '';
+    const patientAddress = patient?.address || '';
+
+    const orderingPhysician = order?.orderingPhysician || safeJson.orderingPhysician || 'Attending Physician';
+    const orderDate = order?.createdAt || safeJson.createdAt;
+    const primarySample = samples[0];
+    const collectedAt = primarySample?.collectedAt || null;
+    const receivedAt = primarySample?.receivedAt || null;
+    const specimenType = primarySample?.sampleType || safeJson.items?.[0]?.specimenType || 'Serum';
+    const container = primarySample?.container || safeJson.items?.[0]?.container || 'Standard Tube';
+    const barcode = primarySample?.barcode || safeJson.items?.[0]?.barcode || null;
+
+    // Normalizing test items & authoritative classification
+    const enrichedItems = (Array.isArray(safeJson.items) ? safeJson.items : []).map((it) => {
+      const paramResults = Array.isArray(it.parameterResults) ? it.parameterResults : [];
+      const normalizedParams = paramResults.map((pr) => {
+        const classification = classifyResult(pr.value, pr, { gender: patientGender });
+        const name = pr.name || pr.parameterCode || pr.parameterName || 'Analyte';
+        const isAbnormal = classification.isAbnormal || Boolean(pr.isAbnormal);
+        let flag = classification.flag;
+        // If legacy or unverified record had isAbnormal: true, ensure flag is never silently NORMAL
+        if (pr.isAbnormal && (flag === 'NORMAL' || flag === 'UNCLASSIFIED' || !flag)) {
+          flag = 'ABNORMAL';
+        }
+        return {
+          ...pr,
+          name,
+          parameterName: name, // backwards compatibility
+          parameterCode: pr.parameterCode || pr.code || name,
+          unit: pr.unit || '',
+          referenceRange: (!isGenericReferenceRange(classification.referenceRangeDisplay) ? classification.referenceRangeDisplay : null)
+            || (!isGenericReferenceRange(pr.referenceRange) ? pr.referenceRange : null)
+            || (pr.lowNormal !== null && pr.highNormal !== null && pr.lowNormal !== undefined && pr.highNormal !== undefined ? `${pr.lowNormal} - ${pr.highNormal}` : null)
+            || '—',
+          value: pr.value,
+          isAbnormal,
+          abnormalFlag: isAbnormal, // backwards compatibility
+          flag,
+          flagType: flag, // backwards compatibility
+          flagLabel: flag === 'ABNORMAL' && classification.flag !== 'ABNORMAL' ? 'Abnormal' : classification.flagLabel,
+          displayFlag: flag === 'ABNORMAL' && classification.flag !== 'ABNORMAL' ? 'ABNORMAL' : classification.displayFlag,
+          status: isAbnormal ? 'abnormal' : classification.status,
+        };
+      });
+
+      return {
+        ...it,
+        department: it.department || 'Clinical Pathology',
+        specimenType: it.specimenType || specimenType,
+        container: it.container || container,
+        barcode: it.barcode || barcode,
+        parameterResults: normalizedParams,
+        isAbnormal: normalizedParams.some((p) => p.isAbnormal) || Boolean(it.isAbnormal),
+      };
+    });
+
+    const formatLabAddress = (addr) => {
+      if (!addr) return '';
+      if (typeof addr === 'string') return addr.trim();
+      return [addr.street, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean).join(', ');
+    };
+
+    return {
+      ...safeJson,
+      patientAge,
+      patientGender,
+      patientDob,
+      patientPhone,
+      patientAddress,
+      orderingPhysician,
+      orderDate,
+      collectedAt,
+      receivedAt,
+      specimenType,
+      container,
+      barcode,
+      items: enrichedItems,
+      labName: lab?.branding?.displayName || lab?.name || 'Diagnostic Laboratory',
+      labLegalName: lab?.legalName || lab?.name || '',
+      labPhone: lab?.phone || '',
+      labEmail: lab?.email || '',
+      labAddress: formatLabAddress(lab?.address),
+      accreditation: lab?.branding?.accreditation || '',
+      branding: lab?.branding || {},
+    };
+  }
+
   async getReportForDownload(tenantId, reportId, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
@@ -2604,9 +2794,9 @@ class TenantClinicalService {
       details: { reportId, reportNumber: report.reportNumber, safeFilename },
     });
 
-    const safeJson = report.toSafeJSON ? report.toSafeJSON() : { ...report };
+    const enriched = await this.enrichReportData(tenantId, report);
     return {
-      ...safeJson,
+      ...enriched,
       safeFilename,
       downloadUrl: `/api/v1/tenants/${tenantId}/reports/${reportId}/download`,
     };
