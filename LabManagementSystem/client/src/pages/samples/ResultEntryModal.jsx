@@ -24,7 +24,8 @@ import {
   Check, 
   AlertCircle,
   Plus,
-  Trash2
+  Trash2,
+  Send,
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
@@ -117,6 +118,22 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
       const testCodes = (sample.testCodes || []).map((c) => String(c).toUpperCase());
       const testNames = (sample.testNames || []).map((n) => String(n).toUpperCase());
 
+      // Collect existing parameter results and findings for pre-filling in Edit mode
+      const existingResultsMap = new Map();
+      let existingFindings = sample.findings || '';
+
+      // Source A: sample.parameterResults
+      if (Array.isArray(sample.parameterResults)) {
+        for (const pr of sample.parameterResults) {
+          if (pr) {
+            const code = (pr.parameterCode || pr.code || '').trim().toUpperCase();
+            const name = (pr.name || '').trim().toLowerCase();
+            if (code) existingResultsMap.set(code, pr);
+            if (name) existingResultsMap.set(name, pr);
+          }
+        }
+      }
+
       // 1. First check if order-linked items have structured parameters (including custom Admin tests)
       let order = null;
       if (sample.orderId && tenantId) {
@@ -124,11 +141,92 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
           const res = await clinicalService.getOrder(tenantId, sample.orderId);
           if (res.success && res.data) {
             order = res.data;
+            if (order.findings && !existingFindings) existingFindings = order.findings;
+            if (Array.isArray(order.items)) {
+              for (const it of order.items) {
+                if (Array.isArray(it.parameterResults)) {
+                  for (const pr of it.parameterResults) {
+                    if (pr) {
+                      const code = (pr.parameterCode || pr.code || '').trim().toUpperCase();
+                      const name = (pr.name || '').trim().toLowerCase();
+                      if (code && !existingResultsMap.has(code)) existingResultsMap.set(code, pr);
+                      if (name && !existingResultsMap.has(name)) existingResultsMap.set(name, pr);
+                    }
+                  }
+                }
+              }
+            }
           }
         } catch {
           // fallback to catalog
         }
       }
+
+      // Source C: Reports (if report exists for order)
+      if (sample.orderId && tenantId) {
+        try {
+          const repRes = await clinicalService.getReports(tenantId);
+          if (repRes.success && Array.isArray(repRes.data)) {
+            const matchedRep = repRes.data.find((r) => r.orderId === sample.orderId || r.reportId === sample.reportId);
+            if (matchedRep) {
+              if (matchedRep.findings && !existingFindings) existingFindings = matchedRep.findings;
+              if (Array.isArray(matchedRep.items)) {
+                for (const it of matchedRep.items) {
+                  if (Array.isArray(it.parameterResults)) {
+                    for (const pr of it.parameterResults) {
+                      if (pr) {
+                        const code = (pr.parameterCode || pr.code || '').trim().toUpperCase();
+                        const name = (pr.name || '').trim().toLowerCase();
+                        if (code && !existingResultsMap.has(code)) existingResultsMap.set(code, pr);
+                        if (name && !existingResultsMap.has(name)) existingResultsMap.set(name, pr);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // non-blocking
+        }
+      }
+
+      const buildParamObject = (p, parsed, resolvedRef) => {
+        const pCode = (p.parameterCode || p.code || '').trim().toUpperCase();
+        const pName = (p.name || p.parameterCode || '').trim().toLowerCase();
+        const existing = existingResultsMap.get(pCode) || existingResultsMap.get(pName);
+
+        let initialVal = '';
+        if (existing && existing.value !== undefined && existing.value !== null && String(existing.value).trim() !== '') {
+          initialVal = String(existing.value);
+        }
+
+        const classification = initialVal !== ''
+          ? classifyResult(initialVal, p)
+          : { isAbnormal: false, flag: 'MISSING', flagLabel: 'Missing', displayFlag: '—' };
+
+        return {
+          parameterCode: p.parameterCode || p.code,
+          name: p.name || p.parameterCode,
+          resultType: p.resultType || 'NUMERIC',
+          unit: p.unit || '',
+          referenceRange: resolvedRef,
+          lowNormal: p.lowNormal !== undefined ? p.lowNormal : parsed.lowNormal,
+          highNormal: p.highNormal !== undefined ? p.highNormal : parsed.highNormal,
+          criticalLow: parsed.criticalLow,
+          criticalHigh: parsed.criticalHigh,
+          isOneSided: parsed.isOneSided,
+          operator: parsed.operator,
+          expectedValue: parsed.expectedValue,
+          options: Array.isArray(p.options) ? p.options : [],
+          value: initialVal,
+          isAbnormal: classification.isAbnormal,
+          flag: classification.flag,
+          flagLabel: classification.flagLabel,
+          displayFlag: classification.displayFlag,
+          required: p.required || false,
+        };
+      };
 
       if (order && Array.isArray(order.items)) {
         const targetItemIds = Array.isArray(sample.itemIds) ? sample.itemIds : [];
@@ -143,27 +241,7 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
               const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
                 || (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
                 || '—';
-              resolvedParams.push({
-                parameterCode: p.parameterCode || p.code,
-                name: p.name || p.parameterCode,
-                resultType: p.resultType || 'NUMERIC',
-                unit: p.unit || '',
-                referenceRange: resolvedRef,
-                lowNormal: parsed.lowNormal,
-                highNormal: parsed.highNormal,
-                criticalLow: parsed.criticalLow,
-                criticalHigh: parsed.criticalHigh,
-                isOneSided: parsed.isOneSided,
-                operator: parsed.operator,
-                expectedValue: parsed.expectedValue,
-                options: Array.isArray(p.options) ? p.options : [],
-                value: '',
-                isAbnormal: false,
-                flag: 'MISSING',
-                flagLabel: 'Missing',
-                displayFlag: '—',
-                required: p.required || false,
-              });
+              resolvedParams.push(buildParamObject(p, parsed, resolvedRef));
             }
           }
         }
@@ -184,27 +262,7 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
                   const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
                     || (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
                     || '—';
-                  resolvedParams.push({
-                    parameterCode: p.parameterCode || p.code,
-                    name: p.name || p.parameterCode,
-                    resultType: p.resultType || 'NUMERIC',
-                    unit: p.unit || '',
-                    referenceRange: resolvedRef,
-                    lowNormal: parsed.lowNormal,
-                    highNormal: parsed.highNormal,
-                    criticalLow: parsed.criticalLow,
-                    criticalHigh: parsed.criticalHigh,
-                    isOneSided: parsed.isOneSided,
-                    operator: parsed.operator,
-                    expectedValue: parsed.expectedValue,
-                    options: Array.isArray(p.options) ? p.options : [],
-                    value: '',
-                    isAbnormal: false,
-                    flag: 'MISSING',
-                    flagLabel: 'Missing',
-                    displayFlag: '—',
-                    required: p.required || false,
-                  });
+                  resolvedParams.push(buildParamObject(p, parsed, resolvedRef));
                 }
               }
             }
@@ -266,26 +324,7 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
             const resolvedRef = (!isGenericReferenceRange(p.referenceRange) ? p.referenceRange : null)
               || (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
               || '—';
-            return {
-              parameterCode: p.parameterCode,
-              name: p.name,
-              resultType: p.resultType,
-              unit: p.unit || '',
-              referenceRange: resolvedRef,
-              lowNormal: p.lowNormal !== undefined ? p.lowNormal : parsed.lowNormal,
-              highNormal: p.highNormal !== undefined ? p.highNormal : parsed.highNormal,
-              criticalLow: parsed.criticalLow,
-              criticalHigh: parsed.criticalHigh,
-              isOneSided: parsed.isOneSided,
-              operator: parsed.operator,
-              expectedValue: parsed.expectedValue,
-              options: p.options || [],
-              value: '',
-              isAbnormal: false,
-              flag: 'MISSING',
-              flagLabel: 'Missing',
-              displayFlag: '—',
-            };
+            return buildParamObject(p, parsed, resolvedRef);
           });
         }
       }
@@ -297,32 +336,21 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         const resolvedRef = (!isGenericReferenceRange(parsed.rawText) ? parsed.rawText : null)
           || (!isGenericReferenceRange(sample.referenceRange) ? sample.referenceRange : null)
           || '—';
-        resolvedParams = [
-          {
-            parameterCode: (sample.testCodes?.[0] || 'RESULT').toUpperCase(),
-            name: primaryTestName,
-            resultType: 'NUMERIC',
-            unit: sample.unit || 'units',
-            referenceRange: resolvedRef,
-            lowNormal: parsed.lowNormal,
-            highNormal: parsed.highNormal,
-            criticalLow: parsed.criticalLow,
-            criticalHigh: parsed.criticalHigh,
-            isOneSided: parsed.isOneSided,
-            operator: parsed.operator,
-            options: [],
-            value: '',
-            isAbnormal: false,
-            flag: 'MISSING',
-            flagLabel: 'Missing',
-            displayFlag: '—',
-          }
-        ];
+        const fallbackDef = {
+          parameterCode: (sample.testCodes?.[0] || 'RESULT').toUpperCase(),
+          name: primaryTestName,
+          resultType: 'NUMERIC',
+          unit: sample.unit || 'units',
+          options: [],
+        };
+        resolvedParams = [buildParamObject(fallbackDef, parsed, resolvedRef)];
       }
 
       if (isMounted) {
         setParamsList(resolvedParams);
-        setFindingsNotes('Analyzer run completed without flags. Controls verified within ±2SD.');
+        setFindingsNotes(
+          existingFindings || 'Analyzer run completed without flags. Controls verified within ±2SD.'
+        );
       }
     }
 
@@ -477,49 +505,55 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
       title="Test Result Entry & Analyzer Feeding Workstation"
       size="xl"
     >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <form onSubmit={handleSubmit} style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.15rem',
+        fontFamily: "var(--font-sans, 'Inter', system-ui, -apple-system, sans-serif)",
+      }}>
         {/* Specimen Header & Chain-of-Custody Banner */}
         <div style={{
-          background: 'var(--slate-50, #f8fafc)',
-          border: '1px solid var(--border-color, #e2e8f0)',
-          borderRadius: 'var(--radius-md, 8px)',
-          padding: '0.875rem 1rem',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '10px',
+          padding: '1rem 1.25rem',
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '12px',
+          gap: '14px',
+          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
         }}>
           <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Specimen Barcode</span>
-            <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary-blue, #2563eb)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>Specimen Barcode</span>
+            <div style={{ fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)", fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary-blue, #2563eb)', marginTop: '2px' }}>
               {sample.barcode}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px', fontWeight: 500 }}>
               {sample.container} • {sample.sampleType}
             </div>
           </div>
 
           <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Patient Details</span>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--slate-900)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>Patient Details</span>
+            <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', marginTop: '2px' }}>
               {sample.patientName}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', fontFamily: 'monospace' }}>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px', fontWeight: 500 }}>
               MRN: {sample.patientMrn || 'N/A'} • {sample.orderNumber || 'ORD'}
             </div>
           </div>
 
           <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Tests Ordered</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+            <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>Tests Ordered</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '4px' }}>
               {(sample.testCodes || []).map((code) => (
                 <span key={code} style={{
                   fontSize: '0.75rem',
-                  padding: '1px 6px',
-                  borderRadius: '3px',
-                  background: 'var(--primary-50, #eff6ff)',
-                  color: 'var(--primary-700, #1d4ed8)',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
                   fontWeight: 700,
-                  fontFamily: 'monospace'
+                  border: '1px solid #bfdbfe',
                 }}>
                   {code}
                 </span>
@@ -528,8 +562,8 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
           </div>
 
           <div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Receipt Status</span>
-            <div style={{ marginTop: '2px' }}>
+            <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>Receipt Status</span>
+            <div style={{ marginTop: '4px' }}>
               <Badge variant="blue">Received in Lab (Bench Ready)</Badge>
             </div>
           </div>
@@ -555,16 +589,16 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         {/* Toolbar: Autofill & Quality Control Indicators */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--slate-800)' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--slate-800)' }}>
               Analyte Feeding Grid ({paramsList.length} Parameters)
             </span>
             {abnormalCount > 0 ? (
               <span style={{
                 background: 'var(--danger-100, #fee2e2)',
                 color: 'var(--danger-700, #b91c1c)',
-                fontSize: '0.7rem',
+                fontSize: '0.72rem',
                 fontWeight: 700,
-                padding: '2px 8px',
+                padding: '2px 9px',
                 borderRadius: '999px',
                 display: 'flex',
                 alignItems: 'center',
@@ -577,9 +611,9 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
               <span style={{
                 background: 'var(--success-100, #dcfce7)',
                 color: 'var(--success-700, #15803d)',
-                fontSize: '0.7rem',
+                fontSize: '0.72rem',
                 fontWeight: 700,
-                padding: '2px 8px',
+                padding: '2px 9px',
                 borderRadius: '999px',
                 display: 'flex',
                 alignItems: 'center',
@@ -595,50 +629,70 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={handleAutofillNormal}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', borderColor: 'var(--primary-300)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', fontWeight: 600, borderColor: 'var(--primary-300)' }}
             title="Autofill nominal baseline values from laboratory reference standards"
           >
-            <Sparkles size={13} style={{ color: 'var(--primary-blue)' }} />
+            <Sparkles size={14} style={{ color: 'var(--primary-blue)' }} />
             <span>Autofill Normal Values</span>
           </button>
         </div>
 
-        {/* Parameter Entry Table */}
+        {/* Parameter Entry Table (Taller Height & Sharp Inter Typography) */}
         <div style={{
-          maxHeight: '340px',
+          maxHeight: '520px',
+          minHeight: '340px',
           overflowY: 'auto',
-          border: '1px solid var(--border-color, #e2e8f0)',
-          borderRadius: 'var(--radius-md, 8px)',
+          border: '1px solid #e2e8f0',
+          borderRadius: '10px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
         }}>
-          <table className="lms-table" style={{ margin: 0 }}>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--slate-100, #f1f5f9)' }}>
+          <table className="lms-table" style={{ margin: 0, fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)" }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
               <tr>
-                <th style={{ width: '30%' }}>Analyte / Parameter</th>
-                <th style={{ width: '25%' }}>Observed Result *</th>
-                <th style={{ width: '15%' }}>Unit</th>
-                <th style={{ width: '20%' }}>Reference Range</th>
-                <th style={{ width: '10%', textAlign: 'center' }}>Flag</th>
+                <th style={{ width: '28%', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#475569' }}>
+                  Analyte / Parameter
+                </th>
+                <th style={{ width: '28%', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#475569' }}>
+                  Observed Result *
+                </th>
+                <th style={{ width: '14%', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#475569' }}>
+                  Unit
+                </th>
+                <th style={{ width: '18%', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#475569' }}>
+                  Reference Range
+                </th>
+                <th style={{ width: '12%', textAlign: 'center', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#475569' }}>
+                  Flag
+                </th>
               </tr>
             </thead>
             <tbody>
               {paramsList.map((p, idx) => (
-                <tr key={p.parameterCode} style={{ background: p.isAbnormal ? '#fff5f5' : 'transparent' }}>
-                  <td>
+                <tr key={p.parameterCode} style={{ background: p.isAbnormal ? '#fff5f5' : idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                  <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--slate-900)', fontSize: '0.8125rem' }}>
+                      <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.875rem' }}>
                         {p.name}
                       </span>
-                      <span style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--slate-500)' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', letterSpacing: '0.02em', marginTop: '1px' }}>
                         {p.parameterCode}
                       </span>
                     </div>
                   </td>
 
-                  <td>
+                  <td style={{ padding: '8px 14px' }}>
                     {p.resultType === 'OPTIONS' ? (
                       <select
                         className="form-input"
-                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.8125rem' }}
+                        style={{
+                          padding: '0.45rem 0.65rem',
+                          fontSize: '0.875rem',
+                          fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)",
+                          borderRadius: '6px',
+                          borderColor: p.isAbnormal ? 'var(--danger-500, #ef4444)' : '#cbd5e1',
+                          background: p.isAbnormal ? '#fff' : '#ffffff',
+                          fontWeight: 500,
+                        }}
                         value={p.value}
                         onChange={(e) => handleValueChange(idx, e.target.value)}
                       >
@@ -654,12 +708,13 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
                         placeholder="Enter value..."
                         className="form-input"
                         style={{
-                          padding: '0.35rem 0.5rem',
-                          fontSize: '0.8125rem',
-                          fontFamily: 'monospace',
+                          padding: '0.45rem 0.65rem',
+                          fontSize: '0.875rem',
+                          fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)",
                           fontWeight: 600,
-                          borderColor: p.isAbnormal ? 'var(--danger-500, #ef4444)' : undefined,
-                          background: p.isAbnormal ? '#fff' : undefined,
+                          borderRadius: '6px',
+                          borderColor: p.isAbnormal ? 'var(--danger-500, #ef4444)' : '#cbd5e1',
+                          background: p.isAbnormal ? '#fff' : '#ffffff',
                         }}
                         value={p.value}
                         onChange={(e) => handleValueChange(idx, e.target.value)}
@@ -667,39 +722,39 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
                     )}
                   </td>
 
-                  <td>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--slate-600)', fontFamily: 'monospace' }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ fontSize: '0.8125rem', color: '#334155', fontWeight: 500 }}>
                       {p.unit || '—'}
                     </span>
                   </td>
 
-                  <td>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--slate-600)' }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ fontSize: '0.8125rem', color: '#334155', fontWeight: 500 }}>
                       {p.referenceRange || 'Standard'}
                     </span>
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', padding: '10px 14px' }}>
                     {p.value === '' || p.value === undefined ? (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>—</span>
+                      <span style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>—</span>
                     ) : p.flag === 'CRITICAL_LOW' || p.flag === 'CRITICAL_HIGH' ? (
-                      <Badge variant="danger" style={{ background: '#991b1b', color: '#fff', fontSize: '0.65rem', padding: '1px 5px' }}>
+                      <Badge variant="danger" style={{ background: '#991b1b', color: '#fff', fontSize: '0.7rem', padding: '2px 7px', fontWeight: 700 }}>
                         CRIT
                       </Badge>
                     ) : p.flag === 'LOW' ? (
-                      <Badge style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a', fontSize: '0.65rem', padding: '1px 5px' }}>
+                      <Badge style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a', fontSize: '0.7rem', padding: '2px 7px', fontWeight: 700 }}>
                         LOW
                       </Badge>
                     ) : p.flag === 'HIGH' ? (
-                      <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                      <Badge variant="danger" style={{ fontSize: '0.7rem', padding: '2px 7px', fontWeight: 700 }}>
                         HIGH
                       </Badge>
                     ) : p.isAbnormal ? (
-                      <Badge variant="danger" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                      <Badge variant="danger" style={{ fontSize: '0.7rem', padding: '2px 7px', fontWeight: 700 }}>
                         OUT
                       </Badge>
                     ) : (
-                      <Badge variant="success" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                      <Badge variant="success" style={{ fontSize: '0.7rem', padding: '2px 7px', fontWeight: 700 }}>
                         NORM
                       </Badge>
                     )}
@@ -713,14 +768,14 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         {/* Analyzer & Instrument Traceability Metadata */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Cpu size={12} />
+            <label className="form-label" style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#334155' }}>
+              <Cpu size={13} style={{ color: 'var(--primary-blue)' }} />
               Testing Analyzer / Instrument
             </label>
             <input
               type="text"
               className="form-input"
-              style={{ fontSize: '0.8125rem' }}
+              style={{ fontSize: '0.85rem', fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)" }}
               value={instrument}
               onChange={(e) => setInstrument(e.target.value)}
               placeholder="e.g. Beckman Coulter DxH 900, Roche Cobas"
@@ -728,14 +783,14 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
           </div>
 
           <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Tag size={12} />
+            <label className="form-label" style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#334155' }}>
+              <Tag size={13} style={{ color: 'var(--primary-blue)' }} />
               Reagent Calibration Batch / Lot #
             </label>
             <input
               type="text"
               className="form-input"
-              style={{ fontSize: '0.8125rem' }}
+              style={{ fontSize: '0.85rem', fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)" }}
               value={reagentLot}
               onChange={(e) => setReagentLot(e.target.value)}
               placeholder="e.g. LOT-2026-X89"
@@ -745,14 +800,14 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
 
         {/* Clinical Technician Findings & Remarks */}
         <div className="form-group">
-          <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <FileText size={12} />
+          <label className="form-label" style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#334155' }}>
+            <FileText size={13} style={{ color: 'var(--primary-blue)' }} />
             Bench Notes & Preliminary Observations
           </label>
           <textarea
             className="form-input"
             rows={2}
-            style={{ fontSize: '0.8125rem', resize: 'vertical' }}
+            style={{ fontSize: '0.85rem', fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)", resize: 'vertical' }}
             value={findingsNotes}
             onChange={(e) => setFindingsNotes(e.target.value)}
             placeholder="Enter any bench observations, delta checks, or sample appearance notes..."
@@ -760,12 +815,13 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         </div>
 
         {/* Footer Actions */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '0.85rem' }}>
           <button
             type="button"
             className="btn btn-secondary"
             onClick={onClose}
             disabled={submitting}
+            style={{ fontWeight: 600, fontSize: '0.875rem' }}
           >
             Cancel
           </button>
@@ -774,17 +830,17 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
             type="submit"
             className="btn btn-primary"
             disabled={submitting}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.875rem' }}
           >
             {submitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                <span>Feeding Results...</span>
+                <span>Recording Results...</span>
               </>
             ) : (
               <>
-                <CheckCircle2 size={16} />
-                <span>Save & Push to Pathologist Queue</span>
+                <Send size={15} />
+                <span>{sample.processingStatus === 'results_entered' ? 'Update & Push to Pathologist' : 'Save & Push to Pathologist Queue'}</span>
               </>
             )}
           </button>

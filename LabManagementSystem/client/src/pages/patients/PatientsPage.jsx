@@ -578,6 +578,12 @@ export function PatientsPage() {
     setFormData((prev) => ({ ...prev, upiAmount: digitsOnly }));
   };
 
+  // UPI UTR transaction reference number: strictly max 12 numeric digits
+  const handleUtrChange = (val) => {
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 12);
+    setFormData((prev) => ({ ...prev, utrNumber: digitsOnly }));
+  };
+
   const handleAutoBalanceSplit = (direction = 'upi') => {
     if (direction === 'upi') {
       const c = Number(formData.cashAmount) || 0;
@@ -762,6 +768,10 @@ export function PatientsPage() {
           notify.error('UTR / Transaction reference number is required for UPI payment');
           return;
         }
+        if (formData.utrNumber.trim().length !== 12) {
+          notify.error('UPI UTR number must be exactly 12 numeric digits');
+          return;
+        }
       } else if (formData.paymentMethod === 'split') {
         const cAmt = Number(formData.cashAmount) || 0;
         const uAmt = Number(formData.upiAmount) || 0;
@@ -781,6 +791,10 @@ export function PatientsPage() {
 
         if (!formData.utrNumber?.trim()) {
           notify.error('UPI UTR / Transaction reference number is required for the UPI portion in Split payment');
+          return;
+        }
+        if (formData.utrNumber.trim().length !== 12) {
+          notify.error('UPI UTR number must be exactly 12 numeric digits');
           return;
         }
       }
@@ -1120,7 +1134,7 @@ export function PatientsPage() {
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.85rem' }}>
-                            {p.age ? `${p.age} yrs` : p.dateOfBirth || p.dob ? new Date(p.dateOfBirth || p.dob).toLocaleDateString('en-IN') : 'N/A'}
+                            {p.age ? `${p.age} yrs` : 'N/A'}
                           </span>
                           <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'capitalize' }}>
                             {p.gender || 'Unknown'}
@@ -1135,10 +1149,15 @@ export function PatientsPage() {
                             <Phone size={12} style={{ color: '#64748b' }} />
                             <span>{p.phone || 'No phone'}</span>
                           </div>
-                          {p.email && (
+                          {p.email ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: '#64748b' }}>
                               <Mail size={11} style={{ color: '#94a3b8' }} />
                               <span>{p.email}</span>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                              <Mail size={11} style={{ opacity: 0.5 }} />
+                              <span>No email</span>
                             </div>
                           )}
                         </div>
@@ -2011,10 +2030,11 @@ export function PatientsPage() {
                             <input
                               type="text"
                               className="form-input"
-                              placeholder="e.g. 423456789012 (12-digit UTR)"
+                              placeholder="12-digit UTR (e.g. 423456789012)"
                               required
+                              maxLength={12}
                               value={formData.utrNumber}
-                              onChange={(e) => setFormData({ ...formData, utrNumber: e.target.value })}
+                              onChange={(e) => handleUtrChange(e.target.value)}
                             />
                           </div>
 
@@ -2126,8 +2146,9 @@ export function PatientsPage() {
                               className="form-input"
                               placeholder="12-digit UTR No."
                               required
+                              maxLength={12}
                               value={formData.utrNumber}
-                              onChange={(e) => setFormData({ ...formData, utrNumber: e.target.value })}
+                              onChange={(e) => handleUtrChange(e.target.value)}
                             />
                           </div>
                         </div>

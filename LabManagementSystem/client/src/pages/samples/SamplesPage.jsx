@@ -334,13 +334,14 @@ export function SamplesPage() {
               font-weight: 800;
             }
             .barcode-wrap {
+              width: 100%;
               display: flex;
               justify-content: center;
               align-items: center;
               margin: 0.3mm 0;
             }
             .barcode-wrap svg {
-              width: 54mm;
+              width: 100%;
               height: 11mm;
               display: block;
             }
@@ -1670,7 +1671,7 @@ export function SamplesPage() {
               </div>
 
               <div
-                style={{ margin: '6px auto', display: 'flex', justifyContent: 'center' }}
+                style={{ margin: '6px 0', width: '100%', display: 'flex', justifyContent: 'center' }}
                 dangerouslySetInnerHTML={{ __html: labelModalData.svg }}
               />
 

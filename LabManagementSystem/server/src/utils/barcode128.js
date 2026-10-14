@@ -110,7 +110,7 @@ export function generateBarcodeSvg(text, options = {}) {
     textElement = `<text x="${(svgWidth / 2).toFixed(2)}" y="${(barHeight + 11).toFixed(2)}" text-anchor="middle" font-family="monospace" font-size="9" font-weight="700" fill="#000000" letter-spacing="0.5">${cleanText}</text>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth.toFixed(2)} ${svgHeight.toFixed(2)}" width="${svgWidth.toFixed(2)}" height="${svgHeight.toFixed(2)}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" style="background:#ffffff;display:block;">${rects}${textElement}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth.toFixed(2)} ${svgHeight.toFixed(2)}" width="100%" height="${svgHeight.toFixed(2)}" preserveAspectRatio="none" shape-rendering="crispEdges" style="background:#ffffff;display:block;width:100%;height:100%;">${rects}${textElement}</svg>`;
 }
 
 /**
@@ -160,7 +160,7 @@ export function generate50x25Label(sample, tenantBranding = {}) {
   const barcodeSvg = generateBarcodeSvg(canonicalBarcode, {
     barHeight: 28,
     moduleWidth: 1.15,
-    quietZoneModules: 10,
+    quietZoneModules: 0, // Zero margin so barcode bars start where patient name starts on left and end where MRN ends on right
     showText: true,
   });
 

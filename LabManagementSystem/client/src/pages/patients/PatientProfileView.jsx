@@ -214,7 +214,7 @@ export function PatientProfileView({
 
                 {/* Age & Gender */}
                 <span style={{ fontSize: '0.825rem', color: '#334155', fontWeight: 600 }}>
-                  {patient.age ? `${patient.age} yrs` : formatDate(patient.dob)} • <span style={{ textTransform: 'capitalize' }}>{patient.gender}</span>
+                  {patient.age ? `${patient.age} yrs` : 'N/A'} • <span style={{ textTransform: 'capitalize' }}>{patient.gender}</span>
                 </span>
 
                 {/* Registration Date */}
@@ -288,7 +288,7 @@ export function PatientProfileView({
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>Age</span>
                 <span style={{ fontWeight: 700, color: '#1e293b' }}>
@@ -301,18 +301,9 @@ export function PatientProfileView({
                   {patient.gender || 'N/A'}
                 </span>
               </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>Date of Birth</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                  {patient.dob || patient.dateOfBirth ? formatDate(patient.dob || patient.dateOfBirth) : 'N/A'}
-                </span>
-              </div>
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>Blood Group</span>
-                <span className="blood-group-badge">{patient.bloodGroup || 'O+'}</span>
+                <span className="blood-group-badge">{patient.bloodGroup || 'N/A'}</span>
               </div>
             </div>
 

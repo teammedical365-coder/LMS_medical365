@@ -67,6 +67,50 @@ export function sanitizeSearchQuery(input, maxLength = MAX_SEARCH_LENGTH) {
 }
 
 /**
+ * Normalizes and formats a Pathologist name from raw user object, name, or email string.
+ * Strips domain, removes special characters/digits, applies Title Case, and ensures 'Dr. ' prefix.
+ */
+export function formatDoctorName(raw) {
+  if (!raw || typeof raw !== 'string') return 'Dr. Pathologist';
+  let str = raw.trim();
+  if (!str) return 'Dr. Pathologist';
+
+  if (str.includes('@')) {
+    const userPart = str.split('@')[0];
+    str = userPart.replace(/[._\-+]/g, ' ').replace(/\d+/g, '').trim();
+  }
+
+  const lower = str.toLowerCase();
+  if (
+    lower === 'consultant pathologist' ||
+    lower === 'pathologist' ||
+    lower === 'director & chief pathologist' ||
+    lower === 'pathologist / director' ||
+    lower === 'lab pathologist'
+  ) {
+    return 'Dr. Pathologist';
+  }
+
+  const words = str
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+  if (words.length === 0) return 'Dr. Pathologist';
+
+  let formatted = words.join(' ');
+  if (/^dr\.?\s+/i.test(formatted)) {
+    formatted = formatted.replace(/^dr\.?\s+/i, 'Dr. ');
+  } else if (/^doctor\s+/i.test(formatted)) {
+    formatted = formatted.replace(/^doctor\s+/i, 'Dr. ');
+  } else {
+    formatted = `Dr. ${formatted}`;
+  }
+
+  return formatted;
+}
+
+/**
  * Derives a standardized 3-letter uppercase laboratory prefix for MRNs and barcodes.
  * (e.g. JaipurLab -> JPR, Chonexa Lab -> CHN, Delhi -> DLH)
  */
@@ -315,6 +359,7 @@ class TenantClinicalService {
           { lastName: { $regex: sanitizedSearch, $options: 'i' } },
           { mrn: { $regex: sanitizedSearch, $options: 'i' } },
           { phone: { $regex: sanitizedSearch, $options: 'i' } },
+          { email: { $regex: sanitizedSearch, $options: 'i' } },
         ];
       }
       const list = await PatientModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
@@ -331,7 +376,8 @@ class TenantClinicalService {
           p.firstName?.toLowerCase().includes(s) ||
           p.lastName?.toLowerCase().includes(s) ||
           p.mrn?.toLowerCase().includes(s) ||
-          p.phone?.toLowerCase().includes(s)
+          p.phone?.toLowerCase().includes(s) ||
+          p.email?.toLowerCase().includes(s)
       );
     }
     return list;
@@ -1577,8 +1623,10 @@ class TenantClinicalService {
       }
     }
 
-    // Transition sample processing status to results_entered
+    // Transition sample processing status to results_entered and persist results/findings on sample
     sample.processingStatus = 'results_entered';
+    sample.parameterResults = validatedParameterResults;
+    sample.findings = findings || notes || '';
     if (sample.save) await sample.save();
 
     let report = null;
@@ -2625,8 +2673,9 @@ class TenantClinicalService {
     }
 
     // 3. Record verification details
+    const resolvedPathologist = actor.fullName || actor.name || (actor.email ? formatDoctorName(actor.email) : 'Dr. Pathologist');
     report.status = 'approved';
-    report.reviewedBy = actor.email || actor.userId || 'Consultant Pathologist';
+    report.reviewedBy = resolvedPathologist;
     report.verifiedAt = new Date();
     if (data?.verificationNotes) {
       report.verificationNotes = String(data.verificationNotes).trim();
@@ -2804,8 +2853,9 @@ class TenantClinicalService {
         report.verificationToken = crypto.randomBytes(24).toString('hex');
       }
 
+      const resolvedPathologist = actor.fullName || actor.name || (actor.email ? formatDoctorName(actor.email) : (report.reviewedBy ? formatDoctorName(report.reviewedBy) : 'Dr. Pathologist'));
       report.status = 'released';
-      report.releasedBy = actor.email || 'Pathologist / Director';
+      report.releasedBy = resolvedPathologist;
       report.releasedAt = report.releasedAt || new Date();
       await report.save();
 
@@ -2871,8 +2921,9 @@ class TenantClinicalService {
       report.verificationToken = crypto.randomBytes(24).toString('hex');
     }
 
+    const resolvedPathologist = actor.fullName || actor.name || (actor.email ? formatDoctorName(actor.email) : (report.reviewedBy ? formatDoctorName(report.reviewedBy) : 'Dr. Pathologist'));
     report.status = 'released';
-    report.releasedBy = actor.email;
+    report.releasedBy = resolvedPathologist;
     report.releasedAt = report.releasedAt || new Date();
 
     const verificationRecord = {
@@ -3106,6 +3157,8 @@ class TenantClinicalService {
       labLegalName: lab?.legalName || lab?.name || '',
       labPhone: lab?.phone || '',
       labEmail: lab?.email || '',
+      reviewedBy: safeJson.reviewedBy ? formatDoctorName(safeJson.reviewedBy) : 'Dr. Pathologist',
+      releasedBy: safeJson.releasedBy ? formatDoctorName(safeJson.releasedBy) : (safeJson.reviewedBy ? formatDoctorName(safeJson.reviewedBy) : 'Dr. Pathologist'),
       labAddress: formatLabAddress(lab?.address),
       accreditation: lab?.branding?.accreditation || '',
       branding: lab?.branding || {},

@@ -21,6 +21,7 @@ export const PatientSchema = new mongoose.Schema(
     age: { type: String, trim: true },
     gender: { type: String, enum: ['male', 'female', 'other'], required: true },
     phone: { type: String, trim: true },
+    email: { type: String, trim: true, lowercase: true, default: '' },
     bloodGroup: { type: String, trim: true, default: '' },
     orderingPhysician: { type: String, trim: true, default: '' },
     referredBy: { type: String, trim: true, default: '' },
@@ -279,6 +280,14 @@ export const SampleSchema = new mongoose.Schema(
     rejectedAt: { type: Date, default: null },
     rejectedBy: { type: String, default: null },
     recollectionTaskId: { type: String, default: null },
+    parameterResults: {
+      type: [ParameterResultSchema],
+      default: [],
+    },
+    findings: {
+      type: String,
+      default: '',
+    },
   },
   { timestamps: true }
 );
@@ -319,6 +328,8 @@ SampleSchema.methods.toSafeJSON = function () {
     rejectedAt: obj.rejectedAt,
     rejectedBy: obj.rejectedBy,
     recollectionTaskId: obj.recollectionTaskId,
+    parameterResults: obj.parameterResults || [],
+    findings: obj.findings || '',
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
   };

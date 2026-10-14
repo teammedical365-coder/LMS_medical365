@@ -77,9 +77,12 @@ class TokenService {
       throw new Error('Cannot sign tenant token without tenantId');
     }
 
+    const resolvedName = (user.fullName || user.name || `${user.firstName || ''} ${user.lastName || ''}`).trim();
     const payload = {
       sub: user.userId,
       email: user.email,
+      name: resolvedName || user.email,
+      fullName: resolvedName || user.email,
       role: user.role,
       tenantId: tenantId,
       accountType: ACCOUNT_TYPE.TENANT_USER,

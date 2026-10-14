@@ -2,8 +2,8 @@
  * Lab Management System (LMS) - Diagnostic Reports Page (Phase 6 Real Verification Workflow)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck, Search, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
@@ -105,6 +105,50 @@ function resolveParamInterval(pr) {
   return '—';
 }
 
+/**
+ * Formats a Pathologist's name properly for the diagnostic report header/footer.
+ * Prevents raw email addresses from appearing and ensures formal 'Dr. <Name>' title.
+ */
+export function formatPathologistName(raw) {
+  if (!raw || typeof raw !== 'string') return 'Dr. Pathologist';
+  let str = raw.trim();
+  if (!str) return 'Dr. Pathologist';
+
+  if (str.includes('@')) {
+    const userPart = str.split('@')[0];
+    str = userPart.replace(/[._\-+]/g, ' ').replace(/\d+/g, '').trim();
+  }
+
+  const lower = str.toLowerCase();
+  if (
+    lower === 'consultant pathologist' ||
+    lower === 'pathologist' ||
+    lower === 'director & chief pathologist' ||
+    lower === 'pathologist / director' ||
+    lower === 'lab pathologist'
+  ) {
+    return 'Dr. Pathologist';
+  }
+
+  const words = str
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+  if (words.length === 0) return 'Dr. Pathologist';
+
+  let formatted = words.join(' ');
+  if (/^dr\.?\s+/i.test(formatted)) {
+    formatted = formatted.replace(/^dr\.?\s+/i, 'Dr. ');
+  } else if (/^doctor\s+/i.test(formatted)) {
+    formatted = formatted.replace(/^doctor\s+/i, 'Dr. ');
+  } else {
+    formatted = `Dr. ${formatted}`;
+  }
+
+  return formatted;
+}
+
 export function ReportsPage() {
   const { user, tenant } = useAuth();
   const { currentTenant, branding } = useTenant();
@@ -140,7 +184,8 @@ export function ReportsPage() {
   const [printReport, setPrintReport] = useState(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
-  // Batch Selection State
+  // Search & Batch Selection State
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedReportIds, setSelectedReportIds] = useState(new Set());
   const [filterStatus, setFilterStatus] = useState('all');
 
@@ -168,11 +213,44 @@ export function ReportsPage() {
   const draftReports = reports.filter((r) => r.status === 'draft' || r.status === 'pending_review');
   const rejectedReports = reports.filter((r) => r.status === 'rejected');
 
-  const visibleReports = filterStatus === 'all'
-    ? reports
-    : filterStatus === 'draft'
-    ? reports.filter((r) => r.status === 'draft' || r.status === 'pending_review')
-    : reports.filter((r) => r.status === filterStatus);
+  const visibleReports = useMemo(() => {
+    // 1. Filter by Status Tab
+    const statusFiltered = filterStatus === 'all'
+      ? reports
+      : filterStatus === 'draft'
+      ? reports.filter((r) => r.status === 'draft' || r.status === 'pending_review')
+      : reports.filter((r) => r.status === filterStatus);
+
+    // 2. Filter by Search Query
+    if (!searchTerm.trim()) return statusFiltered;
+    const q = searchTerm.toLowerCase().trim();
+
+    return statusFiltered.filter((r) => {
+      const reportNum = (r.reportNumber || '').toLowerCase();
+      const orderNum = (r.orderNumber || '').toLowerCase();
+      const patName = (r.patientName || '').toLowerCase();
+      const patMrn = (r.patientMrn || '').toLowerCase();
+      const tName = (r.testName || '').toLowerCase();
+      const drafted = (r.draftedBy || '').toLowerCase();
+      const verified = (r.verifiedBy || '').toLowerCase();
+      const status = (r.status || '').toLowerCase();
+      const itemNames = Array.isArray(r.items)
+        ? r.items.map((it) => `${it.testName || ''} ${it.name || ''} ${it.testCode || ''}`).join(' ').toLowerCase()
+        : '';
+
+      return (
+        reportNum.includes(q) ||
+        orderNum.includes(q) ||
+        patName.includes(q) ||
+        patMrn.includes(q) ||
+        tName.includes(q) ||
+        drafted.includes(q) ||
+        verified.includes(q) ||
+        status.includes(q) ||
+        itemNames.includes(q)
+      );
+    });
+  }, [reports, filterStatus, searchTerm]);
 
   const visibleReleasedReports = visibleReports.filter((r) => r.status === 'released');
 
@@ -724,44 +802,110 @@ export function ReportsPage() {
         title="Diagnostic Pathology Reports"
         description="Pathologist clinical result verification, diagnostic findings sign-off, and official report release."
         actions={
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {releasedReports.length > 0 && (
-              <button
-                className="btn btn-secondary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                disabled={selectedDownloadIds.size === 0 || actionLoading}
-                onClick={handleStartBatchDownload}
-                title="Batch export selected released reports as PDFs"
-              >
-                <Download size={16} />
-                <span>Download Selected PDFs ({selectedDownloadIds.size})</span>
-              </button>
-            )}
-            {canRelease && approvedReports.length > 0 && (
-              <button
-                className="btn btn-primary"
-                style={{ background: 'var(--teal-600)', borderColor: 'var(--teal-600)', display: 'flex', alignItems: 'center', gap: '6px' }}
-                disabled={selectedReleaseIds.size === 0 || actionLoading}
-                onClick={handleBatchRelease}
-                title="Batch release selected approved reports"
-              >
-                <CheckCircle2 size={16} />
-                <span>Release Selected ({selectedReleaseIds.size})</span>
-              </button>
-            )}
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setIsDraftOpen(true);
-                fetchOrdersForDraft();
-              }}
-            >
-              <PlusCircle size={16} />
-              <span>Draft Report</span>
-            </button>
-          </div>
+          (releasedReports.length > 0 || (canRelease && approvedReports.length > 0)) ? (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {releasedReports.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  disabled={selectedDownloadIds.size === 0 || actionLoading}
+                  onClick={handleStartBatchDownload}
+                  title="Batch export selected released reports as PDFs"
+                >
+                  <Download size={16} />
+                  <span>Download Selected PDFs ({selectedDownloadIds.size})</span>
+                </button>
+              )}
+              {canRelease && approvedReports.length > 0 && (
+                <button
+                  className="btn btn-primary"
+                  style={{ background: 'var(--teal-600)', borderColor: 'var(--teal-600)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  disabled={selectedReleaseIds.size === 0 || actionLoading}
+                  onClick={handleBatchRelease}
+                  title="Batch release selected approved reports"
+                >
+                  <CheckCircle2 size={16} />
+                  <span>Release Selected ({selectedReleaseIds.size})</span>
+                </button>
+              )}
+            </div>
+          ) : null
         }
       />
+
+      {/* Real-time Search Bar Directly Below Header */}
+      <div
+        className="card"
+        style={{
+          padding: '12px 16px',
+          marginBottom: '1.25rem',
+          borderRadius: '12px',
+          border: '1px solid var(--slate-200)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+          background: '#ffffff',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '280px', position: 'relative' }}>
+          <Search size={18} style={{ color: '#94a3b8', position: 'absolute', left: '14px', pointerEvents: 'none' }} />
+          <input
+            type="text"
+            id="report-search-input"
+            placeholder="Search reports by Report #, Order #, Patient Name, MRN, Diagnostic Panel, or Doctor..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="form-input"
+            style={{
+              paddingLeft: '40px',
+              paddingRight: searchTerm ? '38px' : '14px',
+              borderRadius: '8px',
+              fontSize: '0.875rem',
+              width: '100%',
+              borderColor: searchTerm ? 'var(--primary-blue, #2563eb)' : '#cbd5e1',
+            }}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#94a3b8',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '4px',
+              }}
+              title="Clear search"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {searchTerm && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+            <span>
+              Found <strong>{visibleReports.length}</strong> {visibleReports.length === 1 ? 'matching report' : 'matching reports'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="btn btn-sm btn-secondary"
+              style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
 
       {successMsg && (
         <div style={{ marginBottom: '1rem' }}>
@@ -852,8 +996,26 @@ export function ReportsPage() {
             <FileText size={36} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
             <p style={{ fontWeight: 600, color: 'var(--slate-700)' }}>No diagnostic reports generated</p>
             <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-              Click "Draft Report" to initiate clinical findings for an order.
+              No diagnostic reports in the system.
             </p>
+          </div>
+        ) : visibleReports.length === 0 ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--slate-500)' }}>
+            <FileText size={36} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+            <p style={{ fontWeight: 600, color: 'var(--slate-700)' }}>No matching reports found</p>
+            <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+              {searchTerm ? `No reports match "${searchTerm}".` : 'No reports found for the selected filter tab.'}
+            </p>
+            {searchTerm && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ marginTop: '0.75rem' }}
+                onClick={() => setSearchTerm('')}
+              >
+                Clear Search
+              </button>
+            )}
           </div>
         ) : (
           <div className="table-container">
@@ -2027,43 +2189,25 @@ export function ReportsPage() {
                 </div>
               )}
 
-              {/* Signatures */}
+              {/* Signatures: Single Right-Aligned Authorized Pathologist Signature */}
               <div
                 className="page-break-inside-avoid"
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
+                  justifyContent: 'flex-end',
                   alignItems: 'flex-end',
-                  marginTop: '22px',
+                  marginTop: '24px',
                   paddingTop: '6px',
                 }}
               >
-                <div style={{ textAlign: 'left' }}>
-                  {printReport.reviewedBy && (
-                    <>
-                      <div style={{ borderBottom: '1px solid #94a3b8', width: '180px', marginBottom: '4px' }} />
-                      <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
-                        {printReport.reviewedBy}
-                      </div>
-                      <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
-                        (Consultant Pathologist)
-                      </div>
-                    </>
-                  )}
-                </div>
-
                 <div style={{ textAlign: 'right' }}>
-                  {printReport.releasedBy && (
-                    <>
-                      <div style={{ borderBottom: '1px solid #94a3b8', width: '180px', marginBottom: '4px', marginLeft: 'auto' }} />
-                      <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
-                        {printReport.releasedBy}
-                      </div>
-                      <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
-                        (Director & Chief Pathologist)
-                      </div>
-                    </>
-                  )}
+                  <div style={{ borderBottom: '1px solid #94a3b8', width: '200px', marginBottom: '4px', marginLeft: 'auto' }} />
+                  <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
+                    {formatPathologistName(printReport.releasedBy || printReport.reviewedBy)}
+                  </div>
+                  <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
+                    (Consultant Pathologist)
+                  </div>
                 </div>
               </div>
 
