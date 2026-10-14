@@ -203,8 +203,28 @@ export function requirePermission(requiredPermission) {
         );
       }
 
-      // Lab Admin has full permissions within their tenant
-      if ([USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR].includes(req.user.role)) {
+      // Lab Admin / Director permissions: explicitly disallowed from clinical operations, audit logs, and settings
+      const disallowedForLabAdmin = ['patients:', 'orders:', 'samples:', 'audit:', 'settings:'];
+      const isLabAdminRole = [USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR, 'lab_admin', 'lab_director'].includes(req.user.role);
+
+      if (isLabAdminRole) {
+        // Lab Admin is permitted if at least one of the alternative required permissions is allowed
+        const hasAnyAllowedPermission = permissionsToCheck.some(
+          (p) => !disallowedForLabAdmin.some((prefix) => p.startsWith(prefix))
+        );
+
+        if (!hasAnyAllowedPermission) {
+          const permLabel = permissionsToCheck.join(' or ');
+          logger.warn(
+            `[SECURITY] Permission denied: Lab Admin (${req.user.email}) restricted from module: ${permLabel}`
+          );
+          return ApiResponse.error(
+            res,
+            `Access denied. Lab Admin does not have permission for: ${permLabel}`,
+            HTTP_STATUS.FORBIDDEN,
+            'INSUFFICIENT_PERMISSIONS'
+          );
+        }
         return next();
       }
 

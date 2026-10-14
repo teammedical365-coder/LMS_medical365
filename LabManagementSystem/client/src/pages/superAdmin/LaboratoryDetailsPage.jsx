@@ -35,6 +35,7 @@ import ErrorState from '../../components/common/ErrorState';
 import AdminSecurityBoundary from '../../components/common/AdminSecurityBoundary';
 import Modal from '../../components/common/Modal';
 import superAdminService from '../../services/superAdminService';
+import notify from '../../utils/notify';
 
 export function LaboratoryDetailsPage() {
   const { id } = useParams();
@@ -140,19 +141,22 @@ export function LaboratoryDetailsPage() {
   const handleStatusSubmit = async (e) => {
     e.preventDefault();
     setActionLoading(true);
-    setActionFeedback(null);
     try {
-      await superAdminService.updateLaboratoryStatus(lab.tenantId, {
+      const targetId = lab.tenantId || lab.id || lab._id || id;
+      await superAdminService.updateLaboratoryStatus(targetId, {
         status: targetStatus,
         reason: statusReason,
       });
       setStatusModalOpen(false);
+      const msg = `Laboratory status successfully transitioned to ${targetStatus}.`;
+      notify.success(msg);
       setActionFeedback({
         type: 'success',
-        message: `Laboratory status successfully transitioned to ${targetStatus}.`,
+        message: msg,
       });
       fetchLabDetails();
     } catch (err) {
+      notify.error(err, { fallback: 'Failed to transition status' });
       setActionFeedback({
         type: 'warning',
         message: err.response?.data?.message || err.message || 'Failed to transition status',
@@ -169,12 +173,14 @@ export function LaboratoryDetailsPage() {
     try {
       await superAdminService.updateLaboratory(lab.tenantId, editFormData);
       setEditModalOpen(false);
+      notify.success('Laboratory updated successfully!');
       setActionFeedback({
         type: 'success',
         message: 'Laboratory profile details updated successfully.',
       });
       fetchLabDetails();
     } catch (err) {
+      notify.error(err, { fallback: 'Failed to update profile' });
       setActionFeedback({
         type: 'warning',
         message: err.response?.data?.message || err.message || 'Failed to update profile',

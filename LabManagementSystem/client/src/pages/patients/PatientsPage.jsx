@@ -1,9 +1,13 @@
 /**
  * Lab Management System (LMS) - Patients Page & Unified Clinical Intake
  * 
- * Combines patient registration, diagnostic test requisitioning,
- * live catalog pricing, and front-desk payment collection into a single,
- * high-efficiency reception workflow.
+ * Features:
+ * 1. Hero Operations Banner: Integrated "Register Patient" form at the top
+ *    with auto-sync Age/DOB, demographics, and optional live catalog test order requisition.
+ * 2. Modern Patient Directory: Stylized, organized directory cards and table
+ *    with avatars, MRN copy chips, blood group indicators, and search/filters.
+ * 3. Full-Page Patient Profile: Complete clinical history (Orders, Reports, Invoices, Samples)
+ *    and exhaustive registration demographics.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -31,6 +35,24 @@ import {
   FileText,
   ArrowRight,
   RefreshCw,
+  Phone,
+  Mail,
+  MapPin,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Activity,
+  HeartPulse,
+  UserCheck,
+  RotateCcw,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Upload,
+  Image,
+  Banknote,
+  QrCode,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import clinicalService from '../../services/clinicalService';
@@ -38,24 +60,131 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import ConfirmModal from '../../components/common/ConfirmModal';
+import notify from '../../utils/notify';
+import PatientProfileView from './PatientProfileView';
 
 const INITIAL_FORM_STATE = {
-  firstName: '',
-  lastName: '',
+  fullName: '',
   age: '',
-  dateOfBirth: '',
   gender: 'female',
+  bloodGroup: 'O+',
   phone: '',
   email: '',
-  bloodGroup: 'O+',
-  address: '',
   orderingPhysician: 'Self / Walk-in',
+  address: '',
   medicalHistory: '',
   priority: 'routine',
-  paidAmount: '',
-  paymentMethod: 'cash',
-  paymentReference: '',
+  paymentMethod: 'cash', // 'cash' | 'upi' | 'split'
+  cashAmount: '',
+  upiAmount: '',
+  utrNumber: '',
+  paymentProof: null,
+  paymentProofName: '',
 };
+
+const ROW_COLOR_PALETTES = [
+  {
+    bg: '#f0f9ff', // Soft Sky Blue
+    hoverBg: '#e0f2fe',
+    border: '#bae6fd',
+    accentColor: '#0284c7',
+    badgeBg: '#e0f2fe',
+    badgeColor: '#0369a1',
+    avatarBg: '#0284c7',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#f5f3ff', // Soft Violet / Lavender
+    hoverBg: '#ede9fe',
+    border: '#ddd6fe',
+    accentColor: '#7c3aed',
+    badgeBg: '#ede9fe',
+    badgeColor: '#6d28d9',
+    avatarBg: '#7c3aed',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#ecfdf5', // Soft Mint / Emerald
+    hoverBg: '#d1fae5',
+    border: '#a7f3d0',
+    accentColor: '#059669',
+    badgeBg: '#d1fae5',
+    badgeColor: '#047857',
+    avatarBg: '#059669',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#f0fdfa', // Soft Teal
+    hoverBg: '#ccfbf1',
+    border: '#99f6e4',
+    accentColor: '#0d9488',
+    badgeBg: '#ccfbf1',
+    badgeColor: '#0f766e',
+    avatarBg: '#0d9488',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#fffbeb', // Soft Amber / Warm Light
+    hoverBg: '#fef3c7',
+    border: '#fde68a',
+    accentColor: '#d97706',
+    badgeBg: '#fef3c7',
+    badgeColor: '#b45309',
+    avatarBg: '#d97706',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#fdf2f8', // Soft Rose / Pink
+    hoverBg: '#fce7f3',
+    border: '#fbcfe8',
+    accentColor: '#db2777',
+    badgeBg: '#fce7f3',
+    badgeColor: '#be185d',
+    avatarBg: '#db2777',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#eff6ff', // Soft Indigo / Royal
+    hoverBg: '#dbeafe',
+    border: '#bfdbfe',
+    accentColor: '#2563eb',
+    badgeBg: '#dbeafe',
+    badgeColor: '#1d4ed8',
+    avatarBg: '#2563eb',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#f8fafc', // Soft Slate / Cool Ice
+    hoverBg: '#f1f5f9',
+    border: '#cbd5e1',
+    accentColor: '#475569',
+    badgeBg: '#f1f5f9',
+    badgeColor: '#334155',
+    avatarBg: '#475569',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#fdf4ff', // Soft Orchid / Fuchsia
+    hoverBg: '#fae8ff',
+    border: '#f5d0fe',
+    accentColor: '#c026d3',
+    badgeBg: '#fae8ff',
+    badgeColor: '#a21caf',
+    avatarBg: '#c026d3',
+    avatarColor: '#ffffff',
+  },
+  {
+    bg: '#f7fee7', // Soft Sage / Lime
+    hoverBg: '#ecfccb',
+    border: '#d9f99d',
+    accentColor: '#65a30d',
+    badgeBg: '#ecfccb',
+    badgeColor: '#4d7c0f',
+    avatarBg: '#65a30d',
+    avatarColor: '#ffffff',
+  },
+];
 
 export function PatientsPage() {
   const { user, tenant } = useAuth();
@@ -67,31 +196,45 @@ export function PatientsPage() {
   const [patients, setPatients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [genderFilter, setGenderFilter] = useState('ALL');
+  const [bloodFilter, setBloodFilter] = useState('ALL');
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+
+  // Modal Registration Form State
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [selectedTests, setSelectedTests] = useState([]);
+  const [formData, setFormData] = useState(INITIAL_FORM_STATE);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Category & Test Dropdown Selection States
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('All Categories');
+  const [selectedTestDropdownCode, setSelectedTestDropdownCode] = useState('');
 
   // Catalog State for Test Pricing
   const [catalogTests, setCatalogTests] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
 
-  // Intake Form & Modal State
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
-  const [includeOrder, setIncludeOrder] = useState(true);
-  const [selectedTests, setSelectedTests] = useState([]);
-  const [testSearchTerm, setTestSearchTerm] = useState('');
-  const [selectedDept, setSelectedDept] = useState('All');
-  const [formData, setFormData] = useState(INITIAL_FORM_STATE);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Inspection & Success Modal States
+  // Full Page Profile & History States
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [patientHistory, setPatientHistory] = useState({
+    orders: [],
+    reports: [],
+    invoices: [],
+    samples: [],
+    loading: false,
+  });
+
+  // Modal States
   const [intakeSuccessResult, setIntakeSuccessResult] = useState(null);
+  const [confirmNoTestsOpen, setConfirmNoTestsOpen] = useState(false);
+  const [copiedMrnId, setCopiedMrnId] = useState(null);
 
   // Check if URL specifies register parameter (e.g. from Dashboard quick link)
   useEffect(() => {
     if (searchParams.get('register') === 'true' || searchParams.get('new') === 'true') {
-      setIsRegisterOpen(true);
-      // Clean query parameter from URL without page reload
+      setIsRegisterModalOpen(true);
       searchParams.delete('register');
       searchParams.delete('new');
       setSearchParams(searchParams, { replace: true });
@@ -131,46 +274,218 @@ export function PatientsPage() {
     }
   }, [tenantId]);
 
+  // Fetch Test Categories created by Lab Admin
+  const fetchCategories = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const res = await clinicalService.getTestCategories(tenantId);
+      if (res.success && Array.isArray(res.data)) {
+        setCategories(res.data);
+      }
+    } catch (err) {
+      console.warn('Failed to retrieve test categories for intake:', err);
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     fetchPatients();
-  }, [fetchPatients]);
+    fetchTestCatalog();
+    fetchCategories();
+  }, [fetchPatients, fetchTestCatalog, fetchCategories]);
 
-  useEffect(() => {
-    if (isRegisterOpen && catalogTests.length === 0) {
-      fetchTestCatalog();
+  // Load complete patient history across clinical modules
+  const loadPatientHistory = useCallback(
+    async (patient) => {
+      if (!tenantId || !patient) return;
+      setPatientHistory((prev) => ({ ...prev, loading: true }));
+      try {
+        const [ordersRes, reportsRes, invoicesRes, samplesRes] = await Promise.allSettled([
+          clinicalService.getOrders(tenantId),
+          clinicalService.getReports(tenantId),
+          clinicalService.getInvoices(tenantId),
+          clinicalService.getSamples(tenantId),
+        ]);
+
+        const pId = String(patient.patientId || patient._id || '');
+        const pMrn = String(patient.mrn || '').toUpperCase().trim();
+        const pName = String(patient.fullName || `${patient.firstName || ''} ${patient.lastName || ''}`)
+          .toLowerCase()
+          .trim();
+
+        const matchPatient = (item) => {
+          if (!item) return false;
+          const itemPId = String(item.patientId?._id || item.patientId || item.patient?._id || item.patient?.patientId || '');
+          if (pId && itemPId && itemPId === pId) return true;
+
+          const itemMrn = String(item.patientMrn || item.mrn || item.patient?.mrn || '').toUpperCase().trim();
+          if (pMrn && itemMrn && itemMrn === pMrn) return true;
+
+          const itemName = String(item.patientName || item.patient?.fullName || item.patient?.name || '')
+            .toLowerCase()
+            .trim();
+          if (pName && itemName && itemName === pName) return true;
+
+          return false;
+        };
+
+        const orders =
+          ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value?.data)
+            ? ordersRes.value.data.filter(matchPatient)
+            : [];
+
+        const reports =
+          reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value?.data)
+            ? reportsRes.value.data.filter(matchPatient)
+            : [];
+
+        const invoices =
+          invoicesRes.status === 'fulfilled' && Array.isArray(invoicesRes.value?.data)
+            ? invoicesRes.value.data.filter(matchPatient)
+            : [];
+
+        const samples =
+          samplesRes.status === 'fulfilled' && Array.isArray(samplesRes.value?.data)
+            ? samplesRes.value.data.filter(matchPatient)
+            : [];
+
+        setPatientHistory({
+          orders,
+          reports,
+          invoices,
+          samples,
+          loading: false,
+        });
+      } catch (err) {
+        console.error('Error loading patient clinical history:', err);
+        setPatientHistory((prev) => ({ ...prev, loading: false }));
+      }
+    },
+    [tenantId]
+  );
+
+  const handleViewProfile = (patient) => {
+    setSelectedPatient(patient);
+    loadPatientHistory(patient);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Copy MRN helper
+  const handleCopyMRN = (mrn, id, e) => {
+    e?.stopPropagation();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(mrn);
+      setCopiedMrnId(id);
+      setTimeout(() => setCopiedMrnId(null), 1800);
     }
-  }, [isRegisterOpen, catalogTests.length, fetchTestCatalog]);
+  };
 
-  // Unique departments from test catalog
-  const departments = useMemo(() => {
+  // Available categories (combining Lab Admin created categories and test catalog tags)
+  const availableCategories = useMemo(() => {
     const set = new Set();
+    categories.forEach((c) => {
+      if (c?.name) set.add(c.name);
+    });
     catalogTests.forEach((t) => {
-      if (t.department) set.add(t.department);
-      else if (t.category) set.add(t.category);
+      if (t.category) set.add(t.category);
+      else if (t.department) set.add(t.department);
     });
-    return ['All', ...Array.from(set)];
-  }, [catalogTests]);
+    return ['All Categories', ...Array.from(set)];
+  }, [categories, catalogTests]);
 
-  // Filtered catalog tests based on search and department
-  const filteredCatalogTests = useMemo(() => {
+  // Filtered tests for selected category in dropdown
+  const testsForSelectedCategory = useMemo(() => {
     return catalogTests.filter((test) => {
-      const matchDept =
-        selectedDept === 'All' ||
-        test.department?.toLowerCase() === selectedDept.toLowerCase() ||
-        test.category?.toLowerCase() === selectedDept.toLowerCase();
-
-      if (!matchDept) return false;
-
-      if (!testSearchTerm.trim()) return true;
-      const s = testSearchTerm.toLowerCase();
-      return (
-        test.name?.toLowerCase().includes(s) ||
-        test.code?.toLowerCase().includes(s) ||
-        test.specimenType?.toLowerCase().includes(s) ||
-        test.department?.toLowerCase().includes(s)
-      );
+      if (selectedCategory === 'All Categories') return true;
+      const cat = (test.category || test.department || '').toLowerCase();
+      return cat === selectedCategory.toLowerCase();
     });
-  }, [catalogTests, selectedDept, testSearchTerm]);
+  }, [catalogTests, selectedCategory]);
+
+  // Add test from Category + Test dropdown
+  const handleAddDropdownTest = () => {
+    if (!selectedTestDropdownCode) return;
+    const testToAdd = catalogTests.find(
+      (t) => (t.code || '').toUpperCase() === selectedTestDropdownCode.toUpperCase()
+    );
+    if (!testToAdd) return;
+
+    const alreadySelected = selectedTests.some(
+      (t) => (t.code || '').toUpperCase() === (testToAdd.code || '').toUpperCase()
+    );
+    if (alreadySelected) {
+      notify.info(`'${testToAdd.name}' is already added to this requisition`);
+      return;
+    }
+
+    const nextSelected = [...selectedTests, testToAdd];
+    setSelectedTests(nextSelected);
+    setSelectedTestDropdownCode('');
+    notify.success(`Added ${testToAdd.name} (₹${Number(testToAdd.price || 0).toLocaleString()})`);
+
+    // Auto update split balance if split mode is active
+    const nextSub = nextSelected.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+    setFormData((prev) => {
+      if (prev.paymentMethod === 'split') {
+        const half = Math.round(nextSub / 2);
+        return {
+          ...prev,
+          cashAmount: String(half),
+          upiAmount: String(nextSub - half),
+        };
+      }
+      return prev;
+    });
+  };
+
+  // Filtered patient records for directory
+  const filteredPatients = useMemo(() => {
+    return patients.filter((p) => {
+      // Gender filter
+      if (genderFilter !== 'ALL') {
+        if ((p.gender || '').toLowerCase() !== genderFilter.toLowerCase()) return false;
+      }
+      // Blood Group filter
+      if (bloodFilter !== 'ALL') {
+        if ((p.bloodGroup || '').toUpperCase() !== bloodFilter.toUpperCase()) return false;
+      }
+      // Search term filter
+      if (searchTerm.trim()) {
+        const s = searchTerm.toLowerCase();
+        const fullName = (p.fullName || `${p.firstName || ''} ${p.lastName || ''}`).toLowerCase();
+        const mrn = (p.mrn || '').toLowerCase();
+        const phone = (p.phone || '').toLowerCase();
+        const email = (p.email || '').toLowerCase();
+        return fullName.includes(s) || mrn.includes(s) || phone.includes(s) || email.includes(s);
+      }
+      return true;
+    });
+  }, [patients, genderFilter, bloodFilter, searchTerm]);
+
+  // Pagination Configuration (10 patients per page)
+  const PAGE_SIZE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset to page 1 whenever search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, genderFilter, bloodFilter]);
+
+  const totalPages = Math.ceil(filteredPatients.length / PAGE_SIZE) || 1;
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const paginatedPatients = filteredPatients.slice(startIndex, startIndex + PAGE_SIZE);
+
+  // Statistics counters
+  const stats = useMemo(() => {
+    const total = patients.length;
+    const male = patients.filter((p) => (p.gender || '').toLowerCase() === 'male').length;
+    const female = patients.filter((p) => (p.gender || '').toLowerCase() === 'female').length;
+    const todayStr = new Date().toDateString();
+    const today = patients.filter((p) => {
+      if (!p.createdAt) return false;
+      return new Date(p.createdAt).toDateString() === todayStr;
+    }).length;
+    return { total, male, female, today };
+  }, [patients]);
 
   // Calculate order subtotal from selected tests
   const subtotal = useMemo(() => {
@@ -190,38 +505,85 @@ export function PatientsPage() {
     return Math.max(0, subtotal - currentPaidAmount);
   }, [subtotal, currentPaidAmount]);
 
-  // Auto-sync age and date of birth
+  // Manual age input (strictly max 2 numeric digits: 1 to 99)
   const handleAgeChange = (val) => {
-    const ageNum = parseInt(val, 10);
-    if (!isNaN(ageNum) && ageNum > 0 && ageNum < 130) {
-      const approxYear = new Date().getFullYear() - ageNum;
-      const estimatedDob = `${approxYear}-01-01`;
-      setFormData((prev) => ({
-        ...prev,
-        age: val,
-        dateOfBirth: estimatedDob,
-      }));
-    } else {
-      setFormData((prev) => ({ ...prev, age: val }));
-    }
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 2);
+    setFormData((prev) => ({ ...prev, age: digitsOnly }));
   };
 
-  const handleDobChange = (dobVal) => {
-    if (dobVal) {
-      const birth = new Date(dobVal);
-      const today = new Date();
-      let diff = today.getFullYear() - birth.getFullYear();
-      const m = today.getMonth() - birth.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-        diff--;
-      }
+  const handlePhoneChange = (val) => {
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 10);
+    setFormData((prev) => ({ ...prev, phone: digitsOnly }));
+  };
+
+  // Proof screenshot upload
+  const handleProofUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      notify.error('Please upload an image file (PNG, JPG, JPEG)');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      notify.error('Payment screenshot file must be less than 5MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
       setFormData((prev) => ({
         ...prev,
-        dateOfBirth: dobVal,
-        age: diff >= 0 ? String(diff) : prev.age,
+        paymentProof: reader.result,
+        paymentProofName: file.name,
       }));
+      notify.success(`Receipt screenshot uploaded: ${file.name}`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveProof = () => {
+    setFormData((prev) => ({
+      ...prev,
+      paymentProof: null,
+      paymentProofName: '',
+    }));
+  };
+
+  // Payment method selection & split balance
+  const handlePaymentMethodChange = (mode) => {
+    setFormData((prev) => {
+      if (mode === 'split') {
+        const half = Math.round(subtotal / 2);
+        return {
+          ...prev,
+          paymentMethod: mode,
+          cashAmount: prev.cashAmount || String(half),
+          upiAmount: prev.upiAmount || String(subtotal - half),
+        };
+      }
+      return {
+        ...prev,
+        paymentMethod: mode,
+      };
+    });
+  };
+
+  const handleCashAmountChange = (val) => {
+    const digitsOnly = val.replace(/\D/g, '');
+    setFormData((prev) => ({ ...prev, cashAmount: digitsOnly }));
+  };
+
+  const handleUpiAmountChange = (val) => {
+    const digitsOnly = val.replace(/\D/g, '');
+    setFormData((prev) => ({ ...prev, upiAmount: digitsOnly }));
+  };
+
+  const handleAutoBalanceSplit = (direction = 'upi') => {
+    if (direction === 'upi') {
+      const c = Number(formData.cashAmount) || 0;
+      setFormData((prev) => ({ ...prev, upiAmount: String(Math.max(0, subtotal - c)) }));
     } else {
-      setFormData((prev) => ({ ...prev, dateOfBirth: dobVal }));
+      const u = Number(formData.upiAmount) || 0;
+      setFormData((prev) => ({ ...prev, cashAmount: String(Math.max(0, subtotal - u)) }));
     }
   };
 
@@ -241,11 +603,15 @@ export function PatientsPage() {
     }
     setSelectedTests(nextSelected);
 
-    // If paid amount was equal to previous subtotal or untouched, update to new subtotal
-    const newSubtotal = nextSelected.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+    const nextSub = nextSelected.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
     setFormData((prev) => {
-      if (prev.paidAmount === '' || Number(prev.paidAmount) === subtotal) {
-        return { ...prev, paidAmount: String(newSubtotal) };
+      if (prev.paymentMethod === 'split') {
+        const half = Math.round(nextSub / 2);
+        return {
+          ...prev,
+          cashAmount: String(half),
+          upiAmount: String(nextSub - half),
+        };
       }
       return prev;
     });
@@ -256,64 +622,60 @@ export function PatientsPage() {
       (t) => (t.code || '').toUpperCase() !== (code || '').toUpperCase()
     );
     setSelectedTests(nextSelected);
-    const newSubtotal = nextSelected.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+
+    const nextSub = nextSelected.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
     setFormData((prev) => {
-      if (prev.paidAmount === '' || Number(prev.paidAmount) === subtotal) {
-        return { ...prev, paidAmount: String(newSubtotal) };
+      if (prev.paymentMethod === 'split') {
+        const half = Math.round(nextSub / 2);
+        return {
+          ...prev,
+          cashAmount: String(half),
+          upiAmount: String(nextSub - half),
+        };
       }
       return prev;
     });
   };
 
-  // Quick payment helper
-  const handleSetQuickPay = (type) => {
-    if (type === 'full') {
-      setFormData((prev) => ({ ...prev, paidAmount: String(subtotal) }));
-    } else if (type === 'half') {
-      setFormData((prev) => ({ ...prev, paidAmount: String(Math.round(subtotal / 2)) }));
-    } else if (type === 'zero') {
-      setFormData((prev) => ({ ...prev, paidAmount: '0' }));
-    }
-  };
-
-  // Unified Registration & Order Submission
-  const handleUnifiedSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.firstName.trim() || !formData.lastName.trim()) {
-      alert('Patient first and last names are required');
-      return;
-    }
-
-    if (!formData.dateOfBirth && !formData.age) {
-      alert('Please specify either Date of Birth or Patient Age');
-      return;
-    }
-
-    if (includeOrder && selectedTests.length === 0) {
-      const proceedWithoutTests = window.confirm(
-        'No diagnostic tests are selected. Do you want to save the patient profile only?'
-      );
-      if (!proceedWithoutTests) return;
-    }
-
+  // Execute patient registration
+  const executeRegistration = async () => {
     try {
       setIsSubmitting(true);
       setError(null);
 
+      const nameParts = formData.fullName.trim().split(/\s+/);
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '.';
+
+      const hasTests = selectedTests.length > 0;
+      let paidAmount = 0;
+      let paymentRef = null;
+
+      if (hasTests) {
+        paidAmount = subtotal;
+        if (formData.paymentMethod === 'cash') {
+          paymentRef = 'Cash Counter Payment';
+        } else if (formData.paymentMethod === 'upi') {
+          paymentRef = `UPI (UTR: ${formData.utrNumber.trim()})`;
+        } else if (formData.paymentMethod === 'split') {
+          paymentRef = `Split: Cash ₹${Number(formData.cashAmount)} + UPI ₹${Number(formData.upiAmount)} (UTR: ${formData.utrNumber.trim()})`;
+        }
+      }
+
       const payload = {
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        dateOfBirth: formData.dateOfBirth,
+        firstName,
+        lastName,
         age: formData.age,
+        dateOfBirth: null,
         gender: formData.gender,
-        phone: formData.phone?.trim() || null,
-        email: formData.email?.trim() || null,
+        phone: formData.phone.trim(),
+        email: formData.email.trim(),
         bloodGroup: formData.bloodGroup,
         address: formData.address?.trim() || null,
-        orderingPhysician: formData.orderingPhysician?.trim() || 'Attending Physician',
+        orderingPhysician: formData.orderingPhysician?.trim() || 'Self / Walk-in',
         medicalHistory: formData.medicalHistory?.trim() || null,
         priority: formData.priority,
-        items: includeOrder
+        items: hasTests
           ? selectedTests.map((t) => ({
               testCode: t.code,
               testName: t.name,
@@ -323,44 +685,174 @@ export function PatientsPage() {
               parameters: t.parameters || [],
             }))
           : [],
-        paidAmount: includeOrder ? currentPaidAmount : 0,
+        paidAmount,
         paymentMethod: formData.paymentMethod || 'cash',
-        paymentReference: formData.paymentReference?.trim() || null,
+        paymentReference: paymentRef,
+        cashAmount: formData.paymentMethod === 'split' ? Number(formData.cashAmount) : undefined,
+        upiAmount: formData.paymentMethod === 'split' ? Number(formData.upiAmount) : undefined,
+        utrNumber: formData.utrNumber?.trim() || undefined,
+        paymentProof: formData.paymentProof || undefined,
       };
 
       const res = await clinicalService.registerPatientWithOrder(tenantId, payload);
 
       if (res.success) {
-        setIsRegisterOpen(false);
+        notify.success('Patient registered successfully.');
         setIntakeSuccessResult(res.data);
         setSuccessMsg(
-          `Intake complete for ${res.data.patient.fullName} (MRN: ${res.data.patient.mrn})` +
+          `Patient accessioned: ${res.data.patient.fullName} (MRN: ${res.data.patient.mrn})` +
             (res.data.order ? ` — Order #${res.data.order.orderNumber} created!` : '')
         );
 
-        // Reset form
+        // Reset form & close modal smoothly
         setFormData(INITIAL_FORM_STATE);
         setSelectedTests([]);
-        setTestSearchTerm('');
+        setSelectedCategory('All Categories');
+        setSelectedTestDropdownCode('');
+        setIsRegisterModalOpen(false);
         fetchPatients();
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to complete patient intake');
+      notify.error(err, { fallback: 'Failed to complete patient registration' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Submit from modal form
+  const handleModalSubmit = async (e) => {
+    e.preventDefault();
+
+    // 1. Full Name required
+    if (!formData.fullName.trim()) {
+      notify.error('Patient Full Name is required');
+      return;
+    }
+
+    // 2. Age required (manual 2 digits, 1 to 99)
+    if (!formData.age || Number(formData.age) <= 0 || Number(formData.age) > 99) {
+      notify.error('Please specify a valid Age between 1 and 99 years (max 2 digits)');
+      return;
+    }
+
+    // 4. Mobile Number (strictly 10 digits)
+    if (!formData.phone || formData.phone.length !== 10) {
+      notify.error('Mobile Number must be exactly 10 numeric digits');
+      return;
+    }
+
+    // 5. Email Address required & valid
+    if (!formData.email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      notify.error('Please enter a valid Email Address (e.g. patient@example.com)');
+      return;
+    }
+
+    // 6. Attending Physician required
+    if (!formData.orderingPhysician?.trim()) {
+      notify.error('Attending / Referring Physician is required');
+      return;
+    }
+
+    // 7. Payment validation if tests are selected
+    if (selectedTests.length > 0) {
+      if (formData.paymentMethod === 'upi') {
+        if (!formData.utrNumber?.trim()) {
+          notify.error('UTR / Transaction reference number is required for UPI payment');
+          return;
+        }
+      } else if (formData.paymentMethod === 'split') {
+        const cAmt = Number(formData.cashAmount) || 0;
+        const uAmt = Number(formData.upiAmount) || 0;
+        const splitSum = cAmt + uAmt;
+
+        if (cAmt <= 0 || uAmt <= 0) {
+          notify.error('Both Cash and UPI amounts must be greater than 0 in Split payment');
+          return;
+        }
+
+        if (splitSum !== subtotal) {
+          notify.error(
+            `Payment mismatch: Cash (₹${cAmt}) + UPI (₹${uAmt}) = ₹${splitSum}, but Total Bill is ₹${subtotal}. Total split payment must strictly equal ₹${subtotal}!`
+          );
+          return;
+        }
+
+        if (!formData.utrNumber?.trim()) {
+          notify.error('UPI UTR / Transaction reference number is required for the UPI portion in Split payment');
+          return;
+        }
+      }
+    }
+
+    await executeRegistration();
+  };
+
+  const handleResetForm = () => {
+    setFormData(INITIAL_FORM_STATE);
+    setSelectedTests([]);
+    setSelectedCategory('All Categories');
+    setSelectedTestDropdownCode('');
+  };
+
+  const getInitials = (firstName, lastName, fullName) => {
+    if (fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      return fullName.slice(0, 2).toUpperCase();
+    }
+    const f = (firstName || '')[0] || '';
+    const l = (lastName || '')[0] || '';
+    return (f + l).toUpperCase() || 'PT';
+  };
+
+  // IF A PATIENT IS SELECTED: RENDER PROPER FULL-PAGE PROFILE VIEW
+  if (selectedPatient) {
+    return (
+      <PatientProfileView
+        patient={selectedPatient}
+        onBack={() => setSelectedPatient(null)}
+        patientHistory={patientHistory}
+        onNewOrder={(patient) => {
+          setSelectedPatient(null);
+          setIsRegisterModalOpen(true);
+          const pName = patient.fullName || `${patient.firstName || ''} ${patient.lastName || ''}`.trim();
+          setFormData((prev) => ({
+            ...prev,
+            fullName: pName,
+            age: patient.age ? String(patient.age).slice(0, 2) : '',
+            gender: patient.gender || 'female',
+            phone: patient.phone || '',
+            email: patient.email || '',
+            bloodGroup: patient.bloodGroup || 'O+',
+            address: patient.address || '',
+          }));
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <PageHeader
         title="Patients Accessioning & Diagnostic Intake"
-        description="Accession incoming patients, select diagnostic tests with automated catalog pricing, and collect intake payments."
+        description="Accession incoming patients, manage complete clinical records, and review diagnostic history."
         actions={
-          <button className="btn btn-primary" onClick={() => setIsRegisterOpen(true)}>
-            <UserPlus size={16} />
-            <span>New Patient Intake & Order</span>
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => setIsRegisterModalOpen(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontWeight: 700,
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+              }}
+            >
+              <UserPlus size={16} />
+              <span>Register Patient</span>
+            </button>
+          </div>
         }
       />
 
@@ -376,669 +868,453 @@ export function PatientsPage() {
         </div>
       )}
 
-      {/* Directory Search & Filter Bar */}
-      <div className="card" style={{ padding: '0.875rem 1.25rem', marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '260px' }}>
-            <Search size={18} style={{ color: 'var(--slate-400)' }} />
-            <input
-              type="text"
-              placeholder="Search directory by Patient Name, MRN, or Phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="form-input"
-              style={{ border: 'none', padding: '0.4rem 0', width: '100%' }}
-            />
+      {/* =========================================================================
+          2. PATIENT DETAILS DIRECTORY (ORGANIZED, RICH MODERN WAY)
+          ========================================================================= */}
+      
+      {/* Directory Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Total Accessioned</span>
+            <Users size={18} style={{ color: '#0284c7' }} />
           </div>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={fetchPatients}
-            title="Refresh directory list"
-          >
-            <RefreshCw size={14} />
-            <span>Refresh</span>
-          </button>
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+            {stats.total}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Female Patients</span>
+            <UserCheck size={18} style={{ color: '#ec4899' }} />
+          </div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#db2777', marginTop: '4px' }}>
+            {stats.female}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Male Patients</span>
+            <UserCheck size={18} style={{ color: '#0284c7' }} />
+          </div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0284c7', marginTop: '4px' }}>
+            {stats.male}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Registered Today</span>
+            <Calendar size={18} style={{ color: '#10b981' }} />
+          </div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#059669', marginTop: '4px' }}>
+            {stats.today}
+          </div>
         </div>
       </div>
 
-      {/* Patients Table */}
-      <div className="card">
-        {isLoading ? (
-          <div style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--slate-500)' }}>
-            <Loader2 size={36} className="animate-spin" style={{ margin: '0 auto 0.75rem', color: 'var(--primary-blue)' }} />
-            <p style={{ fontWeight: 500 }}>Loading patient records from tenant database...</p>
+      {/* Directory Search & Filter Controls */}
+      <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          {/* Search Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '280px', position: 'relative' }}>
+            <Search size={18} style={{ color: '#94a3b8', position: 'absolute', left: '12px' }} />
+            <input
+              type="text"
+              placeholder="Search directory by Patient Name, MRN, Phone number, or Email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="form-input"
+              style={{ paddingLeft: '38px', borderRadius: '8px' }}
+            />
           </div>
-        ) : patients.length === 0 ? (
-          <div style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--slate-500)' }}>
-            <Users size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
-            <p style={{ fontWeight: 600, color: 'var(--slate-700)', fontSize: '1.05rem' }}>No patient records found</p>
-            <p style={{ fontSize: '0.875rem', marginTop: '0.35rem', color: 'var(--slate-500)' }}>
-              {searchTerm ? 'Try adjusting your search criteria.' : 'Click "New Patient Intake & Order" to register the first patient.'}
+
+          {/* Quick Filters */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Gender filter */}
+            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '2px' }}>
+              {['ALL', 'female', 'male'].map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGenderFilter(g)}
+                  style={{
+                    padding: '0.3rem 0.75rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: genderFilter === g ? '#ffffff' : 'transparent',
+                    color: genderFilter === g ? '#0284c7' : '#64748b',
+                    boxShadow: genderFilter === g ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                    cursor: 'pointer',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {g === 'ALL' ? 'All Genders' : g}
+                </button>
+              ))}
+            </div>
+
+            {/* Blood group selector */}
+            <select
+              value={bloodFilter}
+              onChange={(e) => setBloodFilter(e.target.value)}
+              className="form-select"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem', width: 'auto', borderRadius: '8px' }}
+            >
+              <option value="ALL">All Blood Groups</option>
+              {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                <option key={bg} value={bg}>
+                  {bg}
+                </option>
+              ))}
+            </select>
+
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={fetchPatients}
+              title="Refresh directory list"
+            >
+              <RefreshCw size={14} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Directory Table / List */}
+      <div className="card" style={{ borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: '#fafcff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+              Patient Records
+            </h3>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '9999px', background: '#e0f2fe', color: '#0369a1' }}>
+              {filteredPatients.length} shown
+            </span>
+          </div>
+          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+            Click <strong>View Profile</strong> on any record to open their comprehensive clinical history.
+          </span>
+        </div>
+
+        {isLoading ? (
+          <div style={{ padding: '3.5rem', textAlign: 'center', color: '#64748b' }}>
+            <Loader2 size={36} className="animate-spin" style={{ margin: '0 auto 0.75rem', color: '#0284c7' }} />
+            <p style={{ fontWeight: 600, color: '#1e293b' }}>Loading patient records...</p>
+          </div>
+        ) : filteredPatients.length === 0 ? (
+          <div style={{ padding: '3.5rem', textAlign: 'center', color: '#64748b' }}>
+            <Users size={44} style={{ margin: '0 auto 0.75rem', opacity: 0.35, color: '#0284c7' }} />
+            <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '1.1rem' }}>No patient records found</p>
+            <p style={{ fontSize: '0.85rem', marginTop: '0.35rem', color: '#64748b' }}>
+              {searchTerm || genderFilter !== 'ALL' || bloodFilter !== 'ALL'
+                ? 'Try adjusting your search or filter options.'
+                : 'Use the registration banner above to register the first patient.'}
             </p>
             <button
               className="btn btn-primary btn-sm"
               style={{ marginTop: '1rem' }}
-              onClick={() => setIsRegisterOpen(true)}
+              onClick={() => {
+                setIsRegisterModalOpen(true);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             >
               <UserPlus size={15} />
               <span>Register Patient Now</span>
             </button>
           </div>
         ) : (
-          <div className="table-container">
-            <table className="lms-table">
+          <div className="table-container" style={{ margin: 0 }}>
+            <table className="lms-table" style={{ margin: 0 }}>
               <thead>
                 <tr>
-                  <th>MRN</th>
+                  <th style={{ width: '135px' }}>MRN</th>
                   <th>Patient Name</th>
-                  <th>DOB / Age</th>
-                  <th>Gender</th>
-                  <th>Phone</th>
+                  <th>Age / Gender</th>
+                  <th>Contact</th>
                   <th>Blood Group</th>
                   <th>Registered</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th style={{ textAlign: 'right', width: '170px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {patients.map((p) => (
-                  <tr key={p.patientId || p._id}>
-                    <td>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--primary-blue)' }}>
-                        {p.mrn}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{p.fullName || `${p.firstName} ${p.lastName}`}</td>
-                    <td>
-                      {p.age ? (
-                        <span>{p.age} yrs</span>
-                      ) : p.dateOfBirth || p.dob ? (
-                        new Date(p.dateOfBirth || p.dob).toLocaleDateString()
-                      ) : (
-                        'N/A'
-                      )}
-                    </td>
-                    <td>
-                      <span style={{ textTransform: 'capitalize' }}>{p.gender}</span>
-                    </td>
-                    <td>{p.phone || 'N/A'}</td>
-                    <td>
-                      <Badge variant="teal">{p.bloodGroup || 'O+'}</Badge>
-                    </td>
-                    <td style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
-                      {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Today'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setSelectedPatient(p)}
-                        title="View Demographic Record"
-                      >
-                        <Eye size={14} />
-                        <span>View Profile</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {paginatedPatients.map((p, index) => {
+                  const pId = p.patientId || p._id;
+                  const fullName = p.fullName || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unnamed Patient';
+                  const initials = getInitials(p.firstName, p.lastName, p.fullName);
+                  const palette = ROW_COLOR_PALETTES[(startIndex + index) % ROW_COLOR_PALETTES.length];
+
+                  return (
+                    <tr
+                      key={pId}
+                      style={{
+                        background: palette.bg,
+                        borderBottom: `1px solid ${palette.border}`,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = palette.hoverBg;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = palette.bg;
+                      }}
+                      onClick={() => handleViewProfile(p)}
+                    >
+                      {/* MRN */}
+                      <td>
+                        <div
+                          className="mrn-chip"
+                          onClick={(e) => handleCopyMRN(p.mrn, pId, e)}
+                          title="Click to copy MRN"
+                          style={{
+                            background: palette.badgeBg,
+                            color: palette.badgeColor,
+                            border: `1px solid ${palette.border}`,
+                            fontWeight: 700,
+                          }}
+                        >
+                          <span>{p.mrn || 'N/A'}</span>
+                          {copiedMrnId === pId ? (
+                            <Check size={12} style={{ color: '#10b981' }} />
+                          ) : (
+                            <Copy size={12} style={{ opacity: 0.6 }} />
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Patient Name with Avatar */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div
+                            className="patient-avatar"
+                            style={{
+                              background: palette.avatarBg,
+                              color: palette.avatarColor,
+                              boxShadow: `0 2px 6px ${palette.avatarBg}33`,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {initials}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.925rem' }}>
+                              {fullName}
+                            </div>
+                            {p.orderingPhysician && (
+                              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                Ref: {p.orderingPhysician}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Age / Gender */}
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.85rem' }}>
+                            {p.age ? `${p.age} yrs` : p.dateOfBirth || p.dob ? new Date(p.dateOfBirth || p.dob).toLocaleDateString('en-IN') : 'N/A'}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'capitalize' }}>
+                            {p.gender || 'Unknown'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Contact Phone & Email */}
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.825rem', color: '#1e293b' }}>
+                            <Phone size={12} style={{ color: '#64748b' }} />
+                            <span>{p.phone || 'No phone'}</span>
+                          </div>
+                          {p.email && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: '#64748b' }}>
+                              <Mail size={11} style={{ color: '#94a3b8' }} />
+                              <span>{p.email}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Blood Group */}
+                      <td>
+                        <span
+                          className="blood-group-badge"
+                          style={{
+                            background: '#ffffff',
+                            border: `1px solid ${palette.border}`,
+                            color: '#b91c1c',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <HeartPulse size={12} style={{ marginRight: '4px', color: '#ef4444' }} />
+                          {p.bloodGroup || 'O+'}
+                        </span>
+                      </td>
+
+                      {/* Registered Date */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: '#64748b' }}>
+                          <Calendar size={13} style={{ color: '#94a3b8' }} />
+                          <span>
+                            {p.createdAt
+                              ? new Date(p.createdAt).toLocaleDateString('en-IN', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })
+                              : 'Today'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Action Button: View Profile */}
+                      <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => handleViewProfile(p)}
+                            style={{
+                              background: '#ffffff',
+                              color: palette.accentColor,
+                              border: `1px solid ${palette.border}`,
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '0.35rem 0.75rem',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="View Full Patient Profile & Clinical History"
+                          >
+                            <Eye size={14} />
+                            <span>View Profile</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-      </div>
 
-      {/* =========================================================================
-          UNIFIED PATIENT REGISTRATION, REQUISITION & BILLING MODAL
-          ========================================================================= */}
-      <Modal
-        isOpen={isRegisterOpen}
-        onClose={() => setIsRegisterOpen(false)}
-        title="Patient Accessioning & Diagnostic Order Intake"
-        maxWidth="880px"
-        footer={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {includeOrder && selectedTests.length > 0 && (
-                <div style={{ fontSize: '0.875rem' }}>
-                  <span style={{ color: 'var(--slate-500)' }}>Total Charges: </span>
-                  <strong style={{ fontSize: '1.05rem', color: 'var(--primary-blue)' }}>
-                    ₹{subtotal.toLocaleString()}
-                  </strong>
-                  {balanceDue > 0 ? (
-                    <span style={{ marginLeft: '8px', color: 'var(--warning-700)', fontWeight: 600 }}>
-                      (Due: ₹{balanceDue.toLocaleString()})
-                    </span>
-                  ) : (
-                    <span style={{ marginLeft: '8px', color: 'var(--success-700)', fontWeight: 600 }}>
-                      (Fully Paid)
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setIsRegisterOpen(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleUnifiedSubmit}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>Processing Intake...</span>
-                  </>
-                ) : includeOrder && selectedTests.length > 0 ? (
-                  <>
-                    <CheckCircle2 size={16} />
-                    <span>Register & Create Order (₹{subtotal.toLocaleString()})</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus size={16} />
-                    <span>Save Patient Profile Only</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        }
-      >
-        <form onSubmit={handleUnifiedSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          
-          {/* SECTION 1: Patient Demographics */}
-          <div style={{
-            background: 'var(--slate-50)',
-            border: '1px solid var(--slate-200)',
-            borderRadius: 'var(--radius-md)',
-            padding: '1.25rem',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
-              <Users size={18} style={{ color: 'var(--primary-blue)' }} />
-              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--slate-800)' }}>
-                1. Patient Identity & Demographics
-              </h3>
+        {/* =========================================================================
+            PAGINATION CONTROLS (10 PATIENTS PER PAGE)
+            ========================================================================= */}
+        {filteredPatients.length > 0 && (
+          <div
+            style={{
+              padding: '0.875rem 1.25rem',
+              borderTop: '1px solid #e2e8f0',
+              background: '#fafcff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ fontSize: '0.825rem', color: '#64748b' }}>
+              Showing <strong>{startIndex + 1}</strong> to{' '}
+              <strong>{Math.min(startIndex + PAGE_SIZE, filteredPatients.length)}</strong> of{' '}
+              <strong>{filteredPatients.length}</strong> patient records (10 per page)
             </div>
 
-            <div className="grid-2" style={{ gap: '0.875rem' }}>
-              <div className="form-group">
-                <label className="form-label">First Name *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Ramesh"
-                  required
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Last Name *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Kumar"
-                  required
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                />
-              </div>
-            </div>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.8rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    opacity: currentPage === 1 ? 0.45 : 1,
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <ChevronLeft size={14} />
+                  <span>Previous</span>
+                </button>
 
-            <div className="grid-2" style={{ gap: '0.875rem', marginTop: '0.75rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '0.5rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Age (Yrs)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="125"
-                    className="form-input"
-                    placeholder="e.g. 32"
-                    value={formData.age}
-                    onChange={(e) => handleAgeChange(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Date of Birth</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={formData.dateOfBirth}
-                    onChange={(e) => handleDobChange(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Gender *</label>
-                  <select
-                    className="form-select"
-                    value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  >
-                    <option value="female">Female</option>
-                    <option value="male">Male</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Blood Group</label>
-                  <select
-                    className="form-select"
-                    value={formData.bloodGroup}
-                    onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}
-                  >
-                    <option value="A+">A+</option>
-                    <option value="A-">A-</option>
-                    <option value="B+">B+</option>
-                    <option value="B-">B-</option>
-                    <option value="AB+">AB+</option>
-                    <option value="AB-">AB-</option>
-                    <option value="O+">O+</option>
-                    <option value="O-">O-</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid-2" style={{ gap: '0.875rem', marginTop: '0.75rem' }}>
-              <div className="form-group">
-                <label className="form-label">Mobile / Phone Number</label>
-                <input
-                  type="tel"
-                  className="form-input"
-                  placeholder="+91 98765 43210"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email Address (Optional)</label>
-                <input
-                  type="email"
-                  className="form-input"
-                  placeholder="patient@example.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid-2" style={{ gap: '0.875rem', marginTop: '0.75rem' }}>
-              <div className="form-group">
-                <label className="form-label">Referred By / Doctor</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Dr. A. Sharma or Self / Walk-in"
-                  value={formData.orderingPhysician}
-                  onChange={(e) => setFormData({ ...formData, orderingPhysician: e.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Home Address / City</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Flat 402, Gandhi Road, City"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 2: Diagnostic Test Requisition & Catalog Pricing */}
-          <div style={{
-            background: 'white',
-            border: '1px solid var(--slate-200)',
-            borderRadius: 'var(--radius-md)',
-            padding: '1.25rem',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <TestTube2 size={18} style={{ color: 'var(--medical-teal)' }} />
-                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--slate-800)' }}>
-                  2. Diagnostic Test Requisition & Rates
-                </h3>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', cursor: 'pointer', fontWeight: 600, color: 'var(--primary-blue)' }}>
-                <input
-                  type="checkbox"
-                  checked={includeOrder}
-                  onChange={(e) => setIncludeOrder(e.target.checked)}
-                  style={{ accentColor: 'var(--primary-blue)' }}
-                />
-                <span>Include Test Order in Intake</span>
-              </label>
-            </div>
-
-            {includeOrder && (
-              <>
-                {/* Priority Selection */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', padding: '0.6rem 0.8rem', background: 'var(--slate-50)', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--slate-700)' }}>Order Priority:</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {['routine', 'urgent', 'stat'].map((prio) => (
-                      <button
-                        key={prio}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, priority: prio })}
-                        className={`btn btn-sm ${formData.priority === prio ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{
-                          textTransform: 'capitalize',
-                          fontSize: '0.75rem',
-                          padding: '0.2rem 0.6rem',
-                          background: formData.priority === prio ? (prio === 'stat' ? '#dc2626' : prio === 'urgent' ? '#ea580c' : 'var(--primary-blue)') : 'white',
-                          borderColor: formData.priority === prio ? 'transparent' : 'var(--slate-300)',
-                        }}
-                      >
-                        {prio === 'stat' ? 'STAT (Emergency)' : prio}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Catalog Search & Department Filters */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <Search size={15} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--slate-400)' }} />
-                      <input
-                        type="text"
-                        placeholder="Search tests by name, code (e.g., CBC, Lipid, Thyroid, Glucose, Urine)..."
-                        className="form-input"
-                        style={{ paddingLeft: '32px' }}
-                        value={testSearchTerm}
-                        onChange={(e) => setTestSearchTerm(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Department Pills */}
-                  {departments.length > 1 && (
-                    <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
-                      {departments.map((dept) => (
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((pNum) => {
+                    if (totalPages <= 7) return true;
+                    if (pNum === 1 || pNum === totalPages) return true;
+                    return Math.abs(pNum - currentPage) <= 1;
+                  })
+                  .map((pNum, idx, arr) => {
+                    const showEllipsisBefore = idx > 0 && pNum - arr[idx - 1] > 1;
+                    return (
+                      <React.Fragment key={pNum}>
+                        {showEllipsisBefore && (
+                          <span style={{ padding: '0 4px', color: '#94a3b8', fontSize: '0.8rem' }}>...</span>
+                        )}
                         <button
-                          key={dept}
                           type="button"
-                          onClick={() => setSelectedDept(dept)}
+                          onClick={() => setCurrentPage(pNum)}
                           style={{
-                            fontSize: '0.72rem',
-                            padding: '0.2rem 0.6rem',
-                            borderRadius: '9999px',
-                            border: '1px solid',
-                            borderColor: selectedDept === dept ? 'var(--primary-blue)' : 'var(--slate-200)',
-                            background: selectedDept === dept ? 'var(--primary-blue-light)' : 'white',
-                            color: selectedDept === dept ? 'var(--primary-blue)' : 'var(--slate-600)',
+                            minWidth: '32px',
+                            height: '32px',
+                            padding: '0 6px',
+                            borderRadius: '6px',
+                            border: currentPage === pNum ? '1px solid #0284c7' : '1px solid #cbd5e1',
+                            background: currentPage === pNum ? '#0284c7' : '#ffffff',
+                            color: currentPage === pNum ? '#ffffff' : '#334155',
+                            fontWeight: currentPage === pNum ? 700 : 500,
+                            fontSize: '0.8rem',
                             cursor: 'pointer',
-                            fontWeight: selectedDept === dept ? 600 : 400,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {dept}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Available Tests Grid with Auto-Pricing from Lab Admin */}
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--slate-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Available Catalog Tests ({filteredCatalogTests.length} tests • Rates configured by Lab Administrator):
-                  </p>
-                  
-                  {catalogLoading ? (
-                    <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--slate-500)' }}>
-                      <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto 0.25rem' }} />
-                      <span style={{ fontSize: '0.8125rem' }}>Loading test rates from catalog...</span>
-                    </div>
-                  ) : filteredCatalogTests.length === 0 ? (
-                    <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--slate-50)', borderRadius: 'var(--radius-sm)', color: 'var(--slate-500)', fontSize: '0.8125rem' }}>
-                      No tests found matching "{testSearchTerm}". Tests can be configured in the Test Catalog by the Lab Admin.
-                    </div>
-                  ) : (
-                    <div style={{
-                      maxHeight: '190px',
-                      overflowY: 'auto',
-                      border: '1px solid var(--slate-200)',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--slate-50)',
-                      padding: '0.4rem',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                      gap: '0.4rem',
-                    }}>
-                      {filteredCatalogTests.map((t) => {
-                        const isSelected = selectedTests.some(
-                          (item) => (item.code || '').toUpperCase() === (t.code || '').toUpperCase()
-                        );
-                        return (
-                          <div
-                            key={t.code || t._id}
-                            onClick={() => handleToggleTest(t)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '0.5rem 0.65rem',
-                              borderRadius: 'var(--radius-sm)',
-                              background: isSelected ? 'var(--mint-bg)' : 'white',
-                              border: '1px solid',
-                              borderColor: isSelected ? 'var(--mint-500)' : 'var(--slate-200)',
-                              cursor: 'pointer',
-                              transition: 'all 0.1s ease',
-                            }}
-                          >
-                            <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '70%' }}>
-                              <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: isSelected ? 'var(--mint-700)' : 'var(--slate-800)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {t.name}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)' }}>
-                                {t.code} • {t.specimenType || 'Serum'}
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontWeight: 700, fontSize: '0.875rem', color: isSelected ? 'var(--mint-700)' : 'var(--primary-blue)' }}>
-                                ₹{Number(t.price || 0).toLocaleString()}
-                              </span>
-                              {isSelected ? (
-                                <Check size={14} style={{ color: 'var(--mint-600)' }} />
-                              ) : (
-                                <Plus size={14} style={{ color: 'var(--slate-400)' }} />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Selected Tests Requisition Summary Table */}
-                <div style={{
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '0.875rem',
-                  background: 'white',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--slate-700)' }}>
-                      Requisition Tests ({selectedTests.length} Selected):
-                    </span>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--primary-blue)' }}>
-                      Subtotal: ₹{subtotal.toLocaleString()}
-                    </span>
-                  </div>
-
-                  {selectedTests.length === 0 ? (
-                    <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--slate-400)', fontStyle: 'italic' }}>
-                      No tests selected yet. Click any test above to add it to this patient's requisition order.
-                    </p>
-                  ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      {selectedTests.map((st) => (
-                        <div
-                          key={st.code}
-                          style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '8px',
-                            background: 'var(--slate-50)',
-                            border: '1px solid var(--slate-300)',
-                            borderRadius: '9999px',
-                            padding: '0.25rem 0.75rem',
-                            fontSize: '0.8125rem',
+                            justifyContent: 'center',
+                            transition: 'all 0.15s ease',
                           }}
                         >
-                          <span style={{ fontWeight: 600, color: 'var(--slate-800)' }}>{st.name}</span>
-                          <span style={{ fontWeight: 700, color: 'var(--primary-blue)' }}>
-                            ₹{Number(st.price || 0).toLocaleString()}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveTest(st.code)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--slate-400)',
-                              cursor: 'pointer',
-                              padding: 0,
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                            title="Remove test"
-                          >
-                            <Trash2 size={13} style={{ color: '#ef4444' }} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
+                          {pNum}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.8rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    opacity: currentPage === totalPages ? 0.45 : 1,
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <span>Next</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             )}
           </div>
-
-          {/* SECTION 3: Billing & Instant Payment Collection */}
-          {includeOrder && selectedTests.length > 0 && (
-            <div style={{
-              background: '#f8fafc',
-              border: '1px solid #cbd5e1',
-              borderRadius: 'var(--radius-md)',
-              padding: '1.25rem',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
-                <CreditCard size={18} style={{ color: 'var(--primary-blue)' }} />
-                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--slate-800)' }}>
-                  3. Reception Billing & Payment Collection
-                </h3>
-              </div>
-
-              {/* Ledger Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.875rem', marginBottom: '1rem' }}>
-                <div style={{ background: 'white', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--slate-200)' }}>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Total Requisition</span>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--slate-900)', marginTop: '2px' }}>
-                    ₹{subtotal.toLocaleString()}
-                  </div>
-                </div>
-
-                <div style={{ background: 'white', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--slate-200)' }}>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase', fontWeight: 600 }}>Amount Paid Now</span>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--mint-600)', marginTop: '2px' }}>
-                    ₹{currentPaidAmount.toLocaleString()}
-                  </div>
-                </div>
-
-                <div style={{
-                  background: balanceDue > 0 ? '#fffbeb' : '#f0fdf4',
-                  padding: '0.75rem 1rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid',
-                  borderColor: balanceDue > 0 ? '#fde68a' : '#bbf7d0',
-                }}>
-                  <span style={{ fontSize: '0.72rem', color: balanceDue > 0 ? '#b45309' : '#15803d', textTransform: 'uppercase', fontWeight: 600 }}>
-                    {balanceDue > 0 ? 'Balance Due' : 'Status'}
-                  </span>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: balanceDue > 0 ? '#b45309' : '#15803d', marginTop: '2px' }}>
-                    {balanceDue > 0 ? `₹${balanceDue.toLocaleString()}` : 'Fully Settled'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Details Inputs */}
-              <div className="grid-2" style={{ gap: '0.875rem' }}>
-                <div className="form-group">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <label className="form-label" style={{ margin: 0 }}>Amount Collected (₹)</label>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        type="button"
-                        onClick={() => handleSetQuickPay('full')}
-                        style={{ fontSize: '0.7rem', padding: '1px 6px', background: 'white', border: '1px solid var(--slate-300)', borderRadius: '4px', cursor: 'pointer' }}
-                      >
-                        Full (₹{subtotal})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetQuickPay('zero')}
-                        style={{ fontSize: '0.7rem', padding: '1px 6px', background: 'white', border: '1px solid var(--slate-300)', borderRadius: '4px', cursor: 'pointer' }}
-                      >
-                        Unpaid (₹0)
-                      </button>
-                    </div>
-                  </div>
-                  <input
-                    type="number"
-                    min="0"
-                    max={subtotal}
-                    className="form-input"
-                    value={formData.paidAmount}
-                    onChange={(e) => setFormData({ ...formData, paidAmount: e.target.value })}
-                    placeholder={`e.g. ${subtotal}`}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Payment Mode</label>
-                  <select
-                    className="form-select"
-                    value={formData.paymentMethod}
-                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                  >
-                    <option value="cash">Cash Counter</option>
-                    <option value="upi">UPI / QR Code (GPay, PhonePe, Paytm)</option>
-                    <option value="card">Debit / Credit Card (POS Machine)</option>
-                    <option value="online">Net Banking / Online Transfer</option>
-                    <option value="cheque">Cheque / Demand Draft</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label className="form-label">Payment Reference / UTR Number (Optional)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. UPI UTR # 4238917263, Card Auth Code, or Receipt #"
-                  value={formData.paymentReference}
-                  onChange={(e) => setFormData({ ...formData, paymentReference: e.target.value })}
-                />
-              </div>
-            </div>
-          )}
-        </form>
-      </Modal>
+        )}
+      </div>
 
       {/* =========================================================================
           INTAKE SUCCESS RECEIPT MODAL
@@ -1046,117 +1322,97 @@ export function PatientsPage() {
       <Modal
         isOpen={!!intakeSuccessResult}
         onClose={() => setIntakeSuccessResult(null)}
-        title="Intake & Requisition Receipt"
+        title="Patient Intake & Accessioning Summary"
         maxWidth="680px"
         footer={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
+            <button className="btn btn-secondary" onClick={() => setIntakeSuccessResult(null)}>
+              Close
+            </button>
             <button
-              className="btn btn-secondary"
+              className="btn btn-primary"
               onClick={() => {
+                const pt = intakeSuccessResult.patient;
                 setIntakeSuccessResult(null);
-                setIsRegisterOpen(true);
+                if (pt) handleViewProfile(pt);
               }}
             >
-              <UserPlus size={15} />
-              <span>Accession Next Patient</span>
+              <Eye size={15} />
+              <span>Open Patient Profile</span>
             </button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setIntakeSuccessResult(null)}
-              >
-                Close Receipt
-              </button>
-              {intakeSuccessResult?.order && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setIntakeSuccessResult(null);
-                    navigate('/orders');
-                  }}
-                >
-                  <ArrowRight size={15} />
-                  <span>View in Orders Queue</span>
-                </button>
-              )}
-            </div>
           </div>
         }
       >
         {intakeSuccessResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Header Success Badge */}
             <div style={{
-              background: 'var(--mint-bg)',
-              border: '1px solid var(--mint-200)',
-              borderRadius: 'var(--radius-md)',
+              background: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: '8px',
               padding: '1rem',
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
             }}>
-              <CheckCircle2 size={28} style={{ color: 'var(--mint-600)', flexShrink: 0 }} />
+              <CheckCircle2 size={24} style={{ color: '#059669', flexShrink: 0 }} />
               <div>
-                <h4 style={{ margin: 0, color: 'var(--mint-text)', fontWeight: 700, fontSize: '1rem' }}>
-                  Patient Accessioned & Requisition Generated!
+                <h4 style={{ margin: 0, color: '#065f46', fontSize: '0.95rem', fontWeight: 700 }}>
+                  Patient Accessioned Successfully
                 </h4>
-                <p style={{ margin: '2px 0 0', fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
-                  Records synchronized with tenant database: MRN{' '}
-                  <strong style={{ color: 'var(--primary-blue)', fontFamily: 'monospace' }}>
-                    {intakeSuccessResult.patient?.mrn}
-                  </strong>
-                  {intakeSuccessResult.order && ` • Order #${intakeSuccessResult.order?.orderNumber}`}
+                <p style={{ margin: '2px 0 0', fontSize: '0.825rem', color: '#047857' }}>
+                  Demographic file registered and MRN generated in tenant directory.
                 </p>
               </div>
             </div>
 
-            {/* Patient & Order Details Card */}
+            {/* Patient File Specs */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '1rem',
-              background: 'var(--slate-50)',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '0.875rem',
               padding: '1rem',
-              borderRadius: 'var(--radius-sm)',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
               fontSize: '0.875rem',
             }}>
               <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Patient Name</span>
-                <p style={{ margin: '2px 0 0', fontWeight: 600, color: 'var(--slate-900)' }}>
-                  {intakeSuccessResult.patient?.fullName}
-                </p>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Medical Record # (MRN)</span>
-                <p style={{ margin: '2px 0 0', fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary-blue)' }}>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Medical Record # (MRN)</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 800, fontFamily: 'monospace', color: '#0284c7', fontSize: '1.05rem' }}>
                   {intakeSuccessResult.patient?.mrn}
                 </p>
               </div>
 
               <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Gender & Blood Group</span>
-                <p style={{ margin: '2px 0 0', textTransform: 'capitalize' }}>
-                  {intakeSuccessResult.patient?.gender} • {intakeSuccessResult.patient?.bloodGroup || 'O+'}
+                <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Patient Name</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 700 }}>
+                  {intakeSuccessResult.patient?.fullName}
                 </p>
               </div>
 
               <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Contact Phone</span>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Demographics</span>
+                <p style={{ margin: '2px 0 0' }}>
+                  {intakeSuccessResult.patient?.age ? `${intakeSuccessResult.patient?.age} yrs` : 'N/A'} • {intakeSuccessResult.patient?.gender} • {intakeSuccessResult.patient?.bloodGroup || 'O+'}
+                </p>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Contact Phone</span>
                 <p style={{ margin: '2px 0 0' }}>{intakeSuccessResult.patient?.phone || 'N/A'}</p>
               </div>
 
               {intakeSuccessResult.order && (
                 <>
                   <div>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Laboratory Order #</span>
-                    <p style={{ margin: '2px 0 0', fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary-700)' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Laboratory Order #</span>
+                    <p style={{ margin: '2px 0 0', fontWeight: 700, fontFamily: 'monospace', color: '#0284c7' }}>
                       {intakeSuccessResult.order?.orderNumber}
                     </p>
                   </div>
 
                   <div>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', textTransform: 'uppercase' }}>Ordering Physician</span>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' }}>Ordering Physician</span>
                     <p style={{ margin: '2px 0 0' }}>{intakeSuccessResult.order?.orderingPhysician || 'Attending Physician'}</p>
                   </div>
                 </>
@@ -1166,25 +1422,23 @@ export function PatientsPage() {
             {/* Test Requisition & Financial Receipt */}
             {intakeSuccessResult.order && (
               <div>
-                <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--slate-700)' }}>
+                <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
                   Requisitioned Diagnostic Tests:
                 </h5>
-                <div style={{ border: '1px solid var(--slate-200)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                   <table className="lms-table" style={{ margin: 0 }}>
                     <thead>
                       <tr>
                         <th>Test Code</th>
                         <th>Test Name</th>
-                        <th>Specimen Container</th>
-                        <th style={{ textAlign: 'right' }}>Catalog Price</th>
+                        <th style={{ textAlign: 'right' }}>Price</th>
                       </tr>
                     </thead>
                     <tbody>
                       {intakeSuccessResult.order?.items?.map((it) => (
                         <tr key={it.itemId || it.testCode}>
-                          <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary-blue)' }}>{it.testCode}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0284c7' }}>{it.testCode}</td>
                           <td style={{ fontWeight: 600 }}>{it.testName}</td>
-                          <td>{it.container || it.specimenType || 'Standard Tube'}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{Number(it.price || 0).toLocaleString()}</td>
                         </tr>
                       ))}
@@ -1192,44 +1446,38 @@ export function PatientsPage() {
                   </table>
                 </div>
 
-                {/* Financial Summary */}
                 <div style={{
                   marginTop: '0.75rem',
                   padding: '0.75rem 1rem',
-                  background: 'var(--slate-50)',
-                  borderRadius: 'var(--radius-sm)',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   fontSize: '0.875rem',
                 }}>
                   <div>
-                    <span style={{ color: 'var(--slate-500)' }}>Payment Mode: </span>
+                    <span style={{ color: '#64748b' }}>Payment Mode: </span>
                     <strong style={{ textTransform: 'uppercase' }}>
                       {intakeSuccessResult.invoice?.payments?.[0]?.method || 'Cash'}
                     </strong>
-                    {intakeSuccessResult.invoice?.payments?.[0]?.reference && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginLeft: '6px' }}>
-                        (Ref: {intakeSuccessResult.invoice.payments[0].reference})
-                      </span>
-                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
                     <div>
-                      <span style={{ color: 'var(--slate-500)' }}>Total: </span>
-                      <strong style={{ color: 'var(--slate-800)' }}>
+                      <span style={{ color: '#64748b' }}>Total: </span>
+                      <strong style={{ color: '#0f172a' }}>
                         ₹{Number(intakeSuccessResult.order?.totalAmount || 0).toLocaleString()}
                       </strong>
                     </div>
                     <div>
-                      <span style={{ color: 'var(--slate-500)' }}>Paid: </span>
-                      <strong style={{ color: 'var(--mint-600)' }}>
+                      <span style={{ color: '#64748b' }}>Paid: </span>
+                      <strong style={{ color: '#16a34a' }}>
                         ₹{Number(intakeSuccessResult.order?.paidAmount || 0).toLocaleString()}
                       </strong>
                     </div>
                     <div>
-                      <span style={{ color: 'var(--slate-500)' }}>Balance Due: </span>
-                      <strong style={{ color: intakeSuccessResult.order?.balance > 0 ? '#b45309' : 'var(--mint-600)' }}>
+                      <span style={{ color: '#64748b' }}>Balance: </span>
+                      <strong style={{ color: intakeSuccessResult.order?.balance > 0 ? '#dc2626' : '#16a34a' }}>
                         ₹{Number(intakeSuccessResult.order?.balance || 0).toLocaleString()}
                       </strong>
                     </div>
@@ -1242,69 +1490,863 @@ export function PatientsPage() {
       </Modal>
 
       {/* =========================================================================
-          VIEW EXISTING PATIENT FILE MODAL
+          REGISTRATION POPUP MODAL (CLINICAL INTAKE)
           ========================================================================= */}
       <Modal
-        isOpen={!!selectedPatient}
-        onClose={() => setSelectedPatient(null)}
-        title={selectedPatient ? `Patient Profile: ${selectedPatient.fullName || selectedPatient.firstName}` : ''}
-        footer={
-          <button className="btn btn-secondary" onClick={() => setSelectedPatient(null)}>
-            Close Profile
-          </button>
-        }
+        isOpen={isRegisterModalOpen}
+        onClose={() => setIsRegisterModalOpen(false)}
+        title="Register Patient — Unified Clinical Intake"
+        maxWidth="1100px"
+        size="xl"
       >
-        {selectedPatient && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.875rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Medical Record # (MRN)</p>
-                <p style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '1.05rem', color: 'var(--primary-blue)' }}>
-                  {selectedPatient.mrn}
-                </p>
+        <form onSubmit={handleModalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          {/* SECTION 1: Patient Identity & Demographics */}
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '1.25rem',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
+              <Users size={17} style={{ color: '#0284c7' }} />
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+                1. Patient Identity & Demographics
+              </h3>
+            </div>
+
+            {/* 3 Fields Per Row Grid */}
+            <div className="grid-3" style={{ gap: '0.875rem' }}>
+              {/* Row 1, Col 1: Full Name * */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Full Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Ramesh Kumar"
+                  required
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                />
               </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Blood Group</p>
-                <p style={{ fontWeight: 600 }}>{selectedPatient.bloodGroup || 'O+'}</p>
+
+              {/* Row 1, Col 2: Age (Years) * (Strictly Manual 2 Digits) */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Age (Years) <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={2}
+                  className="form-input"
+                  placeholder="e.g. 28 (Max 2 digits)"
+                  required
+                  value={formData.age}
+                  onChange={(e) => handleAgeChange(e.target.value)}
+                />
               </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Age / DOB</p>
-                <p>
-                  {selectedPatient.age
-                    ? `${selectedPatient.age} years`
-                    : selectedPatient.dateOfBirth || selectedPatient.dob
-                    ? new Date(selectedPatient.dateOfBirth || selectedPatient.dob).toLocaleDateString()
-                    : 'N/A'}
-                </p>
+
+              {/* Row 1, Col 3: Gender * */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Gender <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  className="form-select"
+                  value={formData.gender}
+                  onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                >
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Gender</p>
-                <p style={{ textTransform: 'capitalize' }}>{selectedPatient.gender}</p>
+
+              {/* Row 2, Col 1: Mobile Number * (10 Digits only) */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  className="form-input"
+                  placeholder="10-digit mobile (e.g. 9876543210)"
+                  required
+                  value={formData.phone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                />
               </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Phone</p>
-                <p>{selectedPatient.phone || 'N/A'}</p>
+
+              {/* Row 2, Col 2: Email Address * */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Email Address <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="patient@example.com"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
               </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Email Address</p>
-                <p>{selectedPatient.email || 'N/A'}</p>
+
+              {/* Row 2, Col 3: Blood Group */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>Blood Group</label>
+                <select
+                  className="form-select"
+                  value={formData.bloodGroup}
+                  onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}
+                >
+                  <option value="A+">A+</option>
+                  <option value="A-">A-</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B-</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB-</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O-</option>
+                </select>
+              </div>
+
+              {/* Row 3, Col 1: Attending / Referring Physician * */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 600 }}>
+                  Attending Physician <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Dr. A. Sharma or Self / Walk-in"
+                  required
+                  value={formData.orderingPhysician}
+                  onChange={(e) => setFormData({ ...formData, orderingPhysician: e.target.value })}
+                />
+              </div>
+
+              {/* Row 3, Col 2 & 3: Home Address / City */}
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label" style={{ fontWeight: 600 }}>Home Address / City</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Flat 402, Gandhi Road, City"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                />
               </div>
             </div>
-            {selectedPatient.address && (
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Home Address</p>
-                <p>{selectedPatient.address}</p>
-              </div>
-            )}
-            {selectedPatient.medicalHistory && (
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Clinical History</p>
-                <p>{selectedPatient.medicalHistory}</p>
-              </div>
-            )}
+
+            {/* Row 4 (Full Width): Clinical History / Patient Notes (Optional) */}
+            <div className="form-group" style={{ marginTop: '0.875rem' }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>Clinical History / Patient Notes (Optional)</label>
+              <textarea
+                rows={2}
+                className="form-input"
+                placeholder="e.g. Known diabetic for 5 years, penicillin allergy, routine health screening..."
+                value={formData.medicalHistory}
+                onChange={(e) => setFormData({ ...formData, medicalHistory: e.target.value })}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
           </div>
-        )}
+
+          {/* SECTION 2: Diagnostic Test Requisition & Billing (Category & Test Dropdowns) */}
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '1.25rem',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <TestTube2 size={17} style={{ color: '#0d9488' }} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+                  2. Diagnostic Test Requisition & Billing (Optional)
+                </h3>
+              </div>
+              <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                Live category rates configured by Lab Admin
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Priority selection */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.6rem 0.8rem', background: '#f8fafc', borderRadius: '8px' }}>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569' }}>Order Priority:</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {['routine', 'urgent', 'stat'].map((prio) => (
+                    <button
+                      key={prio}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, priority: prio })}
+                      className={`btn btn-sm ${formData.priority === prio ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{
+                        textTransform: 'capitalize',
+                        fontSize: '0.75rem',
+                        padding: '0.2rem 0.65rem',
+                        background:
+                          formData.priority === prio
+                            ? prio === 'stat'
+                              ? '#dc2626'
+                              : prio === 'urgent'
+                              ? '#ea580c'
+                              : '#0284c7'
+                            : 'white',
+                        borderColor: formData.priority === prio ? 'transparent' : '#cbd5e1',
+                      }}
+                    >
+                      {prio === 'stat' ? 'STAT (Emergency)' : prio}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category Dropdown & Test Dropdown Bar with Add Button */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(200px, 1fr) minmax(280px, 2fr) auto',
+                  gap: '0.75rem',
+                  alignItems: 'flex-end',
+                  background: '#f8fafc',
+                  padding: '1rem',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                {/* Dropdown 1: Category */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Layers size={13} style={{ color: '#0284c7' }} />
+                    <span>1. Test Category</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      setSelectedCategory(e.target.value);
+                      setSelectedTestDropdownCode('');
+                    }}
+                    style={{ background: '#ffffff', fontWeight: 600 }}
+                  >
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Dropdown 2: Select Test with Price */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <TestTube2 size={13} style={{ color: '#0d9488' }} />
+                    <span>2. Select Diagnostic Test (with Price)</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    value={selectedTestDropdownCode}
+                    onChange={(e) => setSelectedTestDropdownCode(e.target.value)}
+                    style={{ background: '#ffffff', fontWeight: 500 }}
+                    disabled={catalogLoading || testsForSelectedCategory.length === 0}
+                  >
+                    <option value="">
+                      {catalogLoading
+                        ? 'Loading catalog tests...'
+                        : testsForSelectedCategory.length === 0
+                        ? '-- No tests found in this category --'
+                        : `-- Choose Test (${testsForSelectedCategory.length} available) --`}
+                    </option>
+                    {testsForSelectedCategory.map((t) => (
+                      <option key={t.code || t._id} value={t.code}>
+                        {t.name} ({t.code}) — ₹{Number(t.price || 0).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Button: Add Test */}
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleAddDropdownTest}
+                    disabled={!selectedTestDropdownCode}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontWeight: 700,
+                      padding: '0.55rem 1.1rem',
+                      whiteSpace: 'nowrap',
+                      height: '38px',
+                      boxShadow: selectedTestDropdownCode ? '0 2px 8px rgba(2, 132, 199, 0.3)' : 'none',
+                    }}
+                  >
+                    <Plus size={16} />
+                    <span>Add Test</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Requisition Table for Selected Tests */}
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden', background: '#ffffff' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.75rem 1rem',
+                    background: '#f8fafc',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#334155' }}>
+                    Requisitioned Tests List ({selectedTests.length}):
+                  </span>
+                  <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0284c7' }}>
+                    Order Subtotal: ₹{subtotal.toLocaleString()}
+                  </span>
+                </div>
+
+                {selectedTests.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                    No tests added to requisition yet. Select a category and test from the dropdowns above and click "Add Test".
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="lms-table" style={{ margin: 0, width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                          <th style={{ width: '120px' }}>Code</th>
+                          <th>Test Name</th>
+                          <th>Category / Specimen</th>
+                          <th style={{ textAlign: 'right', width: '130px' }}>Price (₹)</th>
+                          <th style={{ width: '70px', textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedTests.map((st, idx) => (
+                          <tr key={st.code || idx}>
+                            <td style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>{idx + 1}</td>
+                            <td>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0284c7', background: '#e0f2fe', padding: '2px 6px', borderRadius: '4px', fontSize: '0.78rem' }}>
+                                {st.code}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 600, color: '#0f172a' }}>{st.name}</td>
+                            <td style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                              {st.category || st.department || 'General'} • {st.specimenType || 'Serum'}
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#047857', fontSize: '0.9rem' }}>
+                              ₹{Number(st.price || 0).toLocaleString()}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTest(st.code)}
+                                className="btn-icon"
+                                style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }}
+                                title="Remove test"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+                          <td colSpan={4} style={{ textAlign: 'right', paddingRight: '1rem', color: '#334155' }}>
+                            Total Requisition Bill ({selectedTests.length} {selectedTests.length === 1 ? 'test' : 'tests'}):
+                          </td>
+                          <td style={{ textAlign: 'right', color: '#0284c7', fontSize: '1rem', fontWeight: 800 }}>
+                            ₹{subtotal.toLocaleString()}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+                {/* Payment Collection & Methods (Only if tests are selected) */}
+                {selectedTests.length > 0 && (
+                  <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0' }}>
+                    
+                    {/* Bill Summary Banner */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '1rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: '#15803d', textTransform: 'uppercase', fontWeight: 700 }}>
+                          Total Requisition Amount
+                        </div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#166534' }}>
+                          ₹{subtotal.toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 600 }}>
+                        {selectedTests.length} Diagnostic {selectedTests.length === 1 ? 'Test' : 'Tests'}
+                      </div>
+                    </div>
+
+                    {/* Payment Mode Selector: Cash / UPI / Split */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label className="form-label" style={{ fontWeight: 700, marginBottom: '0.5rem', display: 'block' }}>
+                        Select Payment Mode <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.625rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentMethodChange('cash')}
+                          style={{
+                            padding: '0.65rem 0.75rem',
+                            borderRadius: '8px',
+                            border: `2px solid ${formData.paymentMethod === 'cash' ? '#0284c7' : '#e2e8f0'}`,
+                            background: formData.paymentMethod === 'cash' ? '#f0f9ff' : '#ffffff',
+                            color: formData.paymentMethod === 'cash' ? '#0369a1' : '#475569',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Banknote size={16} />
+                          <span>Cash</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentMethodChange('upi')}
+                          style={{
+                            padding: '0.65rem 0.75rem',
+                            borderRadius: '8px',
+                            border: `2px solid ${formData.paymentMethod === 'upi' ? '#0284c7' : '#e2e8f0'}`,
+                            background: formData.paymentMethod === 'upi' ? '#f0f9ff' : '#ffffff',
+                            color: formData.paymentMethod === 'upi' ? '#0369a1' : '#475569',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <QrCode size={16} />
+                          <span>UPI / QR</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentMethodChange('split')}
+                          style={{
+                            padding: '0.65rem 0.75rem',
+                            borderRadius: '8px',
+                            border: `2px solid ${formData.paymentMethod === 'split' ? '#0284c7' : '#e2e8f0'}`,
+                            background: formData.paymentMethod === 'split' ? '#f0f9ff' : '#ffffff',
+                            color: formData.paymentMethod === 'split' ? '#0369a1' : '#475569',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Layers size={16} />
+                          <span>Split (Cash + UPI)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mode 1: Cash Details */}
+                    {formData.paymentMethod === 'cash' && (
+                      <div style={{ background: '#f8fafc', padding: '0.875rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534' }}>
+                          <CheckCircle2 size={16} style={{ color: '#16a34a' }} />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                            Counter Cash Collection: Exact payment of ₹{subtotal.toLocaleString()} will be accepted at the counter.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Mode 2: UPI Details */}
+                    {formData.paymentMethod === 'upi' && (
+                      <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                        <div className="grid-2" style={{ gap: '0.875rem' }}>
+                          <div className="form-group">
+                            <label className="form-label" style={{ fontWeight: 600 }}>
+                              UPI UTR / Reference No. <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="e.g. 423456789012 (12-digit UTR)"
+                              required
+                              value={formData.utrNumber}
+                              onChange={(e) => setFormData({ ...formData, utrNumber: e.target.value })}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label className="form-label" style={{ fontWeight: 600 }}>
+                              Upload UPI Screenshot / SS Proof
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <label
+                                htmlFor="modal-upi-proof-file"
+                                className="btn btn-secondary"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.8125rem',
+                                  padding: '0.45rem 0.85rem',
+                                }}
+                              >
+                                <Upload size={14} />
+                                <span>Choose Screenshot</span>
+                              </label>
+                              <input
+                                id="modal-upi-proof-file"
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={handleProofUpload}
+                              />
+                              {formData.paymentProofName && (
+                                <span style={{ fontSize: '0.78rem', color: '#0284c7', fontWeight: 600, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {formData.paymentProofName}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Screenshot Preview */}
+                        {formData.paymentProof && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#ecfdf5', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                            <img
+                              src={formData.paymentProof}
+                              alt="Proof preview"
+                              style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #6ee7b7' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#065f46' }}>
+                                Payment Screenshot Attached
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#047857' }}>
+                                {formData.paymentProofName}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRemoveProof}
+                              className="btn btn-sm"
+                              style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }}
+                              title="Remove screenshot"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Mode 3: Split Payment (Cash + UPI) */}
+                    {formData.paymentMethod === 'split' && (
+                      <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                        {/* 3 Fields in a Row for Split */}
+                        <div className="grid-3" style={{ gap: '0.875rem' }}>
+                          <div className="form-group">
+                            <label className="form-label" style={{ fontWeight: 600 }}>
+                              Cash Amount (₹) <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="e.g. 500"
+                              required
+                              value={formData.cashAmount}
+                              onChange={(e) => handleCashAmountChange(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label className="form-label" style={{ fontWeight: 600 }}>
+                              UPI Amount (₹) <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="e.g. 500"
+                              required
+                              value={formData.upiAmount}
+                              onChange={(e) => handleUpiAmountChange(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label className="form-label" style={{ fontWeight: 600 }}>
+                              UPI UTR Number <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="12-digit UTR No."
+                              required
+                              value={formData.utrNumber}
+                              onChange={(e) => setFormData({ ...formData, utrNumber: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        {/* UPI Screenshot in Split Mode */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <label
+                              htmlFor="modal-split-proof-file"
+                              className="btn btn-secondary"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                padding: '0.45rem 0.85rem',
+                              }}
+                            >
+                              <Upload size={14} />
+                              <span>Upload UPI Screenshot (SS)</span>
+                            </label>
+                            <input
+                              id="modal-split-proof-file"
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              onChange={handleProofUpload}
+                            />
+                            {formData.paymentProofName && (
+                              <span style={{ fontSize: '0.78rem', color: '#0284c7', fontWeight: 600 }}>
+                                {formData.paymentProofName}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Quick Split Balancer */}
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const half = Math.round(subtotal / 2);
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  cashAmount: String(half),
+                                  upiAmount: String(subtotal - half),
+                                }));
+                              }}
+                              className="btn btn-sm btn-secondary"
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                            >
+                              Split 50:50
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAutoBalanceSplit('upi')}
+                              className="btn btn-sm btn-secondary"
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                            >
+                              Balance UPI
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Split Screenshot Preview */}
+                        {formData.paymentProof && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#ecfdf5', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                            <img
+                              src={formData.paymentProof}
+                              alt="Proof preview"
+                              style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #6ee7b7' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#065f46' }}>
+                                UPI Screenshot Attached
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#047857' }}>
+                                {formData.paymentProofName}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRemoveProof}
+                              className="btn btn-sm"
+                              style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Split Payment Strict Amount Validation Box */}
+                        {(() => {
+                          const cAmt = Number(formData.cashAmount) || 0;
+                          const uAmt = Number(formData.upiAmount) || 0;
+                          const totalEntered = cAmt + uAmt;
+                          const isMatch = totalEntered === subtotal && cAmt > 0 && uAmt > 0;
+                          const isUnder = totalEntered < subtotal;
+                          const diff = Math.abs(subtotal - totalEntered);
+
+                          return (
+                            <div
+                              style={{
+                                padding: '0.75rem 1rem',
+                                borderRadius: '8px',
+                                border: `1px solid ${isMatch ? '#86efac' : '#fca5a5'}`,
+                                background: isMatch ? '#f0fdf4' : '#fef2f2',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '8px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {isMatch ? (
+                                  <CheckCircle2 size={18} style={{ color: '#16a34a' }} />
+                                ) : (
+                                  <AlertCircle size={18} style={{ color: '#dc2626' }} />
+                                )}
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isMatch ? '#166534' : '#991b1b' }}>
+                                    {isMatch
+                                      ? `Exact Match: Total ₹${subtotal.toLocaleString()}`
+                                      : isUnder
+                                      ? `Short by ₹${diff.toLocaleString()} — Exact amount required!`
+                                      : `Exceeds by ₹${diff.toLocaleString()} — Exact amount required!`}
+                                  </div>
+                                  <div style={{ fontSize: '0.75rem', color: isMatch ? '#15803d' : '#b91c1c' }}>
+                                    Cash: ₹${cAmt.toLocaleString()} + UPI: ₹${uAmt.toLocaleString()} = ₹${totalEntered.toLocaleString()} (Bill: ₹${subtotal.toLocaleString()})
+                                  </div>
+                                </div>
+                              </div>
+                              {!isMatch && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAutoBalanceSplit('upi')}
+                                  className="btn btn-sm btn-secondary"
+                                  style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
+                                >
+                                  Auto-Balance UPI (₹${Math.max(0, subtotal - cAmt)})
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+          {/* Form Action Buttons */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: '10px',
+              paddingTop: '0.5rem',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsRegisterModalOpen(false)}
+              disabled={isSubmitting}
+            >
+              <X size={15} />
+              <span>Close</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleResetForm}
+              disabled={isSubmitting}
+            >
+              <RotateCcw size={15} />
+              <span>Clear Form</span>
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSubmitting}
+              style={{
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                padding: '0.65rem 1.75rem',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+              }}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  <span>Registering Patient...</span>
+                </>
+              ) : selectedTests.length > 0 ? (
+                <>
+                  <CheckCircle2 size={18} />
+                  <span>Register Patient & Requisition (₹{subtotal.toLocaleString()})</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus size={18} />
+                  <span>Register Patient</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </Modal>
+
+      {/* Confirm Save Patient Profile Only Modal */}
+      <ConfirmModal
+        isOpen={confirmNoTestsOpen}
+        onClose={() => setConfirmNoTestsOpen(false)}
+        onConfirm={async () => {
+          setConfirmNoTestsOpen(false);
+          await executeRegistration(false);
+        }}
+        title="Register Patient Without Tests?"
+        message="No diagnostic tests are currently selected. Would you like to save the patient profile only, without creating an initial lab requisition order?"
+        confirmText="Save Patient Only"
+        cancelText="Cancel"
+        variant="warning"
+        isLoading={isSubmitting}
+      />
     </>
   );
 }

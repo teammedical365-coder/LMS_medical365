@@ -46,6 +46,7 @@ import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ResultEntryModal from './ResultEntryModal';
+import notify from '../../utils/notify';
 
 export function SamplesPage() {
   const { user, tenant } = useAuth();
@@ -173,7 +174,9 @@ export function SamplesPage() {
       setError(null);
       const res = await clinicalService.updateSampleStatus(tenantId, sampleId, updates);
       if (res.success) {
-        setSuccessMsg(`Sample ${res.data.barcode} status updated successfully`);
+        const msg = `Sample ${res.data.barcode} status updated successfully`;
+        setSuccessMsg(msg);
+        notify.success(msg);
         await fetchSamples();
         await fetchRecollections();
         await fetchReports();
@@ -183,7 +186,7 @@ export function SamplesPage() {
         setTimeout(() => setSuccessMsg(null), 3500);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to transition sample status');
+      notify.error(err, { fallback: 'Failed to transition sample status' });
     } finally {
       setActionLoading(false);
     }
@@ -198,7 +201,7 @@ export function SamplesPage() {
   const handleConfirmRejection = async () => {
     if (!rejectionTargetSample) return;
     if (!rejectionReason.trim()) {
-      alert('A clinical rejection reason is mandatory');
+      notify.error('A clinical rejection reason is mandatory');
       return;
     }
     try {
@@ -210,14 +213,16 @@ export function SamplesPage() {
         rejectionNotes: rejectionNotes.trim(),
       });
       if (res.success) {
-        setSuccessMsg(`Specimen ${rejectionTargetSample.barcode} rejected. Recollection task generated.`);
+        const msg = `Specimen ${rejectionTargetSample.barcode} rejected. Recollection task generated.`;
+        setSuccessMsg(msg);
+        notify.success(msg);
         setRejectionTargetSample(null);
         await fetchSamples();
         await fetchRecollections();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reject specimen');
+      notify.error(err, { fallback: 'Failed to reject specimen' });
     } finally {
       setActionLoading(false);
     }
@@ -231,7 +236,7 @@ export function SamplesPage() {
         setLabelModalData(res.data);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to generate barcode label');
+      notify.error(err, { fallback: 'Failed to generate barcode label' });
     } finally {
       setIsLabelLoading(false);
     }
@@ -241,7 +246,7 @@ export function SamplesPage() {
     if (!labelData) return;
     const printWindow = window.open('', '_blank', 'width=460,height=320');
     if (!printWindow) {
-      alert('Please allow popups to print barcode labels');
+      notify.warning('Please allow popups to print barcode labels');
       return;
     }
     printWindow.document.write(`
@@ -390,13 +395,15 @@ export function SamplesPage() {
         phlebotomistNotes: notes,
       });
       if (res.success) {
-        setSuccessMsg(`Recollection resolved. New replacement tube ${res.data.replacementBarcode} generated.`);
+        const msg = `Recollection resolved. New replacement tube ${res.data.replacementBarcode} generated.`;
+        setSuccessMsg(msg);
+        notify.success(msg);
         await fetchSamples();
         await fetchRecollections();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to resolve recollection task');
+      notify.error(err, { fallback: 'Failed to resolve recollection task' });
     } finally {
       setActionLoading(false);
     }
@@ -404,7 +411,9 @@ export function SamplesPage() {
 
   // Result Entry Success Handler
   const handleResultEntrySuccess = async (data) => {
-    setSuccessMsg(`Results recorded for specimen ${resultEntrySample?.barcode}. Pushed to Pathologist Review & Sign-Off Queue.`);
+    const msg = `Results recorded for specimen ${resultEntrySample?.barcode}. Pushed to Pathologist Review & Sign-Off Queue.`;
+    setSuccessMsg(msg);
+    notify.success(msg);
     setResultEntrySample(null);
     await fetchSamples();
     await fetchReports();
@@ -480,7 +489,9 @@ export function SamplesPage() {
         verifiedBy: user?.fullName || user?.email || 'Consultant Pathologist',
       });
       if (res.success) {
-        setSuccessMsg(`Diagnostic Report ${res.data.reportNumber} digitally signed & authorized by Consultant Pathologist.`);
+        const signOffMsg = `Diagnostic Report ${res.data.reportNumber} digitally signed & authorized by Consultant Pathologist.`;
+        setSuccessMsg(signOffMsg);
+        notify.success(signOffMsg);
         setSignOffReport(null);
         await fetchReports();
         await fetchSamples();
@@ -488,6 +499,7 @@ export function SamplesPage() {
       }
     } catch (err) {
       setSignOffError(err.response?.data?.message || err.message || 'Failed to sign off report');
+      notify.error(err, { fallback: 'Failed to sign off report' });
     } finally {
       setIsSigningOff(false);
     }

@@ -1,32 +1,29 @@
 /**
- * Lab Management System (LMS) - Laboratory Operations & Clinical Workstation Dashboard
+ * Lab Management System (LMS) - Laboratory Operations & Workstation Overview
  * 
- * Dynamically tailored to the staff user's active role & granted permissions:
- * - Lab Administrator: Full multi-department operations, revenue, staff directory, and clinical workstations.
- * - Pathologist: Professional Clinical Diagnostic Sign-Off Workstation with triage, abnormal/panic flags, and 1-click verification.
- * - Lab Testing / Technician: Professional Analyzer Bench Workstation with multi-tube queues, instrument status, and bench runs.
- * - Other Roles: Dynamically renders only the metrics, summary, pipeline, and records corresponding to granted permissions.
+ * Clean Overview Dashboard:
+ * 1. Welcome / Time-based greeting banner with tenant branding and role info.
+ * 2. Role-scoped live metric stat cards.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import {
   Users,
   ClipboardList,
+  Clock,
+  IndianRupee,
+  CreditCard,
   FlaskConical,
   TestTube2,
-  FileCheck2,
   FileText,
-  CreditCard,
-  Eye,
-  CheckCircle2,
-  Clock,
+  FileCheck2,
   AlertTriangle,
-  Microscope,
-  ShieldCheck,
-  Building2,
+  RotateCcw,
   Sparkles,
+  ShieldCheck,
   Calendar,
+  X,
+  CheckCircle2,
   Timer,
   ArrowRight,
   UserCheck,
@@ -36,20 +33,19 @@ import {
   Play,
   CheckCircle,
   Tag,
-  RotateCcw,
   QrCode,
   FileCheck,
   Loader2,
   Layers,
   Search,
-  IndianRupee,
   Receipt,
   AlertCircle,
-  X,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  Microscope,
+  Building2,
 } from 'lucide-react';
-import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
 import Badge from '../../components/common/Badge';
 import StatusBanner from '../../components/common/StatusBanner';
@@ -57,7 +53,9 @@ import Modal from '../../components/common/Modal';
 import ResultEntryModal from '../samples/ResultEntryModal';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
+import clinicalService from '../../services/clinicalService';
 import { classifyResult, isGenericReferenceRange } from '../../utils/clinicalClassification';
 
 export function DashboardPage() {
@@ -147,6 +145,8 @@ export function DashboardPage() {
       userRole === 'technician' ||
       (!isLabAdmin && hasPermission(['samples:process'])));
 
+  const isLabTechnician = isTechnician;
+
   const isClinicalStaff =
     !isReceptionist &&
     !isBillingClerk &&
@@ -180,19 +180,6 @@ export function DashboardPage() {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Set default view based on role
-  useEffect(() => {
-    if (userRole === 'pathologist') {
-      setWorkstationView('pathologist');
-    } else if (userRole === 'lab_technician') {
-      setWorkstationView('technician');
-    } else if (isReceptionist) {
-      setWorkstationView('receptionist');
-    } else {
-      setWorkstationView('all');
-    }
-  }, [userRole, isReceptionist]);
-
   const metrics = dashboardData?.metrics || {
     todayOrders: 0,
     pendingOrders: 0,
@@ -221,6 +208,14 @@ export function DashboardPage() {
     tatReportCount: metrics.tatReportCount ?? 0,
     date: new Date().toLocaleDateString(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
+
+  // Dynamic Time-Based Greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
   };
 
   const recentOrders = dashboardData?.recentOrders || [];
@@ -340,6 +335,17 @@ export function DashboardPage() {
     setPathologistSignModalOpen(true);
   };
 
+  const userName = user?.fullName || user?.name || user?.username || 'Team';
+  const roleDisplayName = roleDef?.name || (user?.role ? user.role.replace(/_/g, ' ') : 'Staff');
+  const labName = branding?.displayName || tenant?.name || 'JaipurLab';
+  const labCode = tenant?.code || user?.tenantCode || null;
+
+  const formattedDate = new Date().toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
   const handleConfirmPathologistVerification = async (e) => {
     if (e) e.preventDefault();
     if (!selectedReviewReport) return;
@@ -892,7 +898,7 @@ export function DashboardPage() {
         <StatCard
           key="revenue"
           title="Settled Revenue"
-          value={`₹${metrics.totalRevenue.toLocaleString()}`}
+          value={`₹${(metrics.totalRevenue || 0).toLocaleString()}`}
           subtitle="Recorded receipts"
           icon={CreditCard}
           colorScheme="teal"
@@ -902,7 +908,7 @@ export function DashboardPage() {
         <StatCard
           key="outstanding"
           title="Outstanding Balance"
-          value={`₹${metrics.totalOutstanding.toLocaleString()}`}
+          value={`₹${(metrics.totalOutstanding || 0).toLocaleString()}`}
           subtitle="Accounts receivable"
           icon={AlertTriangle}
           colorScheme="slate"
@@ -933,104 +939,158 @@ export function DashboardPage() {
   };
 
   return (
-    <>
-      <PageHeader
-        title={headerInfo.title}
-        description={headerInfo.description}
-        actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {isReceptionist ? (
-              <>
-                <Link
-                  to="/patients?register=true"
-                  className="btn btn-primary btn-sm"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Users size={14} />
-                  <span>New Patient Intake</span>
-                </Link>
-                <Link
-                  to="/orders"
-                  className="btn btn-secondary btn-sm"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <ClipboardList size={14} />
-                  <span>Quick Order Booking</span>
-                </Link>
-                <Link
-                  to="/billing"
-                  className="btn btn-secondary btn-sm"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <CreditCard size={14} />
-                  <span>Billing & Collections</span>
-                </Link>
-              </>
-            ) : (
-              <>
-                {hasPermission(['patients:create', 'orders:create']) && (
-                  <Link
-                    to="/patients?register=true"
-                    className="btn btn-primary btn-sm"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <Users size={14} />
-                    <span>New Patient Intake & Order</span>
-                  </Link>
-                )}
-                {hasPermission(['samples:collect', 'samples:process']) && (
-                  <Link
-                    to="/samples"
-                    className="btn btn-secondary btn-sm"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <FlaskConical size={14} />
-                    <span>Specimens Bench</span>
-                  </Link>
-                )}
-                {hasPermission(['reports:create', 'reports:verify']) && (
-                  <Link
-                    to="/reports"
-                    className="btn btn-secondary btn-sm"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <FileText size={14} />
-                    <span>Pathology Reports</span>
-                  </Link>
-                )}
-              </>
-            )}
-            <span
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* 1. Welcome / Time-based Pastel Medical Hero Banner */}
+      <div
+        className="overview-hero-banner overview-hero-banner-flush"
+        style={{
+          background: 'linear-gradient(135deg, #e0f2fe 0%, #ecfdf5 45%, #f0fdf4 100%)',
+          borderRadius: '0 0 16px 16px',
+          padding: '1.5rem 1.75rem',
+          color: '#0f172a',
+          boxShadow: '0 4px 20px -2px rgba(2, 132, 199, 0.08), 0 2px 6px rgba(16, 185, 129, 0.05)',
+          position: 'relative',
+          overflow: 'hidden',
+          borderBottom: '1.5px solid #bae6fd',
+          borderTop: 'none',
+          borderLeft: 'none',
+          borderRight: 'none',
+        }}
+      >
+        {/* Soft pastel ambient lighting orbs */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '-50%',
+            right: '-10%',
+            width: '380px',
+            height: '380px',
+            background: 'radial-gradient(circle, rgba(167, 243, 208, 0.45) 0%, rgba(224, 242, 254, 0) 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '-50%',
+            left: '20%',
+            width: '320px',
+            height: '320px',
+            background: 'radial-gradient(circle, rgba(186, 230, 253, 0.4) 0%, rgba(240, 253, 244, 0) 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.45rem', flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '20px',
+                  padding: '3px 12px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  color: '#1d4ed8',
+                  boxShadow: '0 2px 6px rgba(37, 99, 235, 0.08)',
+                }}
+              >
+                <Sparkles size={12} color="#2563eb" />
+                <span>{labName}</span>
+                {labCode && <span style={{ opacity: 0.7 }}>• {labCode}</span>}
+              </span>
+
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '20px',
+                  padding: '3px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#059669',
+                }}
+              >
+                <ShieldCheck size={12} color="#059669" />
+                <span style={{ textTransform: 'capitalize' }}>{roleDisplayName}</span>
+              </span>
+
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '20px',
+                  padding: '3px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 500,
+                  color: '#64748b',
+                }}
+              >
+                <Calendar size={12} color="#64748b" />
+                <span>{formattedDate}</span>
+              </span>
+            </div>
+
+            <h1
+              style={{
+                fontSize: 'clamp(1.4rem, 2.5vw, 1.85rem)',
+                fontWeight: 800,
+                background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 50%, #0d9488 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                lineHeight: 1.25,
+                margin: '0 0 0.35rem 0',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              {getGreeting()}, {userName}! 👋
+            </h1>
+
+            <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569', lineHeight: 1.45, maxWidth: '640px' }}>
+              Welcome back to {labName}. Here is your live laboratory overview and operational summary today.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+            <button
+              onClick={fetchDashboard}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '4px 12px',
-                borderRadius: '9999px',
-                fontSize: '0.8125rem',
+                gap: '7px',
+                padding: '0.55rem 1rem',
+                borderRadius: '8px',
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#334155',
                 fontWeight: 600,
-                background: 'var(--mint-bg)',
-                color: 'var(--mint-text)',
-                border: '1px solid var(--mint-200)',
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)',
+                transition: 'all 0.15s ease',
               }}
+              title="Refresh dashboard metrics"
             >
-              <ShieldCheck size={14} />
-              <span>{headerInfo.badge}</span>
-            </span>
+              <RotateCcw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Refresh</span>
+            </button>
           </div>
-        }
-      />
+        </div>
+      </div>
 
-      {/* Tenant Context Notice */}
-      <StatusBanner
-        type="info"
-        badgeText={`Tenant: ${tenant?.code || 'ACTIVE'}`}
-        message={`Operations scoped strictly to ${branding?.displayName || tenant?.name || 'this laboratory'}. Cross-tenant interference is blocked at the database tier.`}
-      />
-
-      {/* Feedback Banners */}
+      {/* Error Feedback Banner */}
       {error && (
-        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={16} />
             <span style={{ fontSize: '0.875rem' }}>{error}</span>
@@ -1041,8 +1101,9 @@ export function DashboardPage() {
         </div>
       )}
 
+      {/* Success Feedback Banner */}
       {successBanner && (
-        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#166534' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#166534' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <CheckCircle2 size={16} />
             <span style={{ fontSize: '0.875rem' }}>{successBanner}</span>
@@ -1053,8 +1114,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Lab Admin Workstation Selector Tabs */}
-      {isLabAdmin && (
+      {/* Workstation View Toggle Tabs */}
+      {(isLabAdmin || isPathologist || isLabTechnician || isReceptionist) && (
         <div
           style={{
             display: 'flex',
@@ -2725,7 +2786,7 @@ export function DashboardPage() {
           </div>
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 

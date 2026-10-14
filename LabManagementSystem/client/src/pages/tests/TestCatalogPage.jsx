@@ -23,6 +23,7 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import notify from '../../utils/notify';
 
 const DEFAULT_FORM = {
   code: '',
@@ -56,6 +57,12 @@ export function TestCatalogPage() {
   const [successMsg, setSuccessMsg] = useState(null);
   const [formValidationWarning, setFormValidationWarning] = useState(null);
 
+  // Category Management State
+  const [categories, setCategories] = useState([]);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryFormData, setCategoryFormData] = useState({ name: '', department: 'Clinical Pathology', description: '' });
+  const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
+
   const fetchCatalog = useCallback(async () => {
     if (!tenantId) return;
     try {
@@ -72,9 +79,54 @@ export function TestCatalogPage() {
     }
   }, [tenantId]);
 
+  const fetchCategories = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const res = await clinicalService.getTestCategories(tenantId);
+      if (res.success && Array.isArray(res.data)) {
+        setCategories(res.data);
+      }
+    } catch (err) {
+      console.warn('Failed to retrieve test categories:', err);
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     fetchCatalog();
-  }, [fetchCatalog]);
+    fetchCategories();
+  }, [fetchCatalog, fetchCategories]);
+
+  const handleCreateCategory = async (e) => {
+    e.preventDefault();
+    if (!categoryFormData.name.trim()) {
+      notify.error('Category name is required');
+      return;
+    }
+    try {
+      setIsCategorySubmitting(true);
+      const res = await clinicalService.createTestCategory(tenantId, categoryFormData);
+      if (res.success) {
+        notify.success(`Category '${res.data.name}' created successfully`);
+        setCategoryFormData({ name: '', department: 'Clinical Pathology', description: '' });
+        fetchCategories();
+      }
+    } catch (err) {
+      notify.error(err, { fallback: 'Failed to create category' });
+    } finally {
+      setIsCategorySubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId, name) => {
+    if (!window.confirm(`Are you sure you want to delete category '${name}'?`)) return;
+    try {
+      await clinicalService.deleteTestCategory(tenantId, categoryId);
+      notify.success(`Category '${name}' deleted`);
+      fetchCategories();
+    } catch (err) {
+      notify.error(err, { fallback: 'Failed to delete category' });
+    }
+  };
 
   const handleOpenCreate = () => {
     setFormData(DEFAULT_FORM);
@@ -330,17 +382,17 @@ export function TestCatalogPage() {
       }
 
       if (res.success) {
-        setSuccessMsg(
-          isEditMode
-            ? `Test panel '${res.data.name}' (${res.data.code}) updated successfully`
-            : `Test panel '${res.data.name}' (${res.data.code}) added to catalog`
-        );
+        const msg = isEditMode
+          ? `Test panel '${res.data.name}' (${res.data.code}) updated successfully`
+          : `Test panel '${res.data.name}' (${res.data.code}) added to catalog`;
+        notify.success(msg);
+        setSuccessMsg(msg);
         setIsModalOpen(false);
         fetchCatalog();
         setTimeout(() => setSuccessMsg(null), 3500);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to save test catalog entry');
+      notify.error(err, { fallback: 'Failed to save test catalog entry' });
     } finally {
       setIsSubmitting(false);
     }
@@ -363,10 +415,16 @@ export function TestCatalogPage() {
         title="Laboratory Test Catalog & Parameters"
         description="Standardized diagnostic test master, biological reference intervals, and structured multi-parameter profiles."
         actions={
-          <button className="btn btn-primary" onClick={handleOpenCreate}>
-            <PlusCircle size={16} />
-            <span>Add Test Panel</span>
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-secondary" onClick={() => setIsCategoryModalOpen(true)}>
+              <Layers size={16} />
+              <span>Manage Categories</span>
+            </button>
+            <button className="btn btn-primary" onClick={handleOpenCreate}>
+              <PlusCircle size={16} />
+              <span>Add Test Panel</span>
+            </button>
+          </div>
         }
       />
 
@@ -713,7 +771,39 @@ export function TestCatalogPage() {
             </div>
           </div>
 
-          <div className="grid-2">
+          <div className="grid-3">
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>Category *</label>
+              <select
+                className="form-select"
+                required
+                value={formData.category}
+                onChange={(e) => {
+                  if (e.target.value === '__new__') {
+                    setIsCategoryModalOpen(true);
+                  } else {
+                    setFormData({ ...formData, category: e.target.value });
+                  }
+                }}
+              >
+                {categories.map((c) => (
+                  <option key={c.categoryId || c.name} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+                {categories.length === 0 && (
+                  <>
+                    <option value="Hematology">Hematology</option>
+                    <option value="Biochemistry">Biochemistry</option>
+                    <option value="Clinical Pathology">Clinical Pathology</option>
+                    <option value="Endocrinology">Endocrinology</option>
+                    <option value="Immunology & Serology">Immunology & Serology</option>
+                    <option value="Microbiology">Microbiology</option>
+                  </>
+                )}
+                <option value="__new__">+ Create New Category...</option>
+              </select>
+            </div>
             <div className="form-group">
               <label className="form-label">Department</label>
               <select
@@ -728,6 +818,7 @@ export function TestCatalogPage() {
                 <option value="Endocrinology">Endocrinology</option>
                 <option value="Molecular Diagnostics">Molecular Diagnostics</option>
                 <option value="Urinalysis">Urinalysis</option>
+                <option value="Clinical Pathology">Clinical Pathology</option>
               </select>
             </div>
             <div className="form-group">
@@ -1044,6 +1135,118 @@ export function TestCatalogPage() {
             )}
           </div>
         </form>
+      </Modal>
+
+      {/* Category Management Modal */}
+      <Modal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        title="Manage Diagnostic Test Categories"
+        maxWidth="680px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Create Category Form */}
+          <form onSubmit={handleCreateCategory} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>
+              + Add New Test Category
+            </h4>
+            <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontWeight: 600 }}>Category Name *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Molecular Genetics, Cardiac Markers"
+                  required
+                  value={categoryFormData.name}
+                  onChange={(e) => setCategoryFormData({ ...categoryFormData, name: e.target.value })}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontWeight: 600 }}>Department</label>
+                <select
+                  className="form-select"
+                  value={categoryFormData.department}
+                  onChange={(e) => setCategoryFormData({ ...categoryFormData, department: e.target.value })}
+                >
+                  <option value="Clinical Pathology">Clinical Pathology</option>
+                  <option value="Hematology">Hematology</option>
+                  <option value="Clinical Chemistry">Clinical Chemistry</option>
+                  <option value="Immunology">Immunology</option>
+                  <option value="Microbiology">Microbiology</option>
+                  <option value="Endocrinology">Endocrinology</option>
+                  <option value="Molecular Diagnostics">Molecular Diagnostics</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+              <label className="form-label">Description (Optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Brief summary of test panels in this category..."
+                value={categoryFormData.description}
+                onChange={(e) => setCategoryFormData({ ...categoryFormData, description: e.target.value })}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="submit"
+                className="btn btn-primary btn-sm"
+                disabled={isCategorySubmitting}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {isCategorySubmitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                <span>Create Category</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Existing Categories List */}
+          <div>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 700, color: '#334155' }}>
+              Existing Categories ({categories.length})
+            </h4>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+              <table className="table" style={{ margin: 0, fontSize: '0.825rem' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ padding: '0.5rem 0.75rem' }}>Category Name</th>
+                    <th style={{ padding: '0.5rem 0.75rem' }}>Department</th>
+                    <th style={{ width: '80px', textAlign: 'center', padding: '0.5rem 0.75rem' }}>Tests</th>
+                    <th style={{ width: '60px', textAlign: 'center', padding: '0.5rem 0.75rem' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map((cat) => {
+                    const testCount = tests.filter((t) => (t.category || '').toLowerCase() === cat.name.toLowerCase()).length;
+                    return (
+                      <tr key={cat.categoryId || cat.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: 600 }}>{cat.name}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>{cat.department || 'General'}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                          <span style={{ padding: '1px 8px', borderRadius: '9999px', background: '#e0f2fe', color: '#0369a1', fontSize: '0.75rem', fontWeight: 700 }}>
+                            {testCount}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.categoryId || cat.name, cat.name)}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                            title="Delete category"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </Modal>
     </>
   );

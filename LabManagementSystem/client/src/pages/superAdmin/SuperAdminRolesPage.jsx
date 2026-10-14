@@ -46,6 +46,8 @@ import {
 // Cleaned up header imports for custom banner
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import ConfirmModal from '../../components/common/ConfirmModal';
+import notify from '../../utils/notify';
 import superAdminService from '../../services/superAdminService';
 
 // Module visual mapping
@@ -331,6 +333,10 @@ export function SuperAdminRolesPage() {
 
   // Inspect Modal State
   const [inspectRole, setInspectRole] = useState(null);
+
+  // Delete Role Confirmation Modal State
+  const [roleToDelete, setRoleToDelete] = useState(null);
+  const [isDeletingRole, setIsDeletingRole] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -669,17 +675,27 @@ export function SuperAdminRolesPage() {
     }
   };
 
-  // Delete Role
-  const handleDeleteRole = async (role) => {
-    if (!window.confirm(`Are you sure you want to delete the role "${role.name}" (${role.code})? It will be removed from all laboratory databases.`)) {
-      return;
-    }
+  // Delete Role Handlers
+  const handleDeleteRole = (role) => {
+    setRoleToDelete(role);
+  };
+
+  const handleConfirmDeleteRole = async () => {
+    if (!roleToDelete) return;
+    setIsDeletingRole(true);
     try {
-      await superAdminService.deleteRole(role.roleId);
-      setSuccessBanner(`Role "${role.name}" deleted successfully.`);
+      await superAdminService.deleteRole(roleToDelete.roleId);
+      const successMsg = `Role "${roleToDelete.name}" deleted successfully.`;
+      setSuccessBanner(successMsg);
+      notify.success(successMsg);
+      setRoleToDelete(null);
       await loadData();
     } catch (err) {
-      setErrorBanner(err.response?.data?.message || err.message || 'Failed to delete role.');
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to delete role.';
+      setErrorBanner(errorMsg);
+      notify.error(err, { fallback: 'Failed to delete role.' });
+    } finally {
+      setIsDeletingRole(false);
     }
   };
 
@@ -2109,6 +2125,27 @@ export function SuperAdminRolesPage() {
           </div>
         </Modal>
       )}
+
+      {/* Role Deletion Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(roleToDelete)}
+        title="Delete Master Role"
+        message={
+          roleToDelete
+            ? `Are you sure you want to delete the role "${roleToDelete.name}" (${roleToDelete.code})? It will be permanently removed from all laboratory databases.`
+            : ''
+        }
+        confirmText="Delete Role"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={isDeletingRole}
+        onConfirm={handleConfirmDeleteRole}
+        onClose={() => {
+          if (!isDeletingRole) {
+            setRoleToDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }

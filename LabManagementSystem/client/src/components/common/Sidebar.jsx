@@ -53,14 +53,9 @@ export function Sidebar({ isOpen, onClose }) {
 
   // If Platform Super Admin, show ONLY Platform Overview and Roles & Permissions
   if (isSuperAdmin) {
-    const superAdminNavigation = [
-      {
-        section: 'Platform Super Admin',
-        items: [
-          { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server, color: 'blue' },
-          { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck, color: 'purple' },
-        ],
-      },
+    const superAdminNavItems = [
+      { key: 'sa_overview', name: 'Platform Overview', path: '/super-admin', icon: Server, color: 'blue' },
+      { key: 'sa_roles', name: 'Roles & Permissions', path: '/super-admin/roles', icon: ShieldCheck, color: 'purple' },
     ];
 
     return (
@@ -93,27 +88,22 @@ export function Sidebar({ isOpen, onClose }) {
           </div>
 
           <nav className="sidebar-nav">
-            {superAdminNavigation.map((group) => (
-              <div key={group.section} style={{ marginBottom: '0.75rem' }}>
-                <div className="nav-section-title">{group.section}</div>
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  const active = isItemActive(item.path);
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      onClick={onClose}
-                      className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
-                      aria-current={active ? 'page' : undefined}
-                    >
-                      <Icon size={18} />
-                      <span>{item.name}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
+            {superAdminNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = isItemActive(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={onClose}
+                  className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon size={18} />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
           </nav>
         </aside>
       </>
@@ -122,13 +112,18 @@ export function Sidebar({ isOpen, onClose }) {
 
   // Determine authorized navigation keys dynamically from custom role and granted permissions
   const roleNavKeys = (() => {
+    const r = (user?.role || '').toLowerCase();
+    const disallowedForLabAdmin = ['patients', 'orders', 'samples', 'audit', 'settings'];
+
     if (user?.roleDefinition?.navigationItems && Array.isArray(user.roleDefinition.navigationItems) && user.roleDefinition.navigationItems.length > 0) {
+      if (r === 'lab_admin' || r === 'lab_director') {
+        return user.roleDefinition.navigationItems.filter((key) => !disallowedForLabAdmin.includes(key));
+      }
       return user.roleDefinition.navigationItems;
     }
     const perms = user?.permissions || user?.roleDefinition?.permissions || [];
-    const r = (user?.role || '').toLowerCase();
-    if (r === 'lab_admin' || r === 'lab_director' || perms.includes('*')) {
-      return ['dashboard', 'patients', 'orders', 'samples', 'tests', 'reports', 'billing', 'users', 'audit', 'settings'];
+    if (r === 'lab_admin' || r === 'lab_director') {
+      return ['dashboard', 'tests', 'reports', 'billing', 'users'];
     }
     // Derive navigation items directly from granted module permissions
     const derived = ['dashboard'];
@@ -144,41 +139,21 @@ export function Sidebar({ isOpen, onClose }) {
     return derived;
   })();
 
-  const allSections = [
-    {
-      section: 'Laboratory Operations',
-      items: [
-        { key: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, color: 'blue' },
-      ],
-    },
-    {
-      section: 'Clinical Workflow',
-      items: [
-        { key: 'patients', name: 'Patients', path: '/patients', icon: Users, color: 'cyan' },
-        { key: 'orders', name: 'Lab Orders', path: '/orders', icon: ClipboardList, color: 'indigo' },
-        { key: 'samples', name: 'Samples', path: '/samples', icon: FlaskConical, color: 'emerald' },
-        { key: 'tests', name: 'Test Catalog', path: '/tests', icon: TestTube2, color: 'amber' },
-        { key: 'reports', name: 'Reports', path: '/reports', icon: FileText, color: 'rose' },
-      ],
-    },
-    {
-      section: 'Tenant Administration',
-      items: [
-        { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard, color: 'emerald' },
-        { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck, color: 'purple' },
-        { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History, color: 'slate' },
-        { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings, color: 'indigo' },
-      ],
-    },
+  const allNavItems = [
+    { key: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, color: 'blue' },
+    { key: 'patients', name: 'Patients', path: '/patients', icon: Users, color: 'cyan' },
+    { key: 'orders', name: 'Lab Orders', path: '/orders', icon: ClipboardList, color: 'indigo' },
+    { key: 'samples', name: 'Samples', path: '/samples', icon: FlaskConical, color: 'emerald' },
+    { key: 'tests', name: 'Test Catalog', path: '/tests', icon: TestTube2, color: 'amber' },
+    { key: 'reports', name: 'Reports', path: '/reports', icon: FileText, color: 'rose' },
+    { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard, color: 'emerald' },
+    { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck, color: 'purple' },
+    { key: 'audit', name: 'Audit Logs', path: '/audit-logs', icon: History, color: 'slate' },
+    { key: 'settings', name: 'Lab Settings', path: '/settings', icon: Settings, color: 'indigo' },
   ];
 
-  // Filter sections and items based on role's allowed navigation items
-  const authorizedSections = allSections
-    .map((section) => ({
-      ...section,
-      items: section.items.filter((item) => roleNavKeys.includes(item.key)),
-    }))
-    .filter((section) => section.items.length > 0);
+  // Filter navigation items directly based on role's allowed navigation items
+  const authorizedNavItems = allNavItems.filter((item) => roleNavKeys.includes(item.key));
 
   const displayBrandName = branding?.displayName || authTenant?.name || tenant?.name || 'LabMS';
 
@@ -228,27 +203,22 @@ export function Sidebar({ isOpen, onClose }) {
         </div>
 
         <nav className="sidebar-nav">
-          {authorizedSections.map((group) => (
-            <div key={group.section} style={{ marginBottom: '0.75rem' }}>
-              <div className="nav-section-title">{group.section}</div>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const active = isItemActive(item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    onClick={onClose}
-                    className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    <Icon size={18} />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {authorizedNavItems.map((item) => {
+            const Icon = item.icon;
+            const active = isItemActive(item.path);
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={onClose}
+                className={`nav-item ${active ? `active active-${item.color || 'blue'}` : ''}`}
+                aria-current={active ? 'page' : undefined}
+              >
+                <Icon size={18} />
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">

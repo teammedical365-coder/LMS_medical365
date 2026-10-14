@@ -32,6 +32,35 @@ export function Header({ onToggleSidebar }) {
       .join('')
       .toUpperCase() || (isSuperAdmin ? 'SA' : 'LU');
 
+  const getDashboardDisplayName = () => {
+    if (isSuperAdmin) return 'Super Admin';
+    if (user?.roleDefinition?.name) return user.roleDefinition.name;
+    const role = (user?.role || '').toLowerCase();
+    const roleMap = {
+      receptionist: 'Receptionist',
+      reception: 'Receptionist',
+      pathologist: 'Pathologist',
+      lab_technician: 'Lab Technician',
+      technician: 'Lab Technician',
+      phlebotomist: 'Phlebotomist',
+      lab_admin: 'Lab Administrator',
+      admin: 'Lab Administrator',
+      lab_director: 'Lab Director',
+      billing: 'Billing & Accounts',
+      accountant: 'Billing & Accounts',
+      doctor: 'Doctor',
+      physician: 'Physician',
+    };
+    if (roleMap[role]) return roleMap[role];
+    if (user?.role) {
+      return user.role
+        .split('_')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+    }
+    return 'Receptionist';
+  };
+
   return (
     <header className="app-header">
       <div className="header-left">
@@ -46,11 +75,11 @@ export function Header({ onToggleSidebar }) {
         {/* Portal & Role Title placed before search bar */}
         <div className="header-portal-title-block">
           <span className="header-portal-name">
-            {isSuperAdmin ? 'Super Admin' : (tenant?.name || 'Laboratory Portal')}
+            {getDashboardDisplayName()}
           </span>
-          {isSuperAdmin && (
-            <span className="header-portal-pill">Platform</span>
-          )}
+          <span className="header-portal-pill">
+            {isSuperAdmin ? 'Platform' : 'Portal'}
+          </span>
         </div>
       </div>
 

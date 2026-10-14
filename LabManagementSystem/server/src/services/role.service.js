@@ -471,7 +471,28 @@ class RoleService {
             isSystemDefault: def.isSystemDefault ?? true,
             isActive: def.isActive ?? true,
           });
-          await roleDoc.save();
+        } else if (existing.code === 'lab_admin') {
+          let updated = false;
+          const allowedNav = ['dashboard', 'tests', 'reports', 'billing', 'users'];
+          const disallowedPerms = [
+            'patients:view', 'patients:create', 'patients:update', 'patients:delete',
+            'orders:view', 'orders:create', 'orders:update', 'orders:delete',
+            'samples:view', 'samples:collect', 'samples:process', 'samples:verify',
+            'audit:view',
+            'settings:view', 'settings:manage',
+          ];
+          const filteredPerms = existing.permissions.filter((p) => !disallowedPerms.includes(p));
+          if (filteredPerms.length !== existing.permissions.length) {
+            existing.permissions = filteredPerms;
+            updated = true;
+          }
+          if (JSON.stringify(existing.navigationItems) !== JSON.stringify(allowedNav)) {
+            existing.navigationItems = allowedNav;
+            updated = true;
+          }
+          if (updated) {
+            await existing.save();
+          }
         } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
           let updated = false;
           // Strict Separation of Duties (SoD): sample_collection / phlebotomist only has collection privileges
@@ -669,6 +690,28 @@ class RoleService {
         if (modified && typeof role.save === 'function') {
           await role.save();
         }
+      } else if (role.code === 'lab_admin') {
+        let modified = false;
+        const allowedNav = ['dashboard', 'tests', 'reports', 'billing', 'users'];
+        const disallowedPerms = [
+          'patients:view', 'patients:create', 'patients:update', 'patients:delete',
+          'orders:view', 'orders:create', 'orders:update', 'orders:delete',
+          'samples:view', 'samples:collect', 'samples:process', 'samples:verify',
+          'audit:view',
+          'settings:view', 'settings:manage',
+        ];
+        const filtered = role.permissions.filter((p) => !disallowedPerms.includes(p));
+        if (filtered.length !== role.permissions.length) {
+          role.permissions = filtered;
+          modified = true;
+        }
+        if (JSON.stringify(role.navigationItems) !== JSON.stringify(allowedNav)) {
+          role.navigationItems = allowedNav;
+          modified = true;
+        }
+        if (modified && typeof role.save === 'function') {
+          await role.save();
+        }
       }
 
       return role.toSafeJSON();
@@ -688,6 +731,17 @@ class RoleService {
           for (const p of techRequired) {
             if (!r.permissions.includes(p)) r.permissions.push(p);
           }
+        } else if (r.code === 'lab_admin') {
+          const allowedNav = ['dashboard', 'tests', 'reports', 'billing', 'users'];
+          const disallowedPerms = [
+            'patients:view', 'patients:create', 'patients:update', 'patients:delete',
+            'orders:view', 'orders:create', 'orders:update', 'orders:delete',
+            'samples:view', 'samples:collect', 'samples:process', 'samples:verify',
+            'audit:view',
+            'settings:view', 'settings:manage',
+          ];
+          r.permissions = r.permissions.filter((p) => !disallowedPerms.includes(p));
+          r.navigationItems = allowedNav;
         }
         return typeof r.toSafeJSON === 'function' ? r.toSafeJSON() : r;
       }

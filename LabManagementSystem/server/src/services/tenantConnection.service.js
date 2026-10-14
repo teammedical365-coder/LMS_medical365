@@ -26,6 +26,7 @@ import {
   DiagnosticReportSchema,
   InvoiceSchema,
   RecollectionTaskSchema,
+  TestCategorySchema,
 } from '../models/clinical.models.js';
 import logger from '../utils/logger.js';
 
@@ -197,6 +198,15 @@ class TenantConnectionService {
     const conn = this.getTenantConnection(tenantId);
     if (!conn) return null;
     return conn.models.TestCatalogItem || conn.model('TestCatalogItem', TestCatalogSchema);
+  }
+
+  /**
+   * Get TestCategoryModel bound strictly to the tenant's database
+   */
+  getTenantTestCategoryModel(tenantId) {
+    const conn = this.getTenantConnection(tenantId);
+    if (!conn) return null;
+    return conn.models.TestCategory || conn.model('TestCategory', TestCategorySchema);
   }
 
   /**

@@ -398,6 +398,10 @@ class TenantClinicalService {
         paidAmount: data.paidAmount,
         paymentMethod: data.paymentMethod || 'cash',
         paymentReference: data.paymentReference || null,
+        cashAmount: data.cashAmount,
+        upiAmount: data.upiAmount,
+        utrNumber: data.utrNumber,
+        paymentProof: data.paymentProof,
       };
 
       order = await this.createOrder(tenantId, orderPayload, actor);
@@ -604,6 +608,9 @@ class TenantClinicalService {
         paidAmount: initialPaid,
         paymentMethod,
         paymentReference,
+        cashAmount: data.cashAmount,
+        upiAmount: data.upiAmount,
+        utrNumber: data.utrNumber,
         actor,
       });
 
@@ -640,6 +647,9 @@ class TenantClinicalService {
       paidAmount: initialPaid,
       paymentMethod,
       paymentReference,
+      cashAmount: data.cashAmount,
+      upiAmount: data.upiAmount,
+      utrNumber: data.utrNumber,
       actor,
     });
     return mockOrder;
@@ -1792,6 +1802,97 @@ class TenantClinicalService {
     return target.toSafeJSON ? target.toSafeJSON() : target;
   }
 
+  // -------------------------------------------------------------------------
+  // TEST CATEGORIES MANAGEMENT (Lab Admin, Receptionist)
+  // -------------------------------------------------------------------------
+  async listTestCategories(tenantId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    const defaultCategories = [
+      { name: 'Hematology', department: 'Hematology', description: 'Complete Blood Count & Blood Morphologies' },
+      { name: 'Biochemistry', department: 'Clinical Chemistry', description: 'Metabolic, Lipid & Renal Panels' },
+      { name: 'Clinical Pathology', department: 'Clinical Pathology', description: 'Urine, Fluid & Stool Routine Analysis' },
+      { name: 'Endocrinology', department: 'Endocrinology', description: 'Hormones, Thyroid & Diabetes Diagnostics' },
+      { name: 'Immunology & Serology', department: 'Immunology', description: 'Infectious markers, Antibodies & CRP' },
+      { name: 'Microbiology', department: 'Microbiology', description: 'Cultures & Smear Examination' },
+      { name: 'Molecular Diagnostics', department: 'Molecular Diagnostics', description: 'PCR & Genetic Amplifications' },
+    ];
+
+    if (CategoryModel) {
+      let categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+      if (categories.length === 0) {
+        for (const cat of defaultCategories) {
+          const categoryId = this.generateId('cat');
+          const doc = new CategoryModel({ categoryId, tenantId, ...cat });
+          await doc.save().catch(() => {});
+        }
+        categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+      }
+
+      // Also incorporate categories from existing tests
+      const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+      const existingNames = new Set(categories.map((c) => c.name.toLowerCase().trim()));
+      if (TestModel) {
+        const tests = await TestModel.find({ tenantId });
+        for (const t of tests) {
+          const catName = (t.category || t.department || '').trim();
+          if (catName && !existingNames.has(catName.toLowerCase())) {
+            const categoryId = this.generateId('cat');
+            const doc = new CategoryModel({ categoryId, tenantId, name: catName, department: t.department || 'General' });
+            await doc.save().catch(() => {});
+            existingNames.add(catName.toLowerCase());
+          }
+        }
+        categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+      }
+
+      return categories.map((c) => c.toSafeJSON());
+    }
+
+    return defaultCategories.map((c, i) => ({ categoryId: `cat_${i + 1}`, tenantId, ...c }));
+  }
+
+  async createTestCategory(tenantId, data, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const { name, department = 'General', description = '' } = data;
+    if (!name || !name.trim()) {
+      throw new ClinicalServiceError('Category name is required', 'VALIDATION_ERROR', 400);
+    }
+    const cleanName = name.trim();
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    const categoryId = this.generateId('cat');
+
+    if (CategoryModel) {
+      const existing = await CategoryModel.findOne({
+        tenantId,
+        name: { $regex: `^${cleanName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, $options: 'i' },
+      });
+      if (existing) {
+        throw new ClinicalServiceError(`Category '${cleanName}' already exists`, 'DUPLICATE_CATEGORY', 409);
+      }
+      const doc = new CategoryModel({
+        categoryId,
+        tenantId,
+        name: cleanName,
+        department: department.trim(),
+        description: description.trim(),
+      });
+      await doc.save();
+      return doc.toSafeJSON();
+    }
+
+    return { categoryId, tenantId, name: cleanName, department, description };
+  }
+
+  async deleteTestCategory(tenantId, categoryId, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    if (CategoryModel) {
+      await CategoryModel.deleteOne({ tenantId, $or: [{ categoryId }, { name: categoryId }] });
+    }
+    return { success: true, categoryId };
+  }
+
   async getOrderById(tenantId, orderId) {
     await tenantUserService.assertTenantReady(tenantId);
     const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
@@ -2901,14 +3002,39 @@ class TenantClinicalService {
 
     const payments = [];
     if (paidAmount > 0) {
-      payments.push({
-        paymentId: this.generateId('pay'),
-        amount: paidAmount,
-        method: paymentInfo?.paymentMethod || 'cash',
-        reference: paymentInfo?.paymentReference || 'Intake Payment at Registration',
-        receivedBy: paymentInfo?.actor?.email || order.createdBy || 'Receptionist',
-        paidAt: new Date(),
-      });
+      if (paymentInfo?.paymentMethod === 'split' && (paymentInfo?.cashAmount || paymentInfo?.upiAmount)) {
+        const cashAmt = Number(paymentInfo.cashAmount) || 0;
+        const upiAmt = Number(paymentInfo.upiAmount) || 0;
+        if (cashAmt > 0) {
+          payments.push({
+            paymentId: this.generateId('pay'),
+            amount: cashAmt,
+            method: 'cash',
+            reference: 'Split Payment - Cash Counter',
+            receivedBy: paymentInfo?.actor?.email || order.createdBy || 'Receptionist',
+            paidAt: new Date(),
+          });
+        }
+        if (upiAmt > 0) {
+          payments.push({
+            paymentId: this.generateId('pay'),
+            amount: upiAmt,
+            method: 'upi',
+            reference: paymentInfo.utrNumber ? `Split Payment - UPI (UTR: ${paymentInfo.utrNumber})` : 'Split Payment - UPI',
+            receivedBy: paymentInfo?.actor?.email || order.createdBy || 'Receptionist',
+            paidAt: new Date(),
+          });
+        }
+      } else {
+        payments.push({
+          paymentId: this.generateId('pay'),
+          amount: paidAmount,
+          method: paymentInfo?.paymentMethod || 'cash',
+          reference: paymentInfo?.paymentReference || 'Intake Payment at Registration',
+          receivedBy: paymentInfo?.actor?.email || order.createdBy || 'Receptionist',
+          paidAt: new Date(),
+        });
+      }
     }
 
     if (InvoiceModel) {

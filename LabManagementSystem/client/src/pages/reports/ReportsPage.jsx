@@ -12,6 +12,8 @@ import PageHeader from '../../components/common/PageHeader';
 import StatusBanner from '../../components/common/StatusBanner';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import ConfirmModal from '../../components/common/ConfirmModal';
+import notify from '../../utils/notify';
 import { classifyResult, isGenericReferenceRange } from '../../utils/clinicalClassification';
 
 function renderResultFlagBadge(pr) {
@@ -142,6 +144,15 @@ export function ReportsPage() {
   const [selectedReportIds, setSelectedReportIds] = useState(new Set());
   const [filterStatus, setFilterStatus] = useState('all');
 
+  // Release Confirmation Modal State
+  const [releaseConfirmModal, setReleaseConfirmModal] = useState({
+    isOpen: false,
+    isBatch: false,
+    reportId: null,
+    reportNumber: '',
+    count: 0,
+  });
+
   // Batch PDF Export Modal State
   const [isBatchExportOpen, setIsBatchExportOpen] = useState(false);
   const [batchExportQueue, setBatchExportQueue] = useState([]);
@@ -175,6 +186,9 @@ export function ReportsPage() {
     (r) => selectedReportIds.has(r.reportId) && r.status === 'approved'
   );
   const eligibleReleaseCount = eligibleReleaseReports.length;
+
+  const selectedReleaseIds = new Set(eligibleReleaseReports.map((r) => r.reportId));
+  const selectedDownloadIds = new Set(eligibleDownloadReports.map((r) => r.reportId));
 
   // Helper to strictly evaluate whether all diagnostic tests in a report have recorded results
   const checkReportCompleteness = (report) => {
@@ -265,31 +279,79 @@ export function ReportsPage() {
     });
   };
 
-  const handleBatchRelease = async () => {
-    const eligible = reports.filter((r) => selectedReportIds.has(r.reportId) && r.status === 'approved');
-    if (eligible.length === 0) {
-      setError('No approved reports selected for release.');
+  const handleBatchRelease = () => {
+    if (selectedReleaseIds.size === 0) {
+      notify.warning('Please select at least one approved report to release.');
       return;
     }
-    const targetIds = eligible.map((r) => r.reportId);
-    if (!window.confirm(`Release ${targetIds.length} selected approved report(s) to patient portal?`)) {
-      return;
+    setReleaseConfirmModal({
+      isOpen: true,
+      isBatch: true,
+      count: selectedReleaseIds.size,
+      reportId: null,
+      reportNumber: '',
+    });
+  };
+
+  const handleOpenSingleRelease = (r) => {
+    setReleaseConfirmModal({
+      isOpen: true,
+      isBatch: false,
+      count: 1,
+      reportId: r.reportId,
+      reportNumber: r.reportNumber || 'Report',
+    });
+  };
+
+  const handleConfirmReleaseAction = async () => {
+    if (releaseConfirmModal.isBatch) {
+      await executeBatchRelease();
+    } else if (releaseConfirmModal.reportId) {
+      await executeSingleRelease(releaseConfirmModal.reportId);
     }
+  };
+
+  const executeBatchRelease = async () => {
     try {
       setActionLoading(true);
       setError(null);
+      const targetIds = Array.from(selectedReleaseIds);
       const res = await clinicalService.batchReleaseReports(tenantId, targetIds);
       if (res.success) {
         const { releasedCount, failedCount } = res.data;
+        notify.success('Report released successfully.');
         setSuccessMsg(
           `Batch Release Completed: ${releasedCount} report(s) released successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}`
         );
         setSelectedReportIds(new Set());
+        setReleaseConfirmModal((prev) => ({ ...prev, isOpen: false }));
         fetchReports();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
+      notify.error(err, { fallback: 'Failed to batch release reports' });
       setError(err.response?.data?.message || 'Failed to batch release reports');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const executeSingleRelease = async (reportId) => {
+    try {
+      setActionLoading(true);
+      const res = await clinicalService.releaseReport(tenantId, reportId);
+      if (res.success) {
+        notify.success('Report released successfully.');
+        setSuccessMsg(`Report ${res.data.reportNumber} finalized and released to patient portal`);
+        setReleaseConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        fetchReports();
+        if (selectedReport && selectedReport.reportId === reportId) {
+          setSelectedReport(res.data);
+        }
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err) {
+      notify.error(err, { fallback: 'Failed to release report' });
     } finally {
       setActionLoading(false);
     }
@@ -411,7 +473,7 @@ export function ReportsPage() {
   const handleCreateDraft = async (e) => {
     e.preventDefault();
     if (!selectedOrderId) {
-      alert('Please select an order');
+      notify.error('Please select an order');
       return;
     }
     const order = orders.find((o) => o.orderId === selectedOrderId || o.orderNumber === selectedOrderId);
@@ -427,6 +489,7 @@ export function ReportsPage() {
         findings: findings.trim() || 'Awaiting analytical results and pathologist clinical impression.',
       });
       if (res.success) {
+        notify.success('Changes saved successfully.');
         setSuccessMsg(`Draft report ${res.data.reportNumber} generated successfully`);
         setIsDraftOpen(false);
         setSelectedOrderId('');
@@ -435,7 +498,7 @@ export function ReportsPage() {
         setTimeout(() => setSuccessMsg(null), 3000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to draft report');
+      notify.error(err, { fallback: 'Failed to draft report' });
     } finally {
       setActionLoading(false);
     }
@@ -524,9 +587,26 @@ export function ReportsPage() {
         setTimeout(() => setSuccessMsg(null), 3500);
       }
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Failed to reject report';
-      setRejectError(msg);
-      setVerifyError(msg);
+      setRejectError(err.response?.data?.message || err.message || 'Failed to reject report');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApprove = async (reportId) => {
+    try {
+      setActionLoading(true);
+      const res = await clinicalService.approveReport(tenantId, reportId);
+      if (res.success) {
+        setSuccessMsg(`Report ${res.data.reportNumber} verified and approved`);
+        fetchReports();
+        if (selectedReport && selectedReport.reportId === reportId) {
+          setSelectedReport(res.data);
+        }
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to approve report');
     } finally {
       setActionLoading(false);
     }
@@ -537,6 +617,7 @@ export function ReportsPage() {
       setActionLoading(true);
       const res = await clinicalService.releaseReport(tenantId, reportId);
       if (res.success) {
+        notify.success('Report released successfully.');
         setSuccessMsg(`Report ${res.data.reportNumber} finalized and released to patient portal`);
         fetchReports();
         if (selectedReport && selectedReport.reportId === reportId) {
@@ -545,7 +626,7 @@ export function ReportsPage() {
         setTimeout(() => setSuccessMsg(null), 3000);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to release report');
+      notify.error(err, { fallback: 'Failed to release report' });
     } finally {
       setActionLoading(false);
     }
@@ -554,7 +635,7 @@ export function ReportsPage() {
   const openPrintModal = async (r) => {
     if (!r) return;
     if (r.status !== 'released') {
-      alert(`Report ${r.reportNumber} is currently in '${r.status}' state. Official print layouts with public authenticity QR verification are only generated for officially Released reports.`);
+      notify.warning(`Report ${r.reportNumber} is currently in '${r.status}' state. Official print layouts with public authenticity QR verification are only generated for officially Released reports.`);
       return;
     }
     setPrintReport(r);
@@ -595,7 +676,7 @@ export function ReportsPage() {
   const handleDownloadPdf = async (r) => {
     if (!r) return;
     if (r.status !== 'released') {
-      alert(`Report ${r.reportNumber} is currently in '${r.status}' state. Official PDF download is strictly permitted only for finalized and Released reports.`);
+      notify.warning(`Report ${r.reportNumber} is currently in '${r.status}' state. Official PDF download is strictly permitted only for finalized and Released reports.`);
       return;
     }
 
@@ -607,7 +688,7 @@ export function ReportsPage() {
         reportToPrint = res.data;
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Unauthorized to download this report');
+      notify.error(err, { fallback: 'Unauthorized to download this report' });
       return;
     }
 
@@ -644,34 +725,28 @@ export function ReportsPage() {
         description="Pathologist clinical result verification, diagnostic findings sign-off, and official report release."
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              className="btn btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              disabled={eligibleDownloadCount === 0 || actionLoading}
-              onClick={handleStartBatchDownload}
-              title={
-                eligibleDownloadCount === 0
-                  ? 'Select released reports to download PDFs'
-                  : `Batch export ${eligibleDownloadCount} selected released report(s) as PDFs`
-              }
-            >
-              <Download size={16} />
-              <span>Download Selected PDFs ({eligibleDownloadCount})</span>
-            </button>
+            {releasedReports.length > 0 && (
+              <button
+                className="btn btn-secondary"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                disabled={selectedDownloadIds.size === 0 || actionLoading}
+                onClick={handleStartBatchDownload}
+                title="Batch export selected released reports as PDFs"
+              >
+                <Download size={16} />
+                <span>Download Selected PDFs ({selectedDownloadIds.size})</span>
+              </button>
+            )}
             {canRelease && approvedReports.length > 0 && (
               <button
                 className="btn btn-primary"
                 style={{ background: 'var(--teal-600)', borderColor: 'var(--teal-600)', display: 'flex', alignItems: 'center', gap: '6px' }}
-                disabled={eligibleReleaseCount === 0 || actionLoading}
+                disabled={selectedReleaseIds.size === 0 || actionLoading}
                 onClick={handleBatchRelease}
-                title={
-                  eligibleReleaseCount === 0
-                    ? 'Select approved reports to batch release'
-                    : `Batch release ${eligibleReleaseCount} selected approved report(s)`
-                }
+                title="Batch release selected approved reports"
               >
                 <CheckCircle2 size={16} />
-                <span>Release Selected ({eligibleReleaseCount})</span>
+                <span>Release Selected ({selectedReleaseIds.size})</span>
               </button>
             )}
             <button
@@ -908,7 +983,7 @@ export function ReportsPage() {
                           <button
                             className="btn btn-success btn-sm"
                             style={{ background: 'var(--teal-600)', color: 'white', border: 'none' }}
-                            onClick={() => handleRelease(r.reportId)}
+                            onClick={() => handleOpenSingleRelease(r)}
                             disabled={actionLoading}
                             title="Publish and release official report"
                           >
@@ -2187,6 +2262,31 @@ export function ReportsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Reusable Confirm Release Modal */}
+      <ConfirmModal
+        isOpen={releaseConfirmModal.isOpen}
+        onClose={() => setReleaseConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmReleaseAction}
+        title={releaseConfirmModal.isBatch ? "Confirm Batch Report Release" : `Release Report ${releaseConfirmModal.reportNumber}`}
+        message={
+          releaseConfirmModal.isBatch ? (
+            <span>
+              Are you sure you want to release <strong>{releaseConfirmModal.count} approved report(s)</strong> to the patient portal?
+              Once released, official diagnostic records become available for patient viewing and authenticated QR verification.
+            </span>
+          ) : (
+            <span>
+              Are you sure you want to release official diagnostic report <strong>{releaseConfirmModal.reportNumber}</strong> to the patient portal?
+              Once released, official diagnostic records become available for patient viewing and authenticated QR verification.
+            </span>
+          )
+        }
+        confirmText="Release to Patient Portal"
+        cancelText="Cancel"
+        variant="primary"
+        isLoading={actionLoading}
+      />
     </>
   );
 }
