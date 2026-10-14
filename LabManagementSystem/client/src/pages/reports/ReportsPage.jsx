@@ -14,6 +14,96 @@ import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import notify from '../../utils/notify';
+import { classifyResult, isGenericReferenceRange } from '../../utils/clinicalClassification';
+
+function renderResultFlagBadge(pr) {
+  const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+  if (isBlank) {
+    return <Badge variant="warning">Missing</Badge>;
+  }
+  const evalResult = classifyResult(pr.value, pr);
+  const isAbnormal = Boolean(pr.isAbnormal || evalResult?.isAbnormal);
+  const flag = (pr.flag && pr.flag !== 'NORMAL')
+    ? pr.flag
+    : (evalResult && evalResult.flag !== 'UNCLASSIFIED')
+      ? evalResult.flag
+      : isAbnormal
+        ? 'ABNORMAL'
+        : (pr.flag === 'NORMAL' && !isAbnormal)
+          ? 'NORMAL'
+          : evalResult?.flag || 'UNCLASSIFIED';
+
+  switch (flag) {
+    case 'CRITICAL_LOW':
+    case 'CRITICAL_HIGH':
+      return <Badge variant="danger" icon={AlertCircle}>CRITICAL</Badge>;
+    case 'LOW':
+      return <Badge variant="warning">LOW</Badge>;
+    case 'HIGH':
+      return <Badge variant="danger">HIGH</Badge>;
+    case 'ABNORMAL':
+      return <Badge variant="danger">Abnormal</Badge>;
+    case 'NORMAL':
+      return <Badge variant="success">Normal</Badge>;
+    case 'UNCLASSIFIED':
+    default:
+      return <Badge variant="secondary">{isAbnormal ? 'Abnormal' : 'Review'}</Badge>;
+  }
+}
+
+function getPrintFlagDisplay(pr) {
+  const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+  if (isBlank) return { text: 'MISSING', isAbnormal: false, color: '#d97706', bg: '#fef3c7' };
+  const evalResult = classifyResult(pr.value, pr);
+  const isAbnormal = Boolean(pr.isAbnormal || evalResult?.isAbnormal);
+  const flag = (pr.flag && pr.flag !== 'NORMAL')
+    ? pr.flag
+    : (evalResult && evalResult.flag !== 'UNCLASSIFIED')
+      ? evalResult.flag
+      : isAbnormal
+        ? 'ABNORMAL'
+        : (pr.flag === 'NORMAL' && !isAbnormal)
+          ? 'NORMAL'
+          : evalResult?.flag || 'UNCLASSIFIED';
+
+  switch (flag) {
+    case 'CRITICAL_LOW':
+      return { text: 'CRIT LOW', isAbnormal: true, color: '#dc2626', bg: '#fee2e2' };
+    case 'CRITICAL_HIGH':
+      return { text: 'CRIT HIGH', isAbnormal: true, color: '#dc2626', bg: '#fee2e2' };
+    case 'LOW':
+      return { text: 'LOW', isAbnormal: true, color: '#b45309', bg: '#fef3c7' };
+    case 'HIGH':
+      return { text: 'HIGH', isAbnormal: true, color: '#dc2626', bg: '#fee2e2' };
+    case 'ABNORMAL':
+      return { text: 'ABNORMAL', isAbnormal: true, color: '#dc2626', bg: '#fee2e2' };
+    case 'NORMAL':
+      return { text: 'NORMAL', isAbnormal: false, color: '#16a34a', bg: '#dcfce7' };
+    case 'UNCLASSIFIED':
+    default:
+      return { text: isAbnormal ? 'ABNORMAL' : 'REVIEW', isAbnormal, color: '#475569', bg: '#f1f5f9' };
+  }
+}
+
+function resolveParamInterval(pr) {
+  if (pr.referenceRange && !isGenericReferenceRange(pr.referenceRange)) {
+    return pr.referenceRange;
+  }
+  const evalResult = classifyResult(pr.value, pr);
+  if (evalResult?.referenceRangeDisplay && !isGenericReferenceRange(evalResult.referenceRangeDisplay)) {
+    return evalResult.referenceRangeDisplay;
+  }
+  if (pr.lowNormal !== null && pr.highNormal !== null && pr.lowNormal !== undefined && pr.highNormal !== undefined && pr.lowNormal !== '' && pr.highNormal !== '') {
+    return `${pr.lowNormal} - ${pr.highNormal}`;
+  }
+  if (pr.highNormal !== null && pr.highNormal !== undefined && pr.highNormal !== '') {
+    return `< ${pr.highNormal}`;
+  }
+  if (pr.lowNormal !== null && pr.lowNormal !== undefined && pr.lowNormal !== '') {
+    return `> ${pr.lowNormal}`;
+  }
+  return '—';
+}
 
 export function ReportsPage() {
   const { user, tenant } = useAuth();
@@ -542,15 +632,16 @@ export function ReportsPage() {
     }
   };
 
-  const openPrintModal = (r) => {
+  const openPrintModal = async (r) => {
     if (!r) return;
     if (r.status !== 'released') {
       notify.warning(`Report ${r.reportNumber} is currently in '${r.status}' state. Official print layouts with public authenticity QR verification are only generated for officially Released reports.`);
       return;
     }
     setPrintReport(r);
-    if (r.verificationToken) {
-      const verifyUrl = `${window.location.origin}/verify/${r.verificationToken}`;
+    const initialToken = r.verificationToken;
+    if (initialToken) {
+      const verifyUrl = `${window.location.origin}/verify/${initialToken}`;
       QRCode.toDataURL(verifyUrl, { width: 140, margin: 1, errorCorrectionLevel: 'M' })
         .then((url) => setQrCodeDataUrl(url))
         .catch((err) => {
@@ -559,6 +650,26 @@ export function ReportsPage() {
         });
     } else {
       setQrCodeDataUrl('');
+    }
+
+    // Enrich with server metadata (patient demographics, collection/received timestamps, lab branding)
+    if (!r.patientAge && !r.collectedAt) {
+      try {
+        const res = await clinicalService.downloadReport(tenantId, r.reportId);
+        if (res?.data) {
+          const enriched = res.data;
+          setPrintReport(enriched);
+          const activeToken = enriched.verificationToken || initialToken;
+          if (activeToken) {
+            const verifyUrl = `${window.location.origin}/verify/${activeToken}`;
+            QRCode.toDataURL(verifyUrl, { width: 140, margin: 1, errorCorrectionLevel: 'M' })
+              .then((url) => setQrCodeDataUrl(url))
+              .catch(() => {});
+          }
+        }
+      } catch (err) {
+        // non-fatal
+      }
     }
   };
 
@@ -569,19 +680,23 @@ export function ReportsPage() {
       return;
     }
 
+    let reportToPrint = r;
     try {
-      // 1. Authorize download through backend endpoint
-      await clinicalService.downloadReport(tenantId, r.reportId);
+      // 1. Authorize download through backend endpoint and fetch enriched report
+      const res = await clinicalService.downloadReport(tenantId, r.reportId);
+      if (res?.data) {
+        reportToPrint = res.data;
+      }
     } catch (err) {
       notify.error(err, { fallback: 'Unauthorized to download this report' });
       return;
     }
 
     // 2. Open printable view with QR code and A4 layout
-    openPrintModal(r);
+    await openPrintModal(reportToPrint);
 
     // 3. Set sanitized safe title for browser "Save as PDF"
-    const cleanNum = String(r.reportNumber || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanNum = String(reportToPrint.reportNumber || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeTitle = `Diagnostic_Report_${cleanNum}`;
     const prevTitle = document.title;
     document.title = safeTitle;
@@ -591,7 +706,7 @@ export function ReportsPage() {
       setTimeout(() => {
         document.title = prevTitle;
       }, 1200);
-    }, 350);
+    }, 450);
   };
 
   const getStatusBadge = (status) => {
@@ -1053,23 +1168,19 @@ export function ReportsPage() {
                           <tbody>
                             {it.parameterResults.map((pr, pidx) => {
                               const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                              const evalResult = !isBlank ? classifyResult(pr.value, pr) : null;
+                              const isAbnormal = pr.isAbnormal !== undefined ? pr.isAbnormal : (evalResult?.isAbnormal || false);
                               return (
-                                <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
-                                  <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
-                                  <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
+                                <tr key={pidx} style={{ background: isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
+                                  <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterName || pr.parameterCode}</td>
+                                  <td style={{ fontWeight: 600, color: isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
                                     {isBlank ? <span style={{ fontStyle: 'italic', fontWeight: 500 }}>Missing result</span> : `${pr.value}${pr.unit ? ' ' + pr.unit : ''}`}
                                   </td>
                                   <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
                                     {pr.referenceRange || 'N/A'}
                                   </td>
                                   <td>
-                                    {isBlank ? (
-                                      <Badge variant="warning">Missing</Badge>
-                                    ) : pr.isAbnormal ? (
-                                      <Badge variant="danger">Abnormal</Badge>
-                                    ) : (
-                                      <Badge variant="success">Normal</Badge>
-                                    )}
+                                    {renderResultFlagBadge(pr)}
                                   </td>
                                 </tr>
                               );
@@ -1185,7 +1296,14 @@ export function ReportsPage() {
           const items = Array.isArray(verifyReport.items) ? verifyReport.items : [];
           const hasMissingResults = !comp.isComplete;
           const hasAbnormal = items.some(
-            (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((pr) => pr.isAbnormal))
+            (it) => it.isAbnormal || (Array.isArray(it.parameterResults) && it.parameterResults.some((pr) => {
+              if (pr.isAbnormal) return true;
+              if (pr.flag && pr.flag !== 'NORMAL') return true;
+              if (pr.value !== undefined && pr.value !== null && String(pr.value).trim() !== '') {
+                return classifyResult(pr.value, pr).isAbnormal;
+              }
+              return false;
+            }))
           );
 
           return (
@@ -1265,23 +1383,19 @@ export function ReportsPage() {
                               <tbody>
                                 {it.parameterResults.map((pr, pidx) => {
                                   const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                  const evalResult = !isBlank ? classifyResult(pr.value, pr) : null;
+                                  const isAbnormal = pr.isAbnormal !== undefined ? pr.isAbnormal : (evalResult?.isAbnormal || false);
                                   return (
-                                    <tr key={pidx} style={{ background: pr.isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
-                                      <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterCode}</td>
-                                      <td style={{ fontWeight: 600, color: pr.isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
+                                    <tr key={pidx} style={{ background: isAbnormal ? '#fff1f2' : isBlank ? '#fffbeb' : undefined }}>
+                                      <td style={{ fontWeight: 500 }}>{pr.name || pr.parameterName || pr.parameterCode}</td>
+                                      <td style={{ fontWeight: 600, color: isAbnormal ? '#e11d48' : isBlank ? '#c2410c' : 'inherit' }}>
                                         {isBlank ? <span style={{ fontStyle: 'italic', fontWeight: 500 }}>Missing result</span> : `${pr.value}${pr.unit ? ' ' + pr.unit : ''}`}
                                       </td>
                                       <td style={{ color: 'var(--slate-500)', fontFamily: 'monospace', fontSize: '0.75rem' }}>
                                         {pr.referenceRange || 'N/A'}
                                       </td>
                                       <td>
-                                        {isBlank ? (
-                                          <Badge variant="warning">Missing</Badge>
-                                        ) : pr.isAbnormal ? (
-                                          <Badge variant="danger">Abnormal</Badge>
-                                        ) : (
-                                          <Badge variant="success">Normal</Badge>
-                                        )}
+                                        {renderResultFlagBadge(pr)}
                                       </td>
                                     </tr>
                                   );
@@ -1613,19 +1727,34 @@ export function ReportsPage() {
                   top: 0 !important;
                   width: 100% !important;
                   margin: 0 !important;
-                  padding: 10mm 15mm !important;
+                  padding: 8mm 12mm !important;
                   background: #ffffff !important;
-                  color: #000000 !important;
+                  color: #0f172a !important;
                   box-shadow: none !important;
                   border: none !important;
                   z-index: 999999 !important;
+                  font-size: 8.5pt !important;
                 }
                 .no-print {
                   display: none !important;
                 }
                 @page {
                   size: A4 portrait;
-                  margin: 10mm;
+                  margin: 8mm 10mm;
+                }
+                thead {
+                  display: table-header-group;
+                }
+                tfoot {
+                  display: table-footer-group;
+                }
+                tr {
+                  page-break-inside: avoid;
+                  break-inside: avoid;
+                }
+                .page-break-inside-avoid {
+                  page-break-inside: avoid;
+                  break-inside: avoid;
                 }
               }
             `}</style>
@@ -1634,12 +1763,13 @@ export function ReportsPage() {
               id="official-report-printable"
               style={{
                 background: '#ffffff',
-                color: '#0f172a',
-                padding: '24px',
-                border: '1px solid var(--slate-300)',
+                color: '#000000',
+                padding: '24px 28px',
+                border: '1px solid #cbd5e1',
                 borderRadius: '8px',
-                fontFamily: 'Inter, system-ui, sans-serif',
-                fontSize: '0.875rem',
+                fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                fontSize: '0.8125rem',
+                lineHeight: 1.4,
               }}
             >
               {/* Header with Lab Branding */}
@@ -1648,281 +1778,350 @@ export function ReportsPage() {
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
-                  paddingBottom: '16px',
-                  borderBottom: '2px solid #0f172a',
+                  paddingBottom: '6px',
                 }}
               >
-                <div>
-                  <h2 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 800, color: '#0f172a' }}>
-                    {branding?.displayName || currentTenant?.name || 'Medical365 Reference Laboratory'}
-                  </h2>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.8125rem', color: '#475569' }}>
-                    Accredited Department of Clinical Pathology & Diagnostics
-                  </p>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                    Quality Management Standard ISO 15189 Compliant
-                  </p>
+                <div style={{ maxWidth: '65%' }}>
+                  {(branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl) && (
+                    <img
+                      src={branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl}
+                      alt="Laboratory Logo"
+                      style={{ maxHeight: '44px', maxWidth: '180px', objectFit: 'contain', marginBottom: '4px', display: 'block' }}
+                    />
+                  )}
+                  <div style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#000000', letterSpacing: '-0.2px' }}>
+                    {printReport.labName || branding?.displayName || currentTenant?.name || 'Diagnostic Laboratory'}
+                  </div>
+                  {(printReport.tagline || branding?.tagline) && (
+                    <div style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#475569', marginTop: '2px' }}>
+                      {printReport.tagline || branding?.tagline}
+                    </div>
+                  )}
                 </div>
-                <div style={{ textAlign: 'right' }}>
+
+                <div style={{ textAlign: 'right', minWidth: '180px' }}>
                   <div
                     style={{
                       display: 'inline-block',
-                      background: '#0f172a',
+                      background: '#1e3a8a',
                       color: '#ffffff',
-                      fontWeight: 700,
+                      fontWeight: 800,
                       fontSize: '0.75rem',
-                      padding: '4px 10px',
+                      padding: '3px 14px',
                       borderRadius: '4px',
                       letterSpacing: '0.5px',
                     }}
                   >
-                    OFFICIAL DIAGNOSTIC REPORT
+                    LAB REPORT
                   </div>
-                  <div style={{ marginTop: '6px', fontSize: '0.8125rem', color: '#0f172a', fontWeight: 600 }}>
-                    Status: <span style={{ color: '#16a34a' }}>RELEASED</span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    Released: {printReport.releasedAt ? new Date(printReport.releasedAt).toLocaleString() : 'Recent'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Patient & Requisition Demographics */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr 1fr',
-                  gap: '12px',
-                  padding: '12px 16px',
-                  background: '#f8fafc',
-                  borderBottom: '1px solid #cbd5e1',
-                  margin: '12px 0 16px 0',
-                  borderRadius: '4px',
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Patient Name</span>
-                  <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>{printReport.patientName}</div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Patient MRN</span>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{printReport.patientMrn}</div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Report Identifier</span>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0369a1' }}>{printReport.reportNumber}</div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Requisition Order</span>
-                  <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{printReport.orderNumber}</div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Diagnostic Investigation</span>
-                  <div style={{ fontWeight: 600 }}>{printReport.testName}</div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748b', textTransform: 'uppercase' }}>Release Date</span>
-                  <div style={{ fontWeight: 600 }}>
-                    {printReport.releasedAt ? new Date(printReport.releasedAt).toLocaleDateString() : new Date().toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-
-              {/* Parameter & Analyte Results Section */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.875rem', borderBottom: '1px solid #0f172a', paddingBottom: '4px', marginBottom: '8px' }}>
-                  CLINICAL LABORATORY INVESTIGATION RESULTS
-                </div>
-
-                {printReport.items && printReport.items.length > 0 ? (
-                  printReport.items.map((it, idx) => (
-                    <div key={idx} style={{ marginBottom: '12px', pageBreakInside: 'avoid' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.8125rem', background: '#f1f5f9', padding: '4px 8px', marginBottom: '4px' }}>
-                        {it.testName} ({it.testCode})
-                      </div>
-
-                      {Array.isArray(it.parameterResults) && it.parameterResults.length > 0 ? (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#475569' }}>
-                              <th style={{ padding: '4px 8px', width: '35%' }}>Analyte / Parameter</th>
-                              <th style={{ padding: '4px 8px', width: '20%' }}>Observed Result</th>
-                              <th style={{ padding: '4px 8px', width: '15%' }}>Units</th>
-                              <th style={{ padding: '4px 8px', width: '20%' }}>Reference Range</th>
-                              <th style={{ padding: '4px 8px', width: '10%' }}>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {it.parameterResults.map((pr, pIdx) => (
-                              <tr
-                                key={pIdx}
-                                style={{
-                                  borderBottom: '1px dotted #e2e8f0',
-                                  background: pr.abnormalFlag ? '#fef2f2' : 'transparent',
-                                }}
-                              >
-                                <td style={{ padding: '4px 8px', fontWeight: 500 }}>{pr.parameterName}</td>
-                                <td
-                                  style={{
-                                    padding: '4px 8px',
-                                    fontWeight: 700,
-                                    color: pr.abnormalFlag ? '#dc2626' : '#0f172a',
-                                  }}
-                                >
-                                  {pr.value}
-                                </td>
-                                <td style={{ padding: '4px 8px', color: '#64748b' }}>{pr.unit || '—'}</td>
-                                <td style={{ padding: '4px 8px', color: '#475569' }}>{pr.referenceRange || 'Standard'}</td>
-                                <td style={{ padding: '4px 8px' }}>
-                                  {pr.abnormalFlag ? (
-                                    <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.75rem' }}>
-                                      {pr.flagType || 'HIGH'}
-                                    </span>
-                                  ) : (
-                                    <span style={{ color: '#16a34a', fontSize: '0.75rem' }}>NORMAL</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <div style={{ padding: '4px 8px', fontSize: '0.8125rem' }}>
-                          Result Value: <strong>{it.resultValue || 'Completed'}</strong>
-                        </div>
-                      )}
+                  {(printReport.labEmail || currentTenant?.email) && (
+                    <div style={{ fontSize: '0.6875rem', color: '#4b5563', marginTop: '4px' }}>
+                      E: {printReport.labEmail || currentTenant?.email}
                     </div>
-                  ))
-                ) : (
-                  <div style={{ padding: '8px', color: '#64748b' }}>No test parameters recorded.</div>
-                )}
+                  )}
+                  {(currentTenant?.website || printReport.labWebsite) && (
+                    <div style={{ fontSize: '0.6875rem', color: '#4b5563' }}>
+                      W: {currentTenant?.website || printReport.labWebsite}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Pathologist Findings & Notes */}
-              <div
-                style={{
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '4px',
-                  padding: '10px 14px',
-                  marginBottom: '16px',
-                  pageBreakInside: 'avoid',
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: '#0f172a', marginBottom: '4px' }}>
-                  CLINICAL IMPRESSION & INTERPRETATION
-                </div>
-                <div style={{ fontSize: '0.8125rem', color: '#334155', lineHeight: '1.4' }}>
-                  {printReport.findings || 'Specimen processed normally without pathological flags.'}
-                </div>
-                {printReport.verificationNotes && (
-                  <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
-                    Pathologist Sign-off Note: {printReport.verificationNotes}
-                  </div>
-                )}
-              </div>
+              {/* Header Separator Line */}
+              <div style={{ borderBottom: '1.5px solid #000000', margin: '4px 0 8px 0' }} />
 
-              {/* Sign-Off & Verification Footer */}
+              {/* Compact Patient, Sample & Report Demographics Box (Reference Matched 2-column) */}
               <div
                 style={{
+                  border: '1px solid #000000',
+                  padding: '6px 10px',
+                  margin: '6px 0 10px 0',
+                  fontSize: '0.75rem',
+                  color: '#000000',
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
-                  gap: '16px',
-                  paddingTop: '12px',
-                  borderTop: '1px solid #cbd5e1',
-                  marginBottom: '16px',
-                  pageBreakInside: 'avoid',
+                  gap: '2px 20px',
                 }}
               >
                 <div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Reviewing & Verifying Pathologist:</div>
-                  <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>
-                    {printReport.reviewedBy || 'Consultant Pathologist, FRCPath'}
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Barcode No</span>
+                    <span>: {printReport.barcode || printReport.orderNumber}</span>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    Verified on:{' '}
-                    {printReport.verifiedAt ? new Date(printReport.verifiedAt).toLocaleString() : 'Recorded'}
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Patient Name</span>
+                    <span style={{ fontWeight: 800 }}>: {printReport.patientName}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Age / Gender</span>
+                    <span>: {printReport.patientAge || '—'} / {printReport.patientGender || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Referred By</span>
+                    <span>: {printReport.physicianName || 'Self / Attending Physician'}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Ref. Lab/Hosp</span>
+                    <span>: {printReport.referralHospital || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Patient MRN</span>
+                    <span>: {printReport.patientMrn}</span>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Authorizing Laboratory Officer:</div>
-                  <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>
-                    {printReport.releasedBy || 'Laboratory Director'}
+
+                <div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Lab No</span>
+                    <span style={{ fontWeight: 700 }}>: {printReport.orderNumber}</span>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    Released on:{' '}
-                    {printReport.releasedAt ? new Date(printReport.releasedAt).toLocaleString() : 'Recorded'}
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Reg Date</span>
+                    <span>: {printReport.orderDate ? new Date(printReport.orderDate).toLocaleString() : (printReport.createdAt ? new Date(printReport.createdAt).toLocaleString() : '—')}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Sample Coll. Date</span>
+                    <span>: {printReport.collectedAt ? new Date(printReport.collectedAt).toLocaleString() : 'Recorded at Collection'}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Sample Rec. Date</span>
+                    <span>: {printReport.receivedAt ? new Date(printReport.receivedAt).toLocaleString() : 'Recorded at Accession'}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Report Date</span>
+                    <span style={{ fontWeight: 700 }}>: {printReport.releasedAt ? new Date(printReport.releasedAt).toLocaleString() : (printReport.verifiedAt ? new Date(printReport.verifiedAt).toLocaleString() : new Date().toLocaleString())}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '2px' }}>
+                    <span style={{ width: '125px', fontWeight: 700 }}>Specimen Type</span>
+                    <span>: {printReport.specimenType || 'Venous Whole Blood / Serum'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Digital QR Code Authenticity Section */}
+              {/* Department-wise Test Sections */}
+              {Object.entries(
+                (printReport.items || []).reduce((acc, it) => {
+                  const dept = (it.department || printReport.department || 'Clinical Pathology').toUpperCase();
+                  if (!acc[dept]) acc[dept] = [];
+                  acc[dept].push(it);
+                  return acc;
+                }, {})
+              ).map(([deptName, deptItems], deptIdx) => (
+                <div key={deptIdx} style={{ marginBottom: '14px', pageBreakInside: 'avoid' }}>
+                  {/* Department Header */}
+                  <div style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.8438rem', color: '#000000', margin: '8px 0 6px 0', letterSpacing: '0.6px', textTransform: 'uppercase' }}>
+                    DEPARTMENT OF {deptName}
+                  </div>
+
+                  {/* Clean 4-Column Table */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7813rem' }}>
+                    <thead>
+                      <tr style={{ borderTop: '1px solid #000000', borderBottom: '1px solid #000000', textAlign: 'left', color: '#000000' }}>
+                        <th style={{ padding: '5px 6px', width: '40%', fontWeight: 700 }}>Test Name</th>
+                        <th style={{ padding: '5px 6px', width: '20%', fontWeight: 700, textAlign: 'center' }}>Result</th>
+                        <th style={{ padding: '5px 6px', width: '15%', fontWeight: 700 }}>Unit</th>
+                        <th style={{ padding: '5px 6px', width: '25%', fontWeight: 700 }}>Bio. Ref. Interval</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deptItems.map((it, itIdx) => {
+                        const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
+                        return (
+                          <React.Fragment key={itIdx}>
+                            {/* Test Group Header */}
+                            <tr>
+                              <td colSpan="4" style={{ fontWeight: 800, padding: '7px 4px 2px 4px', fontSize: '0.8125rem', color: '#000000' }}>
+                                {it.testName} {it.testCode ? `(${it.testCode})` : ''}
+                              </td>
+                            </tr>
+
+                            {hasParams ? (
+                              it.parameterResults.map((pr, pIdx) => {
+                                const flagInfo = getPrintFlagDisplay(pr);
+                                const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
+                                const paramName = pr.name || pr.parameterName || pr.parameterCode;
+                                const intervalText = resolveParamInterval(pr);
+
+                                return (
+                                  <tr key={pIdx} style={{ borderBottom: '1px solid #f8fafc', background: flagInfo.isAbnormal ? '#fff5f5' : 'transparent' }}>
+                                    <td style={{ padding: '4px 6px 4px 14px', color: '#111827' }}>
+                                      <div style={{ fontWeight: 600 }}>{paramName}</div>
+                                      {pr.method && (
+                                        <div style={{ fontSize: '0.6563rem', color: '#64748b', fontStyle: 'italic' }}>{pr.method}</div>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                                      {isBlank ? (
+                                        <span style={{ color: '#d97706', fontStyle: 'italic', fontWeight: 500 }}>Missing</span>
+                                      ) : (
+                                        <span style={{ fontWeight: flagInfo.isAbnormal ? 800 : 600, color: flagInfo.isAbnormal ? '#dc2626' : '#000000' }}>
+                                          {String(pr.value)}
+                                        </span>
+                                      )}
+                                      {flagInfo.isAbnormal && (
+                                        <span style={{ marginLeft: '6px', fontSize: '0.6875rem', fontWeight: 800, color: flagInfo.color }}>
+                                          [{flagInfo.text}]
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px', color: '#374151' }}>{pr.unit || '—'}</td>
+                                    <td style={{ padding: '4px 6px', color: '#111827' }}>{intervalText}</td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr style={{ borderBottom: '1px solid #f8fafc' }}>
+                                <td style={{ padding: '4px 6px 4px 14px', color: '#111827', fontWeight: 600 }}>
+                                  {it.testName}
+                                  {it.method && <div style={{ fontSize: '0.6563rem', color: '#64748b', fontStyle: 'italic' }}>{it.method}</div>}
+                                </td>
+                                <td style={{ padding: '4px 6px', textAlign: 'center', fontWeight: it.isAbnormal ? 800 : 600, color: it.isAbnormal ? '#dc2626' : '#000000' }}>
+                                  {it.resultValue || 'Completed'}
+                                  {it.isAbnormal && <span style={{ marginLeft: '6px', fontSize: '0.6875rem', fontWeight: 800, color: '#dc2626' }}>[ABNORMAL]</span>}
+                                </td>
+                                <td style={{ padding: '4px 6px', color: '#374151' }}>{it.unit || '—'}</td>
+                                <td style={{ padding: '4px 6px', color: '#111827' }}>{resolveParamInterval(it)}</td>
+                              </tr>
+                            )}
+
+                            {/* Method / Comment */}
+                            {(it.method || it.comments || it.clinicalNotes) && (
+                              <tr>
+                                <td colSpan="4" style={{ padding: '2px 6px 6px 14px', fontSize: '0.6875rem', color: '#4b5563' }}>
+                                  {it.method && <div><em>Method: {it.method}</em></div>}
+                                  {(it.comments || it.clinicalNotes) && <div><strong>Comment:</strong> {it.comments || it.clinicalNotes}</div>}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+
+              {/* Pathologist Findings & Clinical Impression */}
+              {printReport.findings && (
+                <div
+                  className="page-break-inside-avoid"
+                  style={{
+                    borderTop: '1px solid #000000',
+                    paddingTop: '6px',
+                    marginTop: '10px',
+                    fontSize: '0.75rem',
+                    color: '#000000',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>
+                    COMMENTS / CLINICAL IMPRESSION:
+                  </div>
+                  <div style={{ lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                    {printReport.findings}
+                  </div>
+                  {printReport.verificationNotes && (
+                    <div style={{ marginTop: '4px', fontSize: '0.7188rem', color: '#475569', fontStyle: 'italic' }}>
+                      <strong>Sign-off Note:</strong> {printReport.verificationNotes}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Signatures */}
               <div
+                className="page-break-inside-avoid"
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  padding: '12px 16px',
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  pageBreakInside: 'avoid',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-end',
+                  marginTop: '22px',
+                  paddingTop: '6px',
                 }}
               >
-                {qrCodeDataUrl ? (
-                  <img
-                    src={qrCodeDataUrl}
-                    alt="Authenticity QR Code"
-                    style={{ width: '84px', height: '84px', flexShrink: 0, borderRadius: '4px' }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '84px',
-                      height: '84px',
-                      background: '#e2e8f0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.6875rem',
-                      textAlign: 'center',
-                      color: '#64748b',
-                    }}
-                  >
-                    Verification QR
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: '#0f172a' }}>
-                    DIGITAL VERIFICATION & AUDIT TRAIL
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '2px' }}>
-                    Scan QR code or visit public verification portal to validate the authenticity of this official report.
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '0.6875rem',
-                      fontFamily: 'monospace',
-                      color: '#0369a1',
-                      marginTop: '4px',
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {printReport.verificationToken
-                      ? `${window.location.origin}/verify/${printReport.verificationToken}`
-                      : 'Verified Report'}
-                  </div>
+                <div style={{ textAlign: 'left' }}>
+                  {printReport.reviewedBy && (
+                    <>
+                      <div style={{ borderBottom: '1px solid #94a3b8', width: '180px', marginBottom: '4px' }} />
+                      <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
+                        {printReport.reviewedBy}
+                      </div>
+                      <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
+                        (Consultant Pathologist)
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div style={{ textAlign: 'right' }}>
+                  {printReport.releasedBy && (
+                    <>
+                      <div style={{ borderBottom: '1px solid #94a3b8', width: '180px', marginBottom: '4px', marginLeft: 'auto' }} />
+                      <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
+                        {printReport.releasedBy}
+                      </div>
+                      <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
+                        (Director & Chief Pathologist)
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
+              {/* Bottom Note */}
               <div
+                className="page-break-inside-avoid"
                 style={{
-                  textAlign: 'center',
-                  marginTop: '12px',
+                  marginTop: '14px',
                   fontSize: '0.6875rem',
-                  color: '#94a3b8',
+                  color: '#475569',
+                  fontStyle: 'italic',
+                  borderTop: '1px solid #e2e8f0',
+                  paddingTop: '4px',
                 }}
               >
-                *** End of Official Diagnostic Pathology Report — Confidential Medical Record ***
+                This test was performed by {printReport.labName || branding?.displayName || currentTenant?.name || 'Diagnostic Laboratory'}{(typeof printReport.labAddress === 'string' && printReport.labAddress.trim() ? `, ${printReport.labAddress.trim()}` : (typeof currentTenant?.address === 'string' && currentTenant.address.trim() ? `, ${currentTenant.address.trim()}` : ''))}{(printReport.labPhone || currentTenant?.phone) ? `, Tel: ${printReport.labPhone || currentTenant?.phone}` : ''}.
+              </div>
+
+              {/* Simple Footer Bar */}
+              <div
+                className="page-break-inside-avoid"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginTop: '8px',
+                  paddingTop: '6px',
+                  borderTop: '1.5px solid #000000',
+                  fontSize: '0.6875rem',
+                  color: '#334155',
+                }}
+              >
+                <div style={{ maxWidth: '70%' }}>
+                  <div>
+                    <strong>Regd Office:</strong> {typeof printReport.labAddress === 'string' && printReport.labAddress.trim() ? printReport.labAddress.trim() : (typeof currentTenant?.address === 'string' && currentTenant.address.trim() ? currentTenant.address.trim() : [currentTenant?.address?.street, currentTenant?.address?.city, currentTenant?.address?.state, currentTenant?.address?.postalCode, currentTenant?.address?.country].filter(Boolean).join(', ') || 'Diagnostic Pathology Laboratory')}
+                  </div>
+                  {(printReport.labPhone || currentTenant?.phone) && (
+                    <div>Customer Care / Tel: {printReport.labPhone || currentTenant?.phone}</div>
+                  )}
+                  {(printReport.accreditation || branding?.accreditation || currentTenant?.branding?.accreditation) && (
+                    <div style={{ fontWeight: 600, color: '#166534' }}>
+                      {printReport.accreditation || branding?.accreditation || currentTenant?.branding?.accreditation}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {qrCodeDataUrl && (
+                    <img
+                      src={qrCodeDataUrl}
+                      alt="Verification QR"
+                      style={{ width: '42px', height: '42px' }}
+                    />
+                  )}
+                  <div style={{ textAlign: 'right', fontWeight: 600 }}>
+                    Page 1 of 1
+                  </div>
+                </div>
               </div>
             </div>
           </div>
