@@ -29,7 +29,7 @@ class TokenService {
     this.secret = config.jwt?.secret;
     this.issuer = config.jwt?.issuer || 'lms-platform-auth';
     this.audience = config.jwt?.audience || 'lms-api';
-    this.expiresIn = config.jwt?.expiresIn || '15m';
+    this.expiresIn = config.jwt?.expiresIn || '7d';
 
     if (config.isProduction) {
       const check = validateSecret('JWT_SECRET', this.secret, 32);
@@ -42,9 +42,10 @@ class TokenService {
   /**
    * Generate an access token for Platform Super Admin
    * @param {Object} admin
+   * @param {string|null} sessionId
    * @returns {string}
    */
-  generatePlatformAdminToken(admin) {
+  generatePlatformAdminToken(admin, sessionId = null) {
     if (!admin || !admin.adminId || !admin.email) {
       throw new Error('Cannot sign admin token without adminId and email');
     }
@@ -54,6 +55,7 @@ class TokenService {
       email: admin.email,
       role: admin.role || 'super_admin',
       accountType: ACCOUNT_TYPE.PLATFORM_SUPER_ADMIN,
+      ...(sessionId ? { sessionId } : {}),
     };
 
     return jwt.sign(payload, this.secret, {
@@ -67,9 +69,10 @@ class TokenService {
    * Generate an access token for Tenant Laboratory User
    * @param {Object} user 
    * @param {string} tenantId 
+   * @param {string|null} sessionId
    * @returns {string}
    */
-  generateTenantUserToken(user, tenantId) {
+  generateTenantUserToken(user, tenantId, sessionId = null) {
     if (!user || !user.userId || !user.email) {
       throw new Error('Cannot sign tenant token without userId and email');
     }
@@ -86,6 +89,7 @@ class TokenService {
       role: user.role,
       tenantId: tenantId,
       accountType: ACCOUNT_TYPE.TENANT_USER,
+      ...(sessionId ? { sessionId } : {}),
     };
 
     return jwt.sign(payload, this.secret, {
@@ -147,7 +151,7 @@ class TokenService {
       httpOnly: true,
       secure: config.isProduction, // In production, cookies require HTTPS
       sameSite: config.isProduction ? 'strict' : 'lax',
-      maxAge: 15 * 60 * 1000, // 15 minutes aligned with token expiry
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days aligned with token expiry
       path: '/',
     };
   }

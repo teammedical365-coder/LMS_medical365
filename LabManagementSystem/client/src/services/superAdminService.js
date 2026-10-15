@@ -15,8 +15,12 @@ import api from './api';
  * Never embeds shared platform secrets in the client bundle.
  */
 function getAdminHeaders() {
-  // If an administrator session token has been securely issued to the session storage:
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('lms_admin_token') : null;
+  // If an administrator session token has been securely issued:
+  const token =
+    typeof window !== 'undefined'
+      ? (typeof localStorage !== 'undefined' && localStorage.getItem('lms_admin_token')) ||
+        sessionStorage.getItem('lms_admin_token')
+      : null;
   if (token) {
     return {
       Authorization: `Bearer ${token}`,
@@ -31,7 +35,10 @@ export const superAdminService = {
    */
   hasActiveAdminSession() {
     if (typeof window === 'undefined') return false;
-    return !!sessionStorage.getItem('lms_admin_token');
+    return !!(
+      (typeof localStorage !== 'undefined' && localStorage.getItem('lms_admin_token')) ||
+      sessionStorage.getItem('lms_admin_token')
+    );
   },
 
   /**

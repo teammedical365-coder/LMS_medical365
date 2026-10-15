@@ -3,10 +3,13 @@
  * 
  * Exclusively authenticates Platform Super Administrators against the Master Database.
  * Laboratory staff & administrators access their facility via dedicated white-label URLs.
+ * 
+ * Preserves 100% of underlying API contracts, authentication endpoints,
+ * and routing logic.
  */
 
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Shield,
   Lock,
@@ -17,6 +20,10 @@ import {
   Loader2,
   AlertTriangle,
   Building2,
+  Eye,
+  EyeOff,
+  Activity,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -28,33 +35,76 @@ export function LoginPage() {
   // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
-  // UI States
+  // Quick laboratory jump input
+  const [labJumpCode, setLabJumpCode] = useState('');
+
+  // UI Feedback States
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [errorStatus, setErrorStatus] = useState(null);
+  const [infoMessage, setInfoMessage] = useState(null);
 
   const from = location.state?.from?.pathname || '/super-admin';
 
-  // If a laboratory identifier is provided in query params (?lab= or ?code=),
+  // If a laboratory identifier is provided in query params (?lab=, ?code=, ?org=),
   // immediately route to the facility's dedicated white-label portal
   const searchParams = new URLSearchParams(location.search);
   const labParam = searchParams.get('lab') || searchParams.get('code') || searchParams.get('org');
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (labParam) {
       navigate(`/lab/${encodeURIComponent(labParam.trim().toLowerCase())}`, { replace: true });
     }
   }, [labParam, navigate]);
 
+  // Lock body/html scroll on desktop to guarantee single-page fixed viewport without scrollbar
+  useEffect(() => {
+    const handleResize = () => {
+      const isDesktop = window.innerWidth > 960 && window.innerHeight > 580;
+      if (isDesktop) {
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      } else {
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage(null);
     setErrorStatus(null);
+    setInfoMessage(null);
+
+    if (!email.trim()) {
+      setErrorMessage('Please enter your administrator email address.');
+      return;
+    }
+    if (!password) {
+      setErrorMessage('Please enter your administrator password.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const result = await loginSuperAdmin({ email, password });
+      const result = await loginSuperAdmin({
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
       if (result.success) {
         navigate(from, { replace: true });
@@ -69,184 +119,234 @@ export function LoginPage() {
     }
   };
 
+  const handleLabJumpSubmit = (e) => {
+    e.preventDefault();
+    if (labJumpCode.trim()) {
+      navigate(`/lab/${encodeURIComponent(labJumpCode.trim().toLowerCase())}`);
+    }
+  };
+
   return (
-    <div className="auth-card" style={{ maxWidth: '440px' }}>
-      {/* Brand Header */}
-      <div className="auth-brand-head">
-        <div
-          className="auth-logo-box"
-          style={{
-            background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #0d9488 100%)',
-            boxShadow: '0 4px 14px rgba(30, 64, 175, 0.35)',
-          }}
-        >
-          <Shield size={28} />
-        </div>
-        <h1 className="auth-title">Super Admin Portal</h1>
-        <p className="auth-subtitle">
-          Master Multi-Tenant Administration & Facility Governance
-        </p>
-      </div>
-
-      {/* Security Architecture Notice */}
-      <div
-        style={{
-          background: 'var(--mint-bg)',
-          border: '1px solid var(--mint-200)',
-          borderRadius: 'var(--radius-md)',
-          padding: '0.625rem 0.75rem',
-          marginBottom: '1.25rem',
-          fontSize: '0.75rem',
-          color: 'var(--mint-text)',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center',
-        }}
-      >
-        <ShieldCheck size={16} style={{ flexShrink: 0 }} />
-        <span>
-          Platform Governance: Authenticates against Master Database with secure session tokens.
-        </span>
-      </div>
-
-      {/* Error Alert Banner */}
-      {errorMessage && (
-        <div
-          style={{
-            background: errorStatus === 503 ? 'var(--warning-50)' : 'var(--danger-50)',
-            border: `1px solid ${errorStatus === 503 ? 'var(--warning-200)' : 'var(--danger-200)'}`,
-            borderRadius: 'var(--radius-md)',
-            padding: '0.75rem',
-            marginBottom: '1.25rem',
-            fontSize: '0.8125rem',
-            color: errorStatus === 503 ? 'var(--warning-800)' : 'var(--danger-700)',
-            display: 'flex',
-            gap: '8px',
-            alignItems: 'flex-start',
-          }}
-        >
-          {errorStatus === 503 ? (
-            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--warning-600)' }} />
-          ) : (
-            <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--danger-600)' }} />
-          )}
+    <div className="auth-page-wrapper">
+      {/* Top Header Bar */}
+      <header className="auth-topbar">
+        <div className="auth-brand">
+          <div className="auth-logo" aria-hidden="true">
+            <Shield size={22} />
+          </div>
           <div>
-            <strong>{errorStatus === 503 ? 'Service Unavailable:' : 'Authentication Failed:'}</strong>{' '}
-            {errorMessage}
+            <div className="auth-brand-name">Medical365 LMS</div>
+            <div className="auth-brand-caption">Platform Governance</div>
           </div>
         </div>
-      )}
 
-      <form onSubmit={handleSubmit}>
-        {/* Email Address */}
-        <div className="form-group">
-          <label className="form-label" htmlFor="admin-email">
-            Platform Administrator Email
-          </label>
-          <div style={{ position: 'relative' }}>
-            <Mail
-              size={16}
+        <div className="auth-top-right">
+          <ShieldCheck size={16} />
+          <span>Super Admin Console</span>
+        </div>
+      </header>
+
+      {/* Main Split Layout */}
+      <main className="auth-main">
+        <div className="auth-layout">
+          {/* Left Intro Column */}
+          <section className="auth-intro">
+            <div className="auth-kicker">Platform Administration</div>
+            <h1>
+              Multi-tenant control. <span>Unified clinical governance.</span>
+            </h1>
+            <p className="auth-intro-copy">
+              Centralized administration console to manage laboratories, audit security compliance, configure master catalogs, and oversee facility lifecycles.
+            </p>
+
+            <div className="auth-trust-list">
+              <div className="auth-trust-item">
+                <div className="auth-trust-icon">
+                  <ShieldCheck size={18} />
+                </div>
+                <span>Master database authentication boundary</span>
+              </div>
+
+              <div className="auth-trust-item">
+                <div className="auth-trust-icon">
+                  <Layers size={18} />
+                </div>
+                <span>Tamper-evident platform-wide audit logging</span>
+              </div>
+
+              <div className="auth-trust-item">
+                <div className="auth-trust-icon">
+                  <Activity size={18} />
+                </div>
+                <span>Independent multi-tenant database provisioning</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Right Form Card */}
+          <section className="auth-login-card" aria-label="Super admin login form">
+            <div className="auth-card-top">
+              <div>
+                <h2 className="auth-card-title">Super Admin</h2>
+                <p className="auth-card-subtitle">Authenticate with master credentials.</p>
+              </div>
+              <div className="auth-facility-pill" style={{ background: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8' }}>
+                <Shield size={14} />
+                <span>MASTER AUTH</span>
+              </div>
+            </div>
+
+            <div className="auth-rule" />
+
+            <form onSubmit={handleSubmit} noValidate>
+              {/* Administrator Email */}
+              <div className="auth-field">
+                <label htmlFor="admin-email">Email ID</label>
+                <div className="auth-inputbox">
+                  <Mail size={17} />
+                  <input
+                    id="admin-email"
+                    name="email"
+                    type="email"
+                    autoComplete="username"
+                    placeholder="Enter your email ID"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="auth-field">
+                <label htmlFor="admin-password">Master Password</label>
+                <div className="auth-inputbox">
+                  <Lock size={17} />
+                  <input
+                    id="admin-password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    placeholder="Enter master password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="auth-eye"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Remember me only */}
+              <div className="auth-row-options">
+                <label className="auth-remember">
+                  <input
+                    id="remember"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  <span>Remember session</span>
+                </label>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={isSubmitting || authLoading}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Authenticating Master Session...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign in to Master Console</span>
+                    <ArrowRight size={17} />
+                  </>
+                )}
+              </button>
+
+              {/* Feedback messages */}
+              {errorMessage && (
+                <div className="auth-feedback error" role="status" aria-live="polite">
+                  {errorMessage}
+                </div>
+              )}
+
+              {infoMessage && (
+                <div className="auth-feedback info" role="status" aria-live="polite">
+                  {infoMessage}
+                </div>
+              )}
+            </form>
+
+            {/* Quick Facility Portal Switcher */}
+            <div
               style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--slate-400)',
+                marginTop: '22px',
+                paddingTop: '16px',
+                borderTop: '1px solid #edf1f6',
               }}
-            />
-            <input
-              id="admin-email"
-              type="email"
-              className="form-input"
-              style={{ paddingLeft: '2rem' }}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@platform.local"
-              required
-              autoComplete="username"
-            />
-          </div>
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Building2 size={14} style={{ color: 'var(--primary-blue, #2358d5)' }} />
+                <span>Laboratory Staff or Clinical User?</span>
+              </div>
+              <form onSubmit={handleLabJumpSubmit} style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Enter Lab Code (e.g. jaipurlab)"
+                  value={labJumpCode}
+                  onChange={(e) => setLabJumpCode(e.target.value)}
+                  style={{
+                    flex: 1,
+                    height: '36px',
+                    padding: '0 10px',
+                    fontSize: '12px',
+                    border: '1px solid #dce4ef',
+                    borderRadius: '8px',
+                    background: '#fcfdff',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!labJumpCode.trim()}
+                  className="btn btn-secondary"
+                  style={{
+                    height: '36px',
+                    padding: '0 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <span>Go to Lab</span>
+                  <ArrowRight size={12} />
+                </button>
+              </form>
+            </div>
+
+            {/* Card Footer Security Tag */}
+            <div className="auth-card-footer">
+              <ShieldCheck size={14} />
+              <span>Master Platform Session · Multi-Tenant Governance</span>
+            </div>
+          </section>
         </div>
-
-        {/* Password */}
-        <div className="form-group">
-          <label className="form-label" htmlFor="admin-password">
-            Password
-          </label>
-          <div style={{ position: 'relative' }}>
-            <Lock
-              size={16}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--slate-400)',
-              }}
-            />
-            <input
-              id="admin-password"
-              type="password"
-              className="form-input"
-              style={{ paddingLeft: '2rem' }}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your administrator password"
-              required
-              autoComplete="current-password"
-            />
-          </div>
-        </div>
-
-        {/* Submit Button */}
-        <button
-          type="submit"
-          className="btn btn-primary"
-          style={{ width: '100%', marginTop: '0.75rem', padding: '0.75rem' }}
-          disabled={isSubmitting || authLoading}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              <span>Verifying Super Admin Credentials...</span>
-            </>
-          ) : (
-            <>
-              <span>Sign In as Platform Super Admin</span>
-              <ArrowRight size={16} />
-            </>
-          )}
-        </button>
-      </form>
-
-      {/* Helpful Guidance Callout for Lab Staff */}
-      <div
-        style={{
-          marginTop: '1.5rem',
-          padding: '0.875rem',
-          background: 'var(--slate-50)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-md)',
-          textAlign: 'center',
-          fontSize: '0.78rem',
-          color: 'var(--slate-600)',
-          lineHeight: 1.45,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 600, color: 'var(--slate-700)', marginBottom: '3px' }}>
-          <Building2 size={13} style={{ color: 'var(--primary-600)' }} />
-          <span>Laboratory Staff & Administrators</span>
-        </div>
-        Please sign in through your laboratory's dedicated white-label portal URL (e.g.{' '}
-        <code style={{ color: 'var(--primary-700)', background: 'var(--primary-50)', padding: '1px 5px', borderRadius: '3px' }}>
-          /lab/your-lab-code
-        </code>
-        ) provided by your platform administrator.
-      </div>
-
-      <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.72rem', color: 'var(--slate-400)' }}>
-        <span>Medical365 LMS • Platform Governance & Security Engine</span>
-      </div>
+      </main>
     </div>
   );
 }

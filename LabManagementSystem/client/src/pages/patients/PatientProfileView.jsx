@@ -52,6 +52,7 @@ export function PatientProfileView({
   patientHistory = { orders: [], reports: [], invoices: [], samples: [], loading: false },
 }) {
   const [activeTab, setActiveTab] = useState('orders');
+  const [mobileSection, setMobileSection] = useState('orders'); // 'orders' | 'details' (mobile toggle)
   const [copiedMRN, setCopiedMRN] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
@@ -111,145 +112,255 @@ export function PatientProfileView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* 1. Breadcrumb & Top Navigation Bar */}
+      {/* 1. Patient Profile Header Card */}
       <div
+        className="patient-profile-header-card"
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
           background: '#ffffff',
-          padding: '0.875rem 1.25rem',
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          padding: '0.85rem 1rem',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.875rem' }}>
+        {/* Top Row: Back button on the left, Create Diagnostic Order on the right (facing each other) */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+          }}
+        >
           <button
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onBack}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
+            title="Back to Patients Directory"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '5px 10px',
+              borderRadius: '7px',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#334155',
+            }}
           >
-            <ArrowLeft size={15} />
-            <span>Back to Patients Directory</span>
+            <ArrowLeft size={14} />
+            <span>Back</span>
           </button>
-          <span style={{ color: '#94a3b8' }}>/</span>
-          <span style={{ color: '#64748b', fontWeight: 500 }}>Patient File</span>
-          <span style={{ color: '#94a3b8' }}>/</span>
-          <span style={{ color: '#0f172a', fontWeight: 700 }}>{fullName}</span>
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => onNewOrder && onNewOrder(patient)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '5px 12px',
+              borderRadius: '7px',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+            }}
           >
-            <Plus size={15} />
+            <Plus size={14} />
             <span>Create Diagnostic Order</span>
           </button>
         </div>
-      </div>
 
-      {/* 2. Patient Hero Profile Banner */}
-      <div
-        className="overview-hero-banner"
-        style={{
-          background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 45%, #ecfdf5 100%)',
-          borderRadius: '16px',
-          padding: '1.75rem',
-          color: '#0f172a',
-          boxShadow: '0 4px 20px -2px rgba(2, 132, 199, 0.08), 0 2px 6px rgba(16, 185, 129, 0.05)',
-          position: 'relative',
-          overflow: 'hidden',
-          border: '1.5px solid #bae6fd',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1.25rem', position: 'relative', zIndex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
-            {/* Big Avatar */}
-            <div className="patient-avatar-lg" style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)' }}>
-              {getInitials(fullName)}
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h2 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', fontFamily: 'var(--font-display)' }}>
-                  {fullName}
-                </h2>
-                <Badge variant="teal">Active Patient</Badge>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '6px' }}>
-                {/* MRN Chip */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#ffffff', padding: '3px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}>
-                  <span style={{ color: '#64748b', fontWeight: 600 }}>MRN:</span>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7' }}>{patient.mrn}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(patient.mrn, 'mrn')}
-                    title="Copy MRN"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: copiedMRN ? '#16a34a' : '#94a3b8' }}
-                  >
-                    {copiedMRN ? <Check size={14} /> : <Copy size={14} />}
-                  </button>
-                </div>
-
-                {/* Blood Group */}
-                {patient.bloodGroup ? (
-                  <div className="blood-group-badge">
-                    <Droplet size={13} style={{ marginRight: '4px' }} />
-                    <span>{patient.bloodGroup}</span>
-                  </div>
-                ) : (
-                  <div className="blood-group-badge" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #cbd5e1' }}>
-                    <Droplet size={13} style={{ marginRight: '4px' }} />
-                    <span>Not Specified</span>
-                  </div>
-                )}
-
-                {/* Age & Gender */}
-                <span style={{ fontSize: '0.825rem', color: '#334155', fontWeight: 600 }}>
-                  {patient.age ? `${patient.age} yrs` : 'N/A'} • <span style={{ textTransform: 'capitalize' }}>{patient.gender}</span>
-                </span>
-
-                {/* Registration Date */}
-                <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <Calendar size={13} />
-                  <span>Accessioned: {formatDate(patient.createdAt)}</span>
-                </span>
-              </div>
-            </div>
+        {/* Bottom Row: Icon (KS) on left, Name in front of icon, and exactly 2 lines of details under the name */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            width: '100%',
+            borderTop: '1px solid #f1f5f9',
+            paddingTop: '0.65rem',
+          }}
+        >
+          {/* Small Initials Avatar (KS) directly to the left of the patient name */}
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              minWidth: '42px',
+              borderRadius: '9px',
+              background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: '0.95rem',
+              letterSpacing: '0.5px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(2, 132, 199, 0.2)',
+              flexShrink: 0,
+            }}
+          >
+            {getInitials(fullName)}
           </div>
 
-          {/* Quick Metrics Badges */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <div style={{ background: 'rgba(255, 255, 255, 0.85)', padding: '10px 16px', borderRadius: '10px', border: '1px solid #bae6fd', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0284c7' }}>{orders.length}</div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Lab Orders</div>
+          {/* Name in front of icon + Exactly 2 lines of details under the name */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
+            {/* Name + Active Status Badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: '1.1rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  lineHeight: 1.2,
+                  fontFamily: 'var(--font-display)',
+                }}
+              >
+                {fullName}
+              </h2>
+              <span
+                style={{
+                  fontSize: '0.6875rem',
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: '9999px',
+                  background: '#ecfdf5',
+                  color: '#059669',
+                  border: '1px solid #a7f3d0',
+                }}
+              >
+                Active
+              </span>
             </div>
-            <div style={{ background: 'rgba(255, 255, 255, 0.85)', padding: '10px 16px', borderRadius: '10px', border: '1px solid #bae6fd', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#059669' }}>{reports.length}</div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Reports</div>
+
+            {/* Line 1 of details under name: MRN • Age & Gender • Blood Group */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+                fontSize: '0.78rem',
+                color: '#475569',
+                lineHeight: 1.3,
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: '#f8fafc',
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '0.74rem',
+                }}
+              >
+                <span style={{ color: '#64748b', fontWeight: 600 }}>MRN:</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7' }}>{patient.mrn}</span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(patient.mrn, 'mrn')}
+                  title="Copy MRN"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: copiedMRN ? '#16a34a' : '#94a3b8',
+                  }}
+                >
+                  {copiedMRN ? <Check size={11} /> : <Copy size={11} />}
+                </button>
+              </div>
+
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span style={{ fontWeight: 600 }}>
+                {patient.age ? `${patient.age} yrs` : 'Age N/A'} • <span style={{ textTransform: 'capitalize' }}>{patient.gender || 'Unknown'}</span>
+              </span>
+
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600, color: patient.bloodGroup ? '#e11d48' : '#64748b' }}>
+                <Droplet size={11} />
+                <span>{patient.bloodGroup || 'Not Specified'}</span>
+              </span>
             </div>
-            <div style={{ background: 'rgba(255, 255, 255, 0.85)', padding: '10px 16px', borderRadius: '10px', border: '1px solid #bae6fd', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4f46e5' }}>{samples.length}</div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Specimens</div>
+
+            {/* Line 2 of details under name: Phone • Accessioned Date */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+                fontSize: '0.76rem',
+                color: '#64748b',
+                lineHeight: 1.3,
+              }}
+            >
+              {patient.phone ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  <Phone size={11} style={{ color: '#0284c7' }} />
+                  <a href={`tel:${patient.phone}`} style={{ color: '#0f172a', textDecoration: 'none', fontWeight: 600 }}>
+                    {patient.phone}
+                  </a>
+                </span>
+              ) : (
+                <span>No phone recorded</span>
+              )}
+
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                <Calendar size={11} />
+                <span>Accessioned: {formatDate(patient.createdAt)}</span>
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Main Two-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '1.25rem', alignItems: 'start' }}>
+      {/* Mobile Navigation Segmented Switcher (Visible on Mobile screens only) */}
+      <div className="patient-mobile-view-tabs">
+        <button
+          type="button"
+          onClick={() => setMobileSection('orders')}
+          className={`patient-mobile-tab ${mobileSection === 'orders' ? 'active' : ''}`}
+        >
+          <ClipboardList size={16} />
+          <span>Diagnostic Orders & History ({orders.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileSection('details')}
+          className={`patient-mobile-tab ${mobileSection === 'details' ? 'active' : ''}`}
+        >
+          <UserCheck size={16} />
+          <span>Patient Details</span>
+        </button>
+      </div>
+
+      {/* 3. Main Two-Column Layout (Responsive: Side-by-side desktop, tabbed mobile) */}
+      <div className="patient-profile-layout">
         
         {/* Left Column: Full Patient Registration Details */}
         <div
-          className="card"
+          className={`card patient-profile-details-col ${mobileSection !== 'details' ? 'mobile-hidden' : ''}`}
           style={{
             background: '#ffffff',
             borderRadius: '14px',
@@ -384,16 +495,17 @@ export function PatientProfileView({
 
         {/* Right Column: Complete Clinical History */}
         <div
-          className="card"
+          className={`card patient-profile-history-col ${mobileSection !== 'orders' ? 'mobile-hidden' : ''}`}
           style={{
             background: '#ffffff',
             borderRadius: '14px',
             border: '1px solid #e2e8f0',
             boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
             padding: '1.25rem',
-            minHeight: '480px',
             display: 'flex',
             flexDirection: 'column',
+            touchAction: 'pan-y',
+            overflow: 'visible',
           }}
         >
           {/* History Navigation Tabs */}
@@ -408,6 +520,8 @@ export function PatientProfileView({
               border: '1px solid #e2e8f0',
               marginBottom: '1.25rem',
               overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-x pan-y',
             }}
           >
             <button

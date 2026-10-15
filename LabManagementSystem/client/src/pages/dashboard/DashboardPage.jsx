@@ -40,6 +40,8 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  LayoutGrid,
   Eye,
   Microscope,
   Building2,
@@ -93,6 +95,7 @@ export function DashboardPage() {
   const [reportQueueFilter, setReportQueueFilter] = useState('actionable'); // 'actionable' | 'pending' | 'approved' | 'rejected' | 'all'
   const [reportQueuePage, setReportQueuePage] = useState(1);
   const [recentOrdersPage, setRecentOrdersPage] = useState(1);
+  const [showAllOverview, setShowAllOverview] = useState(false);
 
   const tenantId = user?.tenantId || tenant?.tenantId;
   const userRole = (user?.role || 'lab_admin').toLowerCase();
@@ -945,87 +948,71 @@ export function DashboardPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* 1. Welcome / Time-based Pastel Medical Hero Banner */}
+      {/* 1. Welcome / Time-based Professional Clinical Hero Banner */}
       <div
         className="overview-hero-banner overview-hero-banner-flush"
         style={{
-          background: 'linear-gradient(135deg, #fdf4ff 0%, #f5f3ff 45%, #eff6ff 100%)',
+          background: '#ffffff',
           borderRadius: '0 0 16px 16px',
-          padding: '1.5rem 1.75rem',
+          padding: '1.4rem 1.75rem',
           color: '#0f172a',
-          boxShadow: '0 4px 20px -2px rgba(124, 58, 237, 0.05), 0 2px 6px rgba(15, 23, 42, 0.03)',
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
           position: 'relative',
-          overflow: 'hidden',
-          borderBottom: '1.5px solid #e9d5ff',
+          borderBottom: '1px solid #e2e8f0',
           borderTop: 'none',
           borderLeft: 'none',
           borderRight: 'none',
         }}
       >
-        {/* Soft pastel ambient lighting orbs */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '-40%',
-            right: '-5%',
-            width: '360px',
-            height: '360px',
-            background: 'radial-gradient(circle, rgba(196, 181, 253, 0.35) 0%, rgba(245, 243, 255, 0) 70%)',
-            pointerEvents: 'none',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '-40%',
-            left: '15%',
-            width: '320px',
-            height: '320px',
-            background: 'radial-gradient(circle, rgba(167, 243, 208, 0.3) 0%, rgba(240, 253, 244, 0) 70%)',
-            pointerEvents: 'none',
-          }}
-        />
-
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem' }}>
           <div>
-            <h1
-              style={{
-                fontSize: 'clamp(1.4rem, 2.5vw, 1.85rem)',
-                fontWeight: 800,
-                lineHeight: 1.25,
-                margin: '0 0 0.35rem 0',
-                letterSpacing: '-0.02em',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                flexWrap: 'wrap',
-              }}
-            >
-              <span
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+              <h1
                 style={{
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #9333ea 50%, #a855f7 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
+                  fontSize: 'clamp(1.35rem, 2.2vw, 1.75rem)',
+                  fontWeight: 700,
+                  lineHeight: 1.25,
+                  margin: 0,
+                  letterSpacing: '-0.02em',
+                  color: '#0f172a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
               >
-                {getGreeting()}, {userName}!
-              </span>
-              <span
-                role="img"
-                aria-label="wave"
-                style={{
-                  display: 'inline-block',
-                  fontSize: '1.45rem',
-                  lineHeight: 1,
-                  WebkitTextFillColor: 'initial',
-                }}
-              >
-                👋
-              </span>
-            </h1>
+                <span>{getGreeting()}, <span style={{ color: '#1e40af' }}>{userName}</span>!</span>
+                <span
+                  role="img"
+                  aria-label="wave"
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '1.35rem',
+                    lineHeight: 1,
+                  }}
+                >
+                  👋
+                </span>
+              </h1>
+              {roleDisplayName && (
+                <span
+                  style={{
+                    fontSize: '0.6875rem',
+                    fontWeight: 600,
+                    color: '#0369a1',
+                    background: '#f0f9ff',
+                    border: '1px solid #bae6fd',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {roleDisplayName}
+                </span>
+              )}
+            </div>
 
-            <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.45, maxWidth: '640px' }}>
-              Welcome back to {labName}. Here is your live laboratory overview and operational summary today.
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, maxWidth: '640px' }}>
+              Welcome back to <strong style={{ color: '#1e293b', fontWeight: 600 }}>{labName}</strong>. Here is your live laboratory overview and operational summary today.
             </p>
           </div>
 
@@ -1035,18 +1022,16 @@ export function DashboardPage() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: 'rgba(255, 255, 255, 0.9)',
-                backdropFilter: 'blur(6px)',
+                background: '#f8fafc',
                 border: '1px solid #e2e8f0',
-                borderRadius: '20px',
-                padding: '4px 12px',
+                borderRadius: '8px',
+                padding: '4px 10px',
                 fontSize: '0.75rem',
-                fontWeight: 600,
-                color: '#64748b',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                fontWeight: 500,
+                color: '#475569',
               }}
             >
-              <Calendar size={13} style={{ color: '#7c3aed' }} />
+              <Calendar size={13} style={{ color: '#64748b' }} />
               <span>{formattedDate}</span>
             </span>
 
@@ -1055,8 +1040,8 @@ export function DashboardPage() {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '7px',
-                padding: '0.55rem 1rem',
+                gap: '6px',
+                padding: '0.5rem 0.95rem',
                 borderRadius: '8px',
                 background: '#ffffff',
                 border: '1px solid #cbd5e1',
@@ -1064,12 +1049,12 @@ export function DashboardPage() {
                 fontWeight: 600,
                 fontSize: '0.8125rem',
                 cursor: 'pointer',
-                boxShadow: '0 2px 5px rgba(15, 23, 42, 0.05)',
+                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                 transition: 'all 0.15s ease',
               }}
               title="Refresh dashboard metrics"
             >
-              <RotateCcw size={14} className={loading ? 'animate-spin' : ''} />
+              <RotateCcw size={13} className={loading ? 'animate-spin' : ''} style={{ color: '#64748b' }} />
               <span>Refresh</span>
             </button>
           </div>
@@ -1731,21 +1716,16 @@ export function DashboardPage() {
           {/* Today's Lab Orders Summary Section (Clinical Staff Only) */}
           {isClinicalStaff && !isReceptionist && hasPermission(['orders:view', 'samples:view', 'reports:view']) && (
             <section style={{ marginBottom: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Calendar size={18} style={{ color: 'var(--primary-blue)' }} />
+                  <ClipboardList size={18} style={{ color: 'var(--primary-blue)' }} />
                   <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-800)', margin: 0 }}>
                     Today's Lab Orders Summary
                   </h2>
                 </div>
-                {todaySummary?.date && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
-                    Calendar Day: {todaySummary.date} {todaySummary.timeZone ? `(${todaySummary.timeZone})` : ''}
-                  </span>
-                )}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '1.25rem' }}>
+              <div className="lab-admin-stat-grid lab-admin-stat-grid-compact">
                 <StatCard
                   title="Today's Total Orders"
                   value={loading ? '...' : (todaySummary.todayOrders ?? 0)}
@@ -1778,22 +1758,136 @@ export function DashboardPage() {
             </section>
           )}
 
-          {/* Role-Specific Dynamic Metrics Grid */}
-          <section style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1.25rem' }}>
-              {renderRoleCards()}
+          {/* Role-Specific Dynamic Metrics Grid (Collapsible "View All Overview") */}
+          <section
+            style={{
+              marginBottom: '1.5rem',
+              background: '#ffffff',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+              overflow: 'hidden',
+              transition: 'box-shadow 0.2s ease',
+            }}
+          >
+            {/* Pull-down / Pull-off Accordion Header */}
+            <div
+              onClick={() => setShowAllOverview((prev) => !prev)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setShowAllOverview((prev) => !prev);
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 18px',
+                cursor: 'pointer',
+                background: showAllOverview ? '#f8fafc' : '#ffffff',
+                borderBottom: showAllOverview ? '1px solid #e2e8f0' : 'none',
+                userSelect: 'none',
+                transition: 'background-color 0.2s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: '#eff6ff',
+                    color: '#2563eb',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <LayoutGrid size={18} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h2 style={{ fontSize: '0.95rem', fontWeight: 650, color: 'var(--slate-800)', margin: 0 }}>
+                      View All Overview
+                    </h2>
+                    <span
+                      style={{
+                        fontSize: '0.6875rem',
+                        fontWeight: 600,
+                        backgroundColor: showAllOverview ? '#dbeafe' : '#f1f5f9',
+                        color: showAllOverview ? '#1e40af' : '#475569',
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                      }}
+                    >
+                      {showAllOverview ? 'Expanded' : 'Pull Down to View'}
+                    </span>
+                  </div>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                    {showAllOverview
+                      ? 'Detailed overview of staff members, patient accessions, orders & laboratory queues'
+                      : 'Click to pull down and inspect full staff, patient, specimen & laboratory metrics'}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAllOverview((prev) => !prev);
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: showAllOverview ? '#eff6ff' : '#ffffff',
+                    borderColor: showAllOverview ? '#93c5fd' : '#e2e8f0',
+                    color: showAllOverview ? '#1d4ed8' : '#334155',
+                    fontWeight: 600,
+                    fontSize: '0.75rem',
+                    padding: '5px 12px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                  }}
+                  aria-expanded={showAllOverview}
+                >
+                  <span>{showAllOverview ? 'Pull Off' : 'Pull Down'}</span>
+                  <ChevronDown
+                    size={15}
+                    style={{
+                      transform: showAllOverview ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.25s ease',
+                    }}
+                  />
+                </button>
+              </div>
             </div>
+
+            {/* Collapsible Content */}
+            {showAllOverview && (
+              <div style={{ padding: '16px 18px', background: '#ffffff' }}>
+                <div className="lab-admin-stat-grid">
+                  {renderRoleCards()}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Laboratory Workflow Pipeline Summary (Clinical Staff Only) */}
           {isClinicalStaff && !isReceptionist && hasPermission(['samples:view', 'samples:process', 'orders:view', 'reports:view']) && (
-            <section className="card" style={{ marginBottom: '1.5rem' }}>
+            <section className="card" style={{ marginBottom: '1.5rem', overflow: 'hidden' }}>
               <div className="card-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Microscope size={18} style={{ color: 'var(--primary-600)' }} />
                   <h2 className="card-title">Laboratory Specimen Pipeline</h2>
                 </div>
-                <span className="badge badge-teal">Live Tenant Pipeline</span>
               </div>
 
               <div className="workflow-pipeline">
@@ -1852,13 +1946,12 @@ export function DashboardPage() {
                       <th>Priority</th>
                       <th>Status</th>
                       <th>Payment</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {recentOrders.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--slate-500)' }}>
                           No recent orders in this laboratory yet. Use the sidebar to create new requisitions.
                         </td>
                       </tr>
@@ -1890,16 +1983,6 @@ export function DashboardPage() {
                               {order.paymentStatus || 'unpaid'}
                             </span>
                           </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button
-                              onClick={() => setSelectedOrder(order)}
-                              className="btn btn-secondary btn-sm"
-                              title="Inspect order details"
-                            >
-                              <Eye size={13} />
-                              <span>View</span>
-                            </button>
-                          </td>
                         </tr>
                       ))
                     )}
@@ -1912,33 +1995,31 @@ export function DashboardPage() {
                 <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
                   Showing <strong>{recentOrders.length === 0 ? 0 : startOrderIdx + 1}</strong> to <strong>{Math.min(startOrderIdx + RECENT_ORDERS_PAGE_SIZE, recentOrders.length)}</strong> of <strong>{recentOrders.length}</strong> requisitions
                 </div>
-                {totalRecentOrdersPages > 1 && (
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={currentRecentOrdersPage <= 1}
-                      onClick={() => setRecentOrdersPage((p) => Math.max(1, p - 1))}
-                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <ChevronLeft size={13} />
-                      <span>Prev</span>
-                    </button>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
-                      Page {currentRecentOrdersPage} of {totalRecentOrdersPages}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={currentRecentOrdersPage >= totalRecentOrdersPages}
-                      onClick={() => setRecentOrdersPage((p) => Math.min(totalRecentOrdersPages, p + 1))}
-                      style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <span>Next</span>
-                      <ChevronRight size={13} />
-                    </button>
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={currentRecentOrdersPage <= 1}
+                    onClick={() => setRecentOrdersPage((p) => Math.max(1, p - 1))}
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <ChevronLeft size={13} />
+                    <span>Prev</span>
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--slate-700)', padding: '0 4px' }}>
+                    Page {currentRecentOrdersPage} of {totalRecentOrdersPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={currentRecentOrdersPage >= totalRecentOrdersPages}
+                    onClick={() => setRecentOrdersPage((p) => Math.min(totalRecentOrdersPages, p + 1))}
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span>Next</span>
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
               </div>
             </section>
           )}

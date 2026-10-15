@@ -137,6 +137,16 @@ export const clinicalService = {
 
   getAuditActions: (tenantId) =>
     api.get(`/tenants/${tenantId}/audit-logs/actions`).then((res) => res.data),
+
+  // Laboratory & Tenant Settings
+  getSettings: (tenantId) =>
+    api.get(`/tenants/${tenantId}/settings`).then((res) => res.data),
+
+  updateSettings: (tenantId, data) =>
+    api.patch(`/tenants/${tenantId}/settings`, data).then((res) => res.data),
+
+  updateBranding: (tenantId, data) =>
+    api.patch(`/tenants/${tenantId}/settings/branding`, data).then((res) => res.data),
 };
 
 export default clinicalService;

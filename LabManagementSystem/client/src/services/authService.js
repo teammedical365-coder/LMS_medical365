@@ -16,10 +16,16 @@ export const authService = {
     const res = await api.post('/auth/super-admin/login', { email, password });
     const { user, token, accountType } = res.data.data;
 
-    // Securely persist token for session lifecycle
+    // Securely persist token for 7-day session lifecycle (both local & session storage)
     if (token) {
-      sessionStorage.setItem('lms_token', token);
-      sessionStorage.setItem('lms_admin_token', token);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('lms_token', token);
+        localStorage.setItem('lms_admin_token', token);
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('lms_token', token);
+        sessionStorage.setItem('lms_admin_token', token);
+      }
     }
 
     return { user, token, accountType };
@@ -33,10 +39,16 @@ export const authService = {
     const res = await api.post('/auth/laboratory/login', { organizationCode, email, password });
     const { user, tenant, token, accountType } = res.data.data;
 
-    // Persist token in session storage
+    // Persist token in local and session storage
     if (token) {
-      sessionStorage.setItem('lms_token', token);
-      sessionStorage.removeItem('lms_admin_token'); // Clear admin token if any
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('lms_token', token);
+        localStorage.removeItem('lms_admin_token'); // Clear admin token if any
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('lms_token', token);
+        sessionStorage.removeItem('lms_admin_token');
+      }
     }
 
     return { user, tenant, token, accountType };
@@ -59,9 +71,15 @@ export const authService = {
     } catch {
       // Ignore network errors on logout
     } finally {
-      sessionStorage.removeItem('lms_token');
-      sessionStorage.removeItem('lms_admin_token');
-      localStorage.removeItem('lms_ui_user');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('lms_token');
+        localStorage.removeItem('lms_admin_token');
+        localStorage.removeItem('lms_ui_user');
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('lms_token');
+        sessionStorage.removeItem('lms_admin_token');
+      }
     }
   },
 
@@ -69,11 +87,18 @@ export const authService = {
    * Check if token exists in session
    */
   hasToken() {
-    return !!sessionStorage.getItem('lms_token');
+    return !!this.getToken();
   },
 
   getToken() {
-    return sessionStorage.getItem('lms_token');
+    if (typeof localStorage !== 'undefined') {
+      const local = localStorage.getItem('lms_token') || localStorage.getItem('lms_admin_token');
+      if (local) return local;
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem('lms_token') || sessionStorage.getItem('lms_admin_token');
+    }
+    return null;
   },
 };
 

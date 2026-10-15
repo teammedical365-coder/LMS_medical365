@@ -33,6 +33,8 @@ export const PatientSchema = new mongoose.Schema(
 );
 
 PatientSchema.index({ tenantId: 1, mrn: 1 }, { unique: true });
+PatientSchema.index({ tenantId: 1, createdAt: -1 });
+PatientSchema.index({ tenantId: 1, patientId: 1 });
 
 PatientSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -213,6 +215,9 @@ export const LabOrderSchema = new mongoose.Schema(
 );
 
 LabOrderSchema.index({ tenantId: 1, orderNumber: 1 }, { unique: true });
+LabOrderSchema.index({ tenantId: 1, createdAt: -1 });
+LabOrderSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
+LabOrderSchema.index({ tenantId: 1, orderStatus: 1, createdAt: -1 });
 
 LabOrderSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -294,6 +299,9 @@ export const SampleSchema = new mongoose.Schema(
 
 SampleSchema.index({ tenantId: 1, barcode: 1 }, { unique: true });
 SampleSchema.index({ tenantId: 1, orderId: 1 });
+SampleSchema.index({ tenantId: 1, createdAt: -1 });
+SampleSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
+SampleSchema.index({ tenantId: 1, collectionStatus: 1, processingStatus: 1 });
 
 SampleSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -461,6 +469,7 @@ export const DiagnosticReportSchema = new mongoose.Schema(
     reportNumber: { type: String, required: true, trim: true },
     orderId: { type: String, required: true, index: true },
     orderNumber: { type: String, required: true, trim: true },
+    patientId: { type: String, default: '', index: true },
     patientName: { type: String, required: true },
     patientMrn: { type: String, required: true },
     testName: { type: String, required: true },
@@ -485,6 +494,10 @@ export const DiagnosticReportSchema = new mongoose.Schema(
 );
 
 DiagnosticReportSchema.index({ tenantId: 1, reportNumber: 1 }, { unique: true });
+DiagnosticReportSchema.index({ tenantId: 1, createdAt: -1 });
+DiagnosticReportSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
+DiagnosticReportSchema.index({ tenantId: 1, patientMrn: 1, createdAt: -1 });
+DiagnosticReportSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
 
 DiagnosticReportSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -496,6 +509,7 @@ DiagnosticReportSchema.methods.toSafeJSON = function () {
     reportNumber: obj.reportNumber,
     orderId: obj.orderId,
     orderNumber: obj.orderNumber,
+    patientId: obj.patientId || '',
     patientName: obj.patientName,
     patientMrn: obj.patientMrn,
     testName: obj.testName,
@@ -542,6 +556,8 @@ export const InvoiceSchema = new mongoose.Schema(
     invoiceNumber: { type: String, required: true, trim: true },
     orderId: { type: String, required: true, index: true },
     orderNumber: { type: String, required: true, trim: true },
+    patientId: { type: String, default: '', index: true },
+    patientMrn: { type: String, default: '' },
     patientName: { type: String, required: true },
     totalAmount: { type: Number, required: true, default: 0 },
     paidAmount: { type: Number, default: 0 },
@@ -557,6 +573,9 @@ export const InvoiceSchema = new mongoose.Schema(
 );
 
 InvoiceSchema.index({ tenantId: 1, invoiceNumber: 1 }, { unique: true });
+InvoiceSchema.index({ tenantId: 1, createdAt: -1 });
+InvoiceSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
+InvoiceSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
 
 InvoiceSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -568,6 +587,8 @@ InvoiceSchema.methods.toSafeJSON = function () {
     invoiceNumber: obj.invoiceNumber,
     orderId: obj.orderId,
     orderNumber: obj.orderNumber,
+    patientId: obj.patientId || '',
+    patientMrn: obj.patientMrn || '',
     patientName: obj.patientName,
     totalAmount: obj.totalAmount,
     paidAmount: obj.paidAmount,

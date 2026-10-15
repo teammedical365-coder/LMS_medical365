@@ -540,6 +540,16 @@ export class TenantClinicalController {
     }
   }
 
+  static async updateTenantSettings(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const updated = await laboratoryManagementService.updateLaboratory(tenantId, req.body, req.user);
+      return ApiResponse.success(res, updated, 'Laboratory settings updated successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async updateTenantBranding(req, res, next) {
     try {
       const { tenantId } = req.params;

@@ -712,6 +712,25 @@ class RoleService {
         if (modified && typeof role.save === 'function') {
           await role.save();
         }
+      } else if (role.code === 'receptionist') {
+        let modified = false;
+        const receptionistRequired = [
+          'patients:view', 'patients:create', 'patients:update',
+          'orders:view', 'orders:create',
+          'tests:view',
+          'samples:view',
+          'reports:view',
+          'billing:view',
+        ];
+        for (const p of receptionistRequired) {
+          if (!role.permissions.includes(p)) {
+            role.permissions.push(p);
+            modified = true;
+          }
+        }
+        if (modified && typeof role.save === 'function') {
+          await role.save();
+        }
       }
 
       return role.toSafeJSON();
@@ -729,6 +748,18 @@ class RoleService {
         } else if (r.code === 'lab_technician') {
           const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
           for (const p of techRequired) {
+            if (!r.permissions.includes(p)) r.permissions.push(p);
+          }
+        } else if (r.code === 'receptionist') {
+          const receptionistRequired = [
+            'patients:view', 'patients:create', 'patients:update',
+            'orders:view', 'orders:create',
+            'tests:view',
+            'samples:view',
+            'reports:view',
+            'billing:view',
+          ];
+          for (const p of receptionistRequired) {
             if (!r.permissions.includes(p)) r.permissions.push(p);
           }
         } else if (r.code === 'lab_admin') {

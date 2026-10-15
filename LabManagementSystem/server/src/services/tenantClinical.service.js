@@ -614,14 +614,23 @@ class TenantClinicalService {
   // -------------------------------------------------------------------------
   async listOrders(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { status, priority, search, limit = 50 } = query;
-    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const { status, priority, search, limit = 50, patientId, mrn } = query;
+    let OrderModel = null;
+    try {
+      OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    } catch (_) {}
     const sanitizedSearch = sanitizeSearchQuery(search);
 
     if (OrderModel) {
       const filter = { tenantId };
       if (status) filter.orderStatus = status;
       if (priority) filter.priority = priority;
+      if (patientId && typeof patientId === 'string' && patientId.trim()) {
+        filter.patientId = patientId.trim();
+      }
+      if (mrn && typeof mrn === 'string' && mrn.trim()) {
+        filter.patientMrn = mrn.trim();
+      }
       if (sanitizedSearch) {
         filter.$or = [
           { orderNumber: { $regex: sanitizedSearch, $options: 'i' } },
@@ -638,6 +647,8 @@ class TenantClinicalService {
     let list = Array.from(tenantMap.values());
     if (status) list = list.filter((o) => o.orderStatus === status);
     if (priority) list = list.filter((o) => o.priority === priority);
+    if (patientId) list = list.filter((o) => o.patientId === patientId.trim());
+    if (mrn) list = list.filter((o) => o.patientMrn === mrn.trim());
     if (sanitizedSearch) {
       const s = search.trim().toLowerCase();
       list = list.filter(
@@ -821,7 +832,7 @@ class TenantClinicalService {
   // -------------------------------------------------------------------------
   async listSamples(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { collectionStatus, processingStatus, search, barcode, limit = 50 } = query;
+    const { collectionStatus, processingStatus, search, barcode, limit = 50, patientId, mrn } = query;
     let SampleModel = null;
     try {
       SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
@@ -831,6 +842,12 @@ class TenantClinicalService {
       const filter = { tenantId };
       if (collectionStatus) filter.collectionStatus = collectionStatus;
       if (processingStatus) filter.processingStatus = processingStatus;
+      if (patientId && typeof patientId === 'string' && patientId.trim()) {
+        filter.patientId = patientId.trim();
+      }
+      if (mrn && typeof mrn === 'string' && mrn.trim()) {
+        filter.patientMrn = mrn.trim();
+      }
 
       if (barcode && typeof barcode === 'string' && barcode.trim()) {
         const cleanBc = escapeRegex(barcode.trim());
@@ -854,6 +871,8 @@ class TenantClinicalService {
     let list = Array.from(tenantMap.values());
     if (collectionStatus) list = list.filter((s) => s.collectionStatus === collectionStatus);
     if (processingStatus) list = list.filter((s) => s.processingStatus === processingStatus);
+    if (patientId) list = list.filter((s) => s.patientId === patientId.trim());
+    if (mrn) list = list.filter((s) => s.patientMrn === mrn.trim());
     if (barcode && typeof barcode === 'string' && barcode.trim()) {
       const term = barcode.trim().toLowerCase();
       list = list.filter((s) => s.barcode?.toLowerCase() === term || s.sampleId?.toLowerCase() === term);
@@ -2526,12 +2545,39 @@ class TenantClinicalService {
   // -------------------------------------------------------------------------
   async listReports(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { status, limit = 50 } = query;
-    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    const { status, limit = 50, patientId, mrn, patientMrn } = query;
+    let ReportModel = null;
+    try {
+      ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    } catch (_) {}
+    const targetMrn = (mrn || patientMrn || '').trim();
 
     if (ReportModel) {
       const filter = { tenantId };
       if (status) filter.status = status;
+      if (patientId && typeof patientId === 'string' && patientId.trim()) {
+        const pId = patientId.trim();
+        if (targetMrn) {
+          filter.$or = [{ patientId: pId }, { patientMrn: targetMrn }];
+        } else {
+          try {
+            const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+            let orderIds = [];
+            if (OrderModel) {
+              orderIds = await OrderModel.find({ tenantId, patientId: pId }).distinct('orderId');
+            }
+            if (orderIds.length > 0) {
+              filter.$or = [{ patientId: pId }, { orderId: { $in: orderIds } }];
+            } else {
+              filter.patientId = pId;
+            }
+          } catch {
+            filter.patientId = pId;
+          }
+        }
+      } else if (targetMrn) {
+        filter.patientMrn = targetMrn;
+      }
       const list = await ReportModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
       return list.map((r) => r.toSafeJSON());
     }
@@ -2539,6 +2585,13 @@ class TenantClinicalService {
     const tenantMap = this.memoryReports.get(tenantId) || new Map();
     let list = Array.from(tenantMap.values());
     if (status) list = list.filter((r) => r.status === status);
+    if (patientId || targetMrn) {
+      list = list.filter(
+        (r) =>
+          (patientId && r.patientId === patientId.trim()) ||
+          (targetMrn && r.patientMrn === targetMrn)
+      );
+    }
     return list;
   }
 
@@ -2576,6 +2629,7 @@ class TenantClinicalService {
     const reportNumber = `REP-${Date.now().toString().slice(-6)}`;
     const findings = data.findings || data.clinicalFindings || data.interpretations || 'Diagnostic specimen intake recorded. Awaiting analytical completion and pathologist review.';
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    const resolvedPatientId = data.patientId || (orderId ? (await this.getOrderById(tenantId, orderId).catch(() => null))?.patientId : '') || '';
 
     if (ReportModel) {
       const doc = new ReportModel({
@@ -2584,6 +2638,7 @@ class TenantClinicalService {
         reportNumber,
         orderId,
         orderNumber: resolvedOrderNumber || 'ORD-GEN',
+        patientId: resolvedPatientId,
         patientName: resolvedPatientName,
         patientMrn: resolvedPatientMrn || 'MRN-GEN',
         testName: resolvedTestName,
@@ -2603,6 +2658,7 @@ class TenantClinicalService {
       reportNumber,
       orderId,
       orderNumber: resolvedOrderNumber || 'ORD-GEN',
+      patientId: resolvedPatientId,
       patientName: resolvedPatientName,
       patientMrn: resolvedPatientMrn || 'MRN-GEN',
       testName: resolvedTestName,
@@ -3353,6 +3409,8 @@ class TenantClinicalService {
         invoiceNumber,
         orderId: order.orderId,
         orderNumber: order.orderNumber,
+        patientId: order.patientId || '',
+        patientMrn: order.patientMrn || '',
         patientName: order.patientName,
         totalAmount,
         paidAmount,
@@ -3371,6 +3429,8 @@ class TenantClinicalService {
       invoiceNumber,
       orderId: order.orderId,
       orderNumber: order.orderNumber,
+      patientId: order.patientId || '',
+      patientMrn: order.patientMrn || '',
       patientName: order.patientName,
       totalAmount,
       paidAmount,
@@ -3386,12 +3446,34 @@ class TenantClinicalService {
 
   async listInvoices(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { status, limit = 50 } = query;
-    const InvoiceModel = tenantConnectionService.getTenantInvoiceModel(tenantId);
+    const { status, limit = 50, patientId, mrn } = query;
+    let InvoiceModel = null;
+    try {
+      InvoiceModel = tenantConnectionService.getTenantInvoiceModel(tenantId);
+    } catch (_) {}
 
     if (InvoiceModel) {
       const filter = { tenantId };
       if (status) filter.status = status;
+      if (patientId && typeof patientId === 'string' && patientId.trim()) {
+        const pId = patientId.trim();
+        try {
+          const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+          let orderIds = [];
+          if (OrderModel) {
+            orderIds = await OrderModel.find({ tenantId, patientId: pId }).distinct('orderId');
+          }
+          if (orderIds.length > 0) {
+            filter.$or = [{ patientId: pId }, { orderId: { $in: orderIds } }];
+          } else {
+            filter.patientId = pId;
+          }
+        } catch {
+          filter.patientId = pId;
+        }
+      } else if (mrn && typeof mrn === 'string' && mrn.trim()) {
+        filter.patientMrn = mrn.trim();
+      }
       const list = await InvoiceModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
       return list.map((i) => i.toSafeJSON());
     }
@@ -3399,6 +3481,15 @@ class TenantClinicalService {
     const tenantMap = this.memoryInvoices.get(tenantId) || new Map();
     let list = Array.from(tenantMap.values());
     if (status) list = list.filter((i) => i.status === status);
+    if (patientId) {
+      const tenantOrders = this.memoryOrders.get(tenantId) || new Map();
+      const patOrderIds = new Set(
+        Array.from(tenantOrders.values())
+          .filter((o) => o.patientId === patientId.trim())
+          .map((o) => o.orderId)
+      );
+      list = list.filter((i) => i.patientId === patientId.trim() || patOrderIds.has(i.orderId));
+    }
     return list;
   }
 
@@ -3861,7 +3952,7 @@ class TenantClinicalService {
 
     const [patients, orders, samples, reports, billing, todaySummary, staffList, counts] = await Promise.all([
       this.listPatients(tenantId, { limit: 10 }),
-      this.listOrders(tenantId, { limit: 10 }),
+      this.listOrders(tenantId, { limit: 50 }),
       this.listSamples(tenantId, { limit: 50 }),
       this.listReports(tenantId, { limit: 50 }),
       this.getBillingSummary(tenantId),
@@ -3936,7 +4027,7 @@ class TenantClinicalService {
         createdAt: u.createdAt,
       })),
       recentPatients: patients.slice(0, 5),
-      recentOrders: orders.slice(0, 5),
+      recentOrders: orders.slice(0, 50),
       recentSamples: queueSamples,
       recentReports: queueReports,
     };

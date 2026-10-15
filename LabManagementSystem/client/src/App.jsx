@@ -13,12 +13,18 @@ import './styles/variables.css';
 import './styles/global.css';
 import './styles/layout.css';
 import './styles/components.css';
+import './styles/auth-page.css';
 
 import { Toaster } from 'react-hot-toast';
 
 export function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <AuthProvider>
         <TenantProvider>
           <AppRoutes />

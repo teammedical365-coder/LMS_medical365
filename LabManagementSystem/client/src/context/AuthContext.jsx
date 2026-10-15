@@ -8,6 +8,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import authService from '../services/authService';
+import notify from '../utils/notify';
 
 const AuthContext = createContext(null);
 
@@ -58,11 +59,16 @@ export function AuthProvider({ children }) {
     initSession();
 
     // Listen for unauthorized 401 events dispatched by api.js
-    const handleUnauthorized = () => {
+    const handleUnauthorized = (e) => {
       setUser(null);
       setTenant(null);
       setAccountType(null);
       setIsAuthenticated(false);
+      const detail = e?.detail;
+      if (detail?.message && detail?.code === 'SESSION_TERMINATED') {
+        setAuthError(detail.message);
+        notify.warning(detail.message);
+      }
     };
 
     window.addEventListener('lms:unauthorized', handleUnauthorized);

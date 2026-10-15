@@ -19,7 +19,9 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      const token = sessionStorage.getItem('lms_token') || sessionStorage.getItem('lms_admin_token');
+      const token =
+        (typeof localStorage !== 'undefined' && (localStorage.getItem('lms_token') || localStorage.getItem('lms_admin_token'))) ||
+        (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('lms_token') || sessionStorage.getItem('lms_admin_token')));
       if (token && !config.headers.Authorization) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -29,16 +31,32 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor: handle 401 unauthenticated
+// Response interceptor: handle 401 unauthenticated & single device session termination
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && !error.config.url?.includes('/auth/')) {
-      // Invalidate expired session
+    const isLoginEndpoint = error.config?.url?.includes('/auth/super-admin/login') || error.config?.url?.includes('/auth/laboratory/login');
+    if (error.response?.status === 401 && !isLoginEndpoint) {
+      // Invalidate expired or superseded session
       if (typeof window !== 'undefined') {
-        sessionStorage.removeItem('lms_token');
-        sessionStorage.removeItem('lms_admin_token');
-        window.dispatchEvent(new CustomEvent('lms:unauthorized'));
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem('lms_token');
+          localStorage.removeItem('lms_admin_token');
+          localStorage.removeItem('lms_ui_user');
+        }
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem('lms_token');
+          sessionStorage.removeItem('lms_admin_token');
+        }
+        const errData = error.response?.data || {};
+        window.dispatchEvent(
+          new CustomEvent('lms:unauthorized', {
+            detail: {
+              code: errData.code || 'UNAUTHENTICATED',
+              message: errData.message || 'Session expired or logged in from another device.',
+            },
+          })
+        );
       }
     }
     return Promise.reject(error);

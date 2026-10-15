@@ -1,0 +1,562 @@
+/**
+ * Lab Management System (LMS) - Premium Healthcare Authentication Styles
+ * Scoped styling for laboratory white-label portals & platform sign-in.
+ * 
+ * Beautifully balanced, spacious single-screen layout with full responsiveness.
+ */
+
+:root {
+  --auth-navy: #14233f;
+  --auth-blue: #2358d5;
+  --auth-blue2: #3477ef;
+  --auth-muted: #77849a;
+  --auth-line: #e1e7f0;
+  --auth-bg: #f6f8fc;
+  --auth-green: #168568;
+}
+
+/* Single page viewport lock on desktop */
+@media (min-width: 961px) and (min-height: 600px) {
+  html:has(.auth-page-wrapper),
+  body:has(.auth-page-wrapper) {
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .auth-page-wrapper {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+}
+
+.auth-page-wrapper {
+  background: var(--auth-bg, #f6f8fc);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  color: var(--auth-navy, #14233f);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* Slightly taller / longer navbar with polished presence */
+.auth-topbar {
+  height: 68px;
+  background: #ffffff;
+  border-bottom: 1px solid #e8edf5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(24px, 5vw, 68px);
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.auth-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--primary-blue, #2358d5), #3288ee);
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(35, 88, 213, 0.18);
+  flex-shrink: 0;
+}
+
+.auth-brand-name {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--auth-navy, #14233f);
+  line-height: 1.2;
+}
+
+.auth-brand-caption {
+  font-size: 10px;
+  color: #8290a7;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.auth-top-right {
+  font-size: 12px;
+  color: #6f7d92;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.auth-top-right svg {
+  color: var(--auth-green, #168568);
+}
+
+/* Main Split Layout Container */
+.auth-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 3vh, 36px) 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-main:before,
+.auth-main:after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.auth-main:before {
+  width: 480px;
+  height: 480px;
+  top: -260px;
+  left: -140px;
+  background: radial-gradient(circle, #dceaff 0%, rgba(220, 234, 255, 0) 72%);
+}
+
+.auth-main:after {
+  width: 540px;
+  height: 540px;
+  right: -240px;
+  bottom: -300px;
+  background: radial-gradient(circle, #d9f2f0 0%, rgba(217, 242, 240, 0) 72%);
+}
+
+.auth-layout {
+  width: min(100%, 1020px);
+  display: grid;
+  grid-template-columns: 1.15fr 430px;
+  align-items: center;
+  gap: clamp(32px, 5vw, 64px);
+  position: relative;
+  z-index: 1;
+}
+
+/* Left Intro Column */
+.auth-intro {
+  padding: 8px 0;
+}
+
+.auth-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: var(--primary-blue, #2358d5);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-kicker:before {
+  content: "";
+  width: 22px;
+  height: 2px;
+  background: var(--primary-blue, #2358d5);
+  border-radius: 4px;
+}
+
+.auth-intro h1 {
+  font-size: clamp(26px, 2.9vw, 38px);
+  letter-spacing: -1.3px;
+  line-height: 1.16;
+  margin: 16px 0 14px;
+  font-weight: 800;
+  max-width: 470px;
+  color: var(--auth-navy, #14233f);
+}
+
+.auth-intro h1 span {
+  color: var(--primary-blue, #2358d5);
+}
+
+.auth-intro-copy {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #6f7f98;
+  max-width: 440px;
+  margin: 0;
+}
+
+.auth-trust-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.auth-trust-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #44536c;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.auth-trust-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #eaf1ff;
+  color: var(--primary-blue, #2358d5);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.auth-trust-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* Right Form Card - Spacious, Not Cramped */
+.auth-login-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f2;
+  border-radius: 18px;
+  padding: 32px 34px;
+  box-shadow: 0 18px 46px rgba(18, 38, 70, 0.075);
+}
+
+.auth-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  gap: 12px;
+}
+
+.auth-card-title {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  margin: 0 0 4px;
+  color: var(--auth-navy, #14233f);
+}
+
+.auth-card-subtitle {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #7d8ea5;
+  margin: 0;
+}
+
+/* Lab Code Badge in Card Header */
+.auth-facility-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eefaf4;
+  border: 1px solid #c7f0dc;
+  color: #12795c;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+.auth-facility-pill svg {
+  width: 13px;
+  height: 13px;
+}
+
+.auth-rule {
+  height: 1px;
+  background: #eef2f8;
+  margin: 0 0 22px;
+}
+
+/* Form Fields with Comfortable Vertical Rhythm */
+.auth-field {
+  margin-bottom: 17px;
+}
+
+.auth-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2c3a52;
+  margin-bottom: 7px;
+}
+
+.auth-inputbox {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 13px;
+  border: 1px solid #d6e0ed;
+  border-radius: 9px;
+  background: #fcfdff;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.auth-inputbox:focus-within {
+  border-color: #6193f2;
+  box-shadow: 0 0 0 3px rgba(35, 88, 213, 0.1);
+  background: #ffffff;
+}
+
+.auth-inputbox > svg {
+  width: 16px;
+  height: 16px;
+  color: #92a1b6;
+  flex: 0 0 auto;
+}
+
+.auth-inputbox input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  color: #223249;
+  height: 100%;
+}
+
+.auth-inputbox input::placeholder {
+  color: #9eaec2;
+}
+
+.auth-eye {
+  border: 0;
+  background: transparent;
+  color: #8f9fb4;
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.auth-eye:hover {
+  background: #eef4ff;
+  color: var(--primary-blue, #2358d5);
+}
+
+.auth-row-options {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 4px 0 20px;
+}
+
+.auth-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #617188;
+  cursor: pointer;
+  font-weight: 500;
+  margin: 0;
+  user-select: none;
+}
+
+.auth-remember input {
+  accent-color: var(--primary-blue, #2358d5);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Primary Action Button */
+.auth-submit {
+  height: 46px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: var(--primary-blue, #2358d5);
+  color: #ffffff;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(35, 88, 213, 0.18);
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: #184bc2;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(35, 88, 213, 0.24);
+}
+
+.auth-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.auth-submit svg {
+  width: 16px;
+  height: 16px;
+}
+
+.auth-feedback {
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  display: block;
+}
+
+.auth-feedback.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #cfe0ff;
+}
+
+.auth-feedback.error {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+.auth-card-footer {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #eef2f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #8896aa;
+  font-size: 11px;
+  text-align: center;
+}
+
+.auth-card-footer svg {
+  width: 13px;
+  height: 13px;
+  color: var(--auth-green, #168568);
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Responsive Adaptations
+   ========================================================================== */
+
+/* Tablet & Intermediate Desktop (<= 960px) */
+@media (max-width: 960px) {
+  .auth-main {
+    padding: 32px 20px;
+    overflow-y: auto;
+  }
+  .auth-layout {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+    gap: 24px;
+    margin: 0 auto;
+  }
+  .auth-intro {
+    display: none;
+  }
+  .auth-login-card {
+    padding: 28px 28px;
+  }
+  .auth-topbar {
+    height: 64px;
+    padding: 0 24px;
+  }
+  .auth-top-right span {
+    display: none;
+  }
+}
+
+/* Mobile Devices (<= 560px) */
+@media (max-width: 560px) {
+  .auth-page-wrapper {
+    position: relative;
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+  .auth-main {
+    padding: 24px 16px;
+    align-items: flex-start;
+  }
+  .auth-layout {
+    max-width: 100%;
+  }
+  .auth-login-card {
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+  .auth-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .auth-card-title {
+    font-size: 21px;
+  }
+  .auth-facility-pill {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+  .auth-topbar {
+    height: 60px;
+    padding: 0 16px;
+  }
+  .auth-brand-name {
+    font-size: 16px;
+  }
+}
+
+/* Small Viewport Heights (e.g. landscape phones or tight split screens) */
+@media (max-height: 580px) {
+  .auth-page-wrapper {
+    position: relative;
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+  html:has(.auth-page-wrapper),
+  body:has(.auth-page-wrapper) {
+    overflow-y: auto !important;
+    height: auto !important;
+  }
+  .auth-main {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

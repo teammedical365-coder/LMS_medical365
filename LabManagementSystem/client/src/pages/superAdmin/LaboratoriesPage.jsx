@@ -33,7 +33,6 @@ import {
   UserCheck,
   Eye,
   EyeOff,
-  Camera,
   Trash2,
   User,
 } from 'lucide-react';
@@ -104,7 +103,6 @@ export function LaboratoriesPage() {
     email: '',
     password: '',
     phone: '',
-    profilePhoto: null,
     department: 'Administration',
   };
 
@@ -319,28 +317,6 @@ export function LaboratoriesPage() {
     }
   };
 
-  const handleAdminPhotoUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setAdminError('Please upload a valid image file (JPG, PNG, WebP).');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setAdminError('Image file size must be under 2MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAdminForm((prev) => ({ ...prev, profilePhoto: reader.result }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveAdminPhoto = () => {
-    setAdminForm((prev) => ({ ...prev, profilePhoto: null }));
-  };
-
   // Lab Admin Submission
   const handleAdminSubmit = async (e) => {
     e.preventDefault();
@@ -377,7 +353,6 @@ export function LaboratoriesPage() {
       password: adminForm.password,
       phone: adminForm.phone.trim(),
       age: adminForm.age ? Number(adminForm.age) : undefined,
-      profilePhoto: adminForm.profilePhoto || undefined,
       department: adminForm.department.trim() || 'Administration',
       role: 'lab_admin',
     };
@@ -396,7 +371,6 @@ export function LaboratoriesPage() {
         email: '',
         password: '',
         phone: '',
-        profilePhoto: null,
       }));
       fetchLabs();
     } catch (err) {
@@ -1438,95 +1412,19 @@ export function LaboratoriesPage() {
               </div>
             </div>
 
-            {/* Bottom Row: Simple Profile Photo Upload & Department */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '1rem',
-                alignItems: 'center',
-                background: 'rgba(255, 255, 255, 0.75)',
-                padding: '0.9rem 1.15rem',
-                borderRadius: '10px',
-                border: '1px solid #bae6fd',
-              }}
-            >
-              {/* Profile Photo (Optional - Clean modern simple avatar uploader) */}
-              <div>
-                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600, marginBottom: '6px', display: 'block' }}>
-                  Profile Photo <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div
-                    style={{
-                      width: '46px',
-                      height: '46px',
-                      borderRadius: '50%',
-                      background: adminForm.profilePhoto ? 'transparent' : '#e0f2fe',
-                      border: '2px solid #bae6fd',
-                      overflow: 'hidden',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {adminForm.profilePhoto ? (
-                      <img
-                        src={adminForm.profilePhoto}
-                        alt="Profile Preview"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <User size={22} style={{ color: '#0284c7' }} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label
-                      htmlFor="adminPhotoUpload"
-                      className="btn btn-secondary btn-sm"
-                      style={{ cursor: 'pointer', margin: 0, padding: '5px 12px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                    >
-                      <Camera size={13} />
-                      <span>{adminForm.profilePhoto ? 'Change Photo' : 'Upload Photo'}</span>
-                    </label>
-                    <input
-                      id="adminPhotoUpload"
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleAdminPhotoUpload}
-                    />
-                    {adminForm.profilePhoto && (
-                      <button
-                        type="button"
-                        onClick={handleRemoveAdminPhoto}
-                        className="btn btn-danger btn-sm"
-                        style={{ padding: '5px 8px', fontSize: '0.75rem' }}
-                        title="Remove photo"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                    <span style={{ fontSize: '0.725rem', color: '#64748b' }}>JPG/PNG max 2MB</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Department / Designation */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
-                  Department / Designation
-                </label>
-                <input
-                  type="text"
-                  name="department"
-                  className="form-input"
-                  placeholder="e.g. Administration / Lab In-Charge"
-                  value={adminForm.department}
-                  onChange={handleAdminInputChange}
-                />
-              </div>
+            {/* Department / Designation */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                Department / Designation
+              </label>
+              <input
+                type="text"
+                name="department"
+                className="form-input"
+                placeholder="e.g. Administration / Lab In-Charge"
+                value={adminForm.department}
+                onChange={handleAdminInputChange}
+              />
             </div>
 
             {/* Form Actions */}

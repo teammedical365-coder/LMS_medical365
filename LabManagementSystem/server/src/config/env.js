@@ -133,7 +133,7 @@ const config = {
   },
   jwt: {
     secret: process.env.JWT_SECRET || (isProduction ? '' : 'dev-lms-jwt-secret-do-not-use-in-production-change-me-32chars'),
-    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
     issuer: process.env.JWT_ISSUER || 'lms-platform-auth',
     audience: process.env.JWT_AUDIENCE || 'lms-api',
   },

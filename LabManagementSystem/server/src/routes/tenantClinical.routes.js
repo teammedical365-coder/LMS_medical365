@@ -39,9 +39,9 @@ tenantClinicalRouter.get('/orders/:orderId/labels', requirePermission('samples:v
 // ---------------------------------------------------------------------------
 // SPECIMEN & SAMPLE TRACKING & RECOLLECTION
 // ---------------------------------------------------------------------------
-tenantClinicalRouter.get('/samples', requirePermission('samples:view'), tenantClinicalController.listSamples);
-tenantClinicalRouter.get('/samples/:sampleId', requirePermission('samples:view'), tenantClinicalController.getSample);
-tenantClinicalRouter.get('/samples/recollections', requirePermission('samples:view'), tenantClinicalController.listRecollectionTasks);
+tenantClinicalRouter.get('/samples', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.listSamples);
+tenantClinicalRouter.get('/samples/:sampleId', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.getSample);
+tenantClinicalRouter.get('/samples/recollections', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.listRecollectionTasks);
 tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.resolveRecollectionTask);
 tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);
 tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
@@ -67,7 +67,7 @@ tenantClinicalRouter.delete('/test-categories/:categoryId', requirePermission('t
 // ---------------------------------------------------------------------------
 // DIAGNOSTIC REPORTS & VERIFICATION WORKFLOW
 // ---------------------------------------------------------------------------
-tenantClinicalRouter.get('/reports', requirePermission('reports:view'), tenantClinicalController.listReports);
+tenantClinicalRouter.get('/reports', requirePermission(['reports:view', 'orders:view']), tenantClinicalController.listReports);
 tenantClinicalRouter.post('/reports', requirePermission('reports:create'), tenantClinicalController.createReport);
 tenantClinicalRouter.post('/reports/batch-release', requirePermission('reports:release'), tenantClinicalController.batchReleaseReports);
 tenantClinicalRouter.post('/reports/batch-download', requirePermission('reports:view'), tenantClinicalController.batchDownloadReports);
@@ -79,7 +79,7 @@ tenantClinicalRouter.get('/reports/:reportId/download', requirePermission('repor
 // ---------------------------------------------------------------------------
 // BILLING, INVOICING & PAYMENTS
 // ---------------------------------------------------------------------------
-tenantClinicalRouter.get('/billing/invoices', requirePermission('billing:view'), tenantClinicalController.listInvoices);
+tenantClinicalRouter.get('/billing/invoices', requirePermission(['billing:view', 'orders:view']), tenantClinicalController.listInvoices);
 tenantClinicalRouter.post('/billing/invoices/:invoiceId/payments', requirePermission('billing:manage'), tenantClinicalController.recordPayment);
 tenantClinicalRouter.get('/billing/summary', requirePermission('billing:view'), tenantClinicalController.getBillingSummary);
 
@@ -96,6 +96,7 @@ tenantClinicalRouter.get('/reports/today-tat', requirePermission('reports:view')
 // LABORATORY SETTINGS & WHITE-LABEL BRANDING
 // ---------------------------------------------------------------------------
 tenantClinicalRouter.get('/settings', requirePermission('settings:view'), tenantClinicalController.getTenantSettings);
+tenantClinicalRouter.patch('/settings', requirePermission('settings:manage'), tenantClinicalController.updateTenantSettings);
 tenantClinicalRouter.patch('/settings/branding', requirePermission('settings:manage'), tenantClinicalController.updateTenantBranding);
 
 // ---------------------------------------------------------------------------

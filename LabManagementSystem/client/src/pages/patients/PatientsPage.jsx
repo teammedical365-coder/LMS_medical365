@@ -300,18 +300,19 @@ export function PatientsPage() {
       if (!tenantId || !patient) return;
       setPatientHistory((prev) => ({ ...prev, loading: true }));
       try {
-        const [ordersRes, reportsRes, invoicesRes, samplesRes] = await Promise.allSettled([
-          clinicalService.getOrders(tenantId),
-          clinicalService.getReports(tenantId),
-          clinicalService.getInvoices(tenantId),
-          clinicalService.getSamples(tenantId),
-        ]);
-
         const pId = String(patient.patientId || patient._id || '');
         const pMrn = String(patient.mrn || '').toUpperCase().trim();
         const pName = String(patient.fullName || `${patient.firstName || ''} ${patient.lastName || ''}`)
           .toLowerCase()
           .trim();
+        const queryParams = { patientId: pId, mrn: pMrn, limit: 100 };
+
+        const [ordersRes, reportsRes, invoicesRes, samplesRes] = await Promise.allSettled([
+          clinicalService.getOrders(tenantId, queryParams).catch(() => ({ data: [] })),
+          clinicalService.getReports(tenantId, queryParams).catch(() => ({ data: [] })),
+          clinicalService.getInvoices(tenantId, queryParams).catch(() => ({ data: [] })),
+          clinicalService.getSamples(tenantId, queryParams).catch(() => ({ data: [] })),
+        ]);
 
         const matchPatient = (item) => {
           if (!item) return false;
@@ -889,45 +890,113 @@ export function PatientsPage() {
           2. PATIENT DETAILS DIRECTORY (ORGANIZED, RICH MODERN WAY)
           ========================================================================= */}
       
-      {/* Directory Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Total Accessioned</span>
-            <Users size={18} style={{ color: '#0284c7' }} />
+      {/* Directory Stat Cards (Rich Medical Look - 4 in desktop, 2 in mobile) */}
+      <div className="patients-stat-grid">
+        <div
+          className="patients-stat-card"
+          style={{
+            background: '#ffffff',
+            padding: '1rem 1.25rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span className="stat-lbl" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+              Total Accessioned
+            </span>
+            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#eff6ff', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Users size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+          <div className="stat-val" style={{ fontSize: '1.55rem', fontWeight: 800, color: '#0f172a', marginTop: '6px' }}>
             {stats.total}
           </div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+            Accessioned directory
+          </div>
         </div>
 
-        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Female Patients</span>
-            <UserCheck size={18} style={{ color: '#ec4899' }} />
+        <div
+          className="patients-stat-card"
+          style={{
+            background: '#ffffff',
+            padding: '1rem 1.25rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span className="stat-lbl" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+              Female Patients
+            </span>
+            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#fdf2f8', color: '#db2777', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <UserCheck size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#db2777', marginTop: '4px' }}>
+          <div className="stat-val" style={{ fontSize: '1.55rem', fontWeight: 800, color: '#db2777', marginTop: '6px' }}>
             {stats.female}
           </div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+            Registered females
+          </div>
         </div>
 
-        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Male Patients</span>
-            <UserCheck size={18} style={{ color: '#0284c7' }} />
+        <div
+          className="patients-stat-card"
+          style={{
+            background: '#ffffff',
+            padding: '1rem 1.25rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span className="stat-lbl" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+              Male Patients
+            </span>
+            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#f0fdfa', color: '#0d9488', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <UserCheck size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0284c7', marginTop: '4px' }}>
+          <div className="stat-val" style={{ fontSize: '1.55rem', fontWeight: 800, color: '#0284c7', marginTop: '6px' }}>
             {stats.male}
           </div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+            Registered males
+          </div>
         </div>
 
-        <div className="card" style={{ padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Registered Today</span>
-            <Calendar size={18} style={{ color: '#10b981' }} />
+        <div
+          className="patients-stat-card"
+          style={{
+            background: '#ffffff',
+            padding: '1rem 1.25rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span className="stat-lbl" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+              Registered Today
+            </span>
+            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Calendar size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#059669', marginTop: '4px' }}>
+          <div className="stat-val" style={{ fontSize: '1.55rem', fontWeight: 800, color: '#15803d', marginTop: '6px' }}>
             {stats.today}
+          </div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+            Accessioned today
           </div>
         </div>
       </div>

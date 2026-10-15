@@ -7,6 +7,7 @@
 
 import tokenService, { TokenVerificationError } from '../services/token.service.js';
 import roleService from '../services/role.service.js';
+import authService from '../services/auth.service.js';
 import ApiResponse from '../utils/apiResponse.js';
 import { ACCOUNT_TYPE, USER_ROLES, HTTP_STATUS } from '../config/constants.js';
 import logger from '../utils/logger.js';
@@ -31,7 +32,7 @@ export function extractToken(req) {
 /**
  * Middleware: Verify JWT access token and attach decoded user claims to `req.user`
  */
-export function authenticateToken(req, res, next) {
+export async function authenticateToken(req, res, next) {
   const token = extractToken(req);
 
   if (!token) {
@@ -45,6 +46,21 @@ export function authenticateToken(req, res, next) {
 
   try {
     const decoded = tokenService.verifyToken(token);
+
+    // Single active device session enforcement
+    if (decoded.sessionId) {
+      const isSessionActive = await authService.validateActiveSession(decoded);
+      if (!isSessionActive) {
+        logger.warn(`[SECURITY] Single-device policy: Superseded session terminated for ${decoded.email} (${decoded.sub})`);
+        return ApiResponse.error(
+          res,
+          'Your session has ended because this account was logged into from another device or browser. Only one active device is permitted at a time.',
+          HTTP_STATUS.UNAUTHORIZED,
+          'SESSION_TERMINATED'
+        );
+      }
+    }
+
     req.user = decoded;
     next();
   } catch (err) {

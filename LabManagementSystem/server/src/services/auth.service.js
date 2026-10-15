@@ -14,6 +14,7 @@
  * 6. Return 503 Service Unavailable when live MongoDB is not connected and not in test memory mode.
  */
 
+import crypto from 'crypto';
 import PlatformAdminModel from '../models/platformAdmin.model.js';
 import TenantModel from '../models/tenant.model.js';
 import tenantConnectionService from './tenantConnection.service.js';
@@ -42,6 +43,8 @@ class AuthService {
   constructor() {
     // In-memory admin store fallback used exclusively in test mode
     this.testMemoryAdmins = new Map();
+    // In-memory active session cache for ultra-low latency single-device checks: "scope:userId" -> sessionId
+    this.activeSessions = new Map();
   }
 
   /**
@@ -111,14 +114,17 @@ class AuthService {
       throw new AuthenticationError('Invalid email or password', 'INVALID_CREDENTIALS', 401);
     }
 
-    // Update last login
+    // Single device active session: generate unique sessionId
+    const sessionId = `ses_${crypto.randomUUID()}`;
     admin.lastLoginAt = new Date();
+    admin.activeSessionId = sessionId;
     if (isLive && typeof admin.save === 'function') {
       await admin.save();
     }
+    this.setActiveSession('platform', admin.adminId, sessionId);
 
-    // Generate JWT access token
-    const token = tokenService.generatePlatformAdminToken(admin);
+    // Generate JWT access token with sessionId
+    const token = tokenService.generatePlatformAdminToken(admin, sessionId);
 
     await auditLogService.recordEvent({
       action: AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS,
@@ -267,14 +273,17 @@ class AuthService {
       throw new AuthenticationError('Invalid laboratory code, email, or password', 'INVALID_CREDENTIALS', 401);
     }
 
-    // 7. Update last login
+    // 7. Update last login & single device active session
+    const sessionId = `ses_${crypto.randomUUID()}`;
     user.lastLoginAt = new Date();
+    user.activeSessionId = sessionId;
     if (UserModel && typeof user.save === 'function') {
       await user.save();
     }
+    this.setActiveSession(tenant.tenantId, user.userId, sessionId);
 
-    // 8. Generate JWT access token strictly scoped to this tenant
-    const token = tokenService.generateTenantUserToken(user, tenant.tenantId);
+    // 8. Generate JWT access token strictly scoped to this tenant with sessionId
+    const token = tokenService.generateTenantUserToken(user, tenant.tenantId, sessionId);
 
     await auditLogService.recordEvent({
       action: AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS,
@@ -367,6 +376,114 @@ class AuthService {
     }
 
     throw new AuthenticationError('Invalid account type in credentials', 'INVALID_ACCOUNT_TYPE', 401);
+  }
+
+  /**
+   * Set active session ID for a user
+   */
+  setActiveSession(scope, userId, sessionId) {
+    if (!scope || !userId) return;
+    const key = `${scope}:${userId}`;
+    this.activeSessions.set(key, sessionId);
+  }
+
+  /**
+   * Clear active session for a user on logout
+   */
+  clearActiveSession(scope, userId) {
+    if (!scope || !userId) return;
+    const key = `${scope}:${userId}`;
+    this.activeSessions.set(key, null);
+  }
+
+  /**
+   * Validate that the incoming token's sessionId matches the user's active session
+   * Enforces single active device policy across all users and dashboards
+   * @param {Object} tokenPayload 
+   * @returns {Promise<boolean>}
+   */
+  async validateActiveSession(tokenPayload) {
+    if (!tokenPayload || !tokenPayload.sessionId) {
+      // Legacy or internal test tokens without sessionId remain valid
+      return true;
+    }
+
+    const { sub, tenantId, accountType, sessionId } = tokenPayload;
+    const scope = accountType === ACCOUNT_TYPE.PLATFORM_SUPER_ADMIN ? 'platform' : tenantId;
+    const cacheKey = `${scope}:${sub}`;
+
+    // 1. Fast in-memory check
+    if (this.activeSessions.has(cacheKey)) {
+      return this.activeSessions.get(cacheKey) === sessionId;
+    }
+
+    // 2. Cache miss: check database
+    if (accountType === ACCOUNT_TYPE.PLATFORM_SUPER_ADMIN) {
+      const isLive = dbConnection.getStatus().connected;
+      if (isLive) {
+        const admin = await PlatformAdminModel.findOne({ adminId: sub }).select('activeSessionId isActive');
+        if (!admin || !admin.isActive) return false;
+        if (!admin.activeSessionId) return false;
+        this.activeSessions.set(cacheKey, admin.activeSessionId);
+        return admin.activeSessionId === sessionId;
+      }
+      return true;
+    }
+
+    if (accountType === ACCOUNT_TYPE.TENANT_USER && tenantId) {
+      const isLive = dbConnection.getStatus().connected;
+      if (isLive) {
+        try {
+          const UserModel = tenantConnectionService.getTenantUserModel(tenantId);
+          if (UserModel) {
+            const user = await UserModel.findOne({ tenantId, userId: sub }).select('activeSessionId isActive isDeleted');
+            if (!user || !user.isActive || user.isDeleted) return false;
+            if (!user.activeSessionId) return false;
+            this.activeSessions.set(cacheKey, user.activeSessionId);
+            return user.activeSessionId === sessionId;
+          }
+        } catch {
+          return true;
+        }
+      }
+      return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * Invalidate active session on logout
+   * @param {Object} tokenPayload 
+   */
+  async logoutUser(tokenPayload) {
+    if (!tokenPayload) return;
+    const { sub, tenantId, accountType } = tokenPayload;
+    const scope = accountType === ACCOUNT_TYPE.PLATFORM_SUPER_ADMIN ? 'platform' : tenantId;
+    this.clearActiveSession(scope, sub);
+
+    if (accountType === ACCOUNT_TYPE.PLATFORM_SUPER_ADMIN) {
+      const isLive = dbConnection.getStatus().connected;
+      if (isLive) {
+        try {
+          await PlatformAdminModel.updateOne({ adminId: sub }, { $set: { activeSessionId: null } });
+        } catch {
+          // Ignore DB connection errors during logout
+        }
+      }
+    } else if (accountType === ACCOUNT_TYPE.TENANT_USER && tenantId) {
+      const isLive = dbConnection.getStatus().connected;
+      if (isLive) {
+        try {
+          const UserModel = tenantConnectionService.getTenantUserModel(tenantId);
+          if (UserModel) {
+            await UserModel.updateOne({ tenantId, userId: sub }, { $set: { activeSessionId: null } });
+          }
+        } catch {
+          // Ignore DB connection errors during logout
+        }
+      }
+    }
   }
 
   /**

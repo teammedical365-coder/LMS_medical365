@@ -15,6 +15,7 @@ import Modal from '../../components/common/Modal';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import notify from '../../utils/notify';
 import { classifyResult, isGenericReferenceRange } from '../../utils/clinicalClassification';
+import { generateBarcodeSvg } from '../../utils/barcode128';
 
 function renderResultFlagBadge(pr) {
   const isBlank = pr.value === undefined || pr.value === null || String(pr.value).trim() === '';
@@ -149,10 +150,32 @@ export function formatPathologistName(raw) {
   return formatted;
 }
 
+/**
+ * Formats timestamps cleanly for clinical report display.
+ * Returns null if missing/invalid to allow hiding optional fields.
+ */
+export function formatReportDateTime(rawDate) {
+  if (!rawDate) return null;
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function ReportsPage() {
   const { user, tenant } = useAuth();
-  const { currentTenant, branding } = useTenant();
-  const tenantId = tenant?.tenantId || user?.tenantId;
+  const { tenant: contextTenant, branding } = useTenant();
+  const tenantId = tenant?.tenantId || contextTenant?.tenantId || user?.tenantId;
 
   const [reports, setReports] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -183,6 +206,19 @@ export function ReportsPage() {
   // Print & QR Code State
   const [printReport, setPrintReport] = useState(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
+
+  // Code 128 Barcode Vector SVG memo for print/PDF export
+  const barcodeSvgHtml = useMemo(() => {
+    if (!printReport) return '';
+    const rawBarcode = printReport.barcode || printReport.orderNumber || '';
+    if (!rawBarcode) return '';
+    return generateBarcodeSvg(rawBarcode, {
+      barHeight: 24,
+      moduleWidth: 1.05,
+      quietZoneModules: 2,
+      showText: true,
+    });
+  }, [printReport]);
 
   // Search & Batch Selection State
   const [searchTerm, setSearchTerm] = useState('');
@@ -1925,142 +1961,194 @@ export function ReportsPage() {
               id="official-report-printable"
               style={{
                 background: '#ffffff',
-                color: '#000000',
+                color: '#0f172a',
                 padding: '24px 28px',
                 border: '1px solid #cbd5e1',
                 borderRadius: '8px',
                 fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
                 fontSize: '0.8125rem',
                 lineHeight: 1.4,
+                boxSizing: 'border-box',
               }}
             >
-              {/* Header with Lab Branding */}
+              {/* 1. Header with Laboratory Branding & Right-Aligned Title */}
               <div
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  paddingBottom: '6px',
+                  alignItems: 'center',
+                  paddingBottom: '8px',
+                  minHeight: '52px',
                 }}
               >
-                <div style={{ maxWidth: '65%' }}>
-                  {(branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl) && (
+                {/* Top-Left: Reserved Area for Laboratory Logo (Blank if none configured) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', maxWidth: '62%' }}>
+                  {Boolean(branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl) && (
                     <img
                       src={branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl}
-                      alt="Laboratory Logo"
-                      style={{ maxHeight: '44px', maxWidth: '180px', objectFit: 'contain', marginBottom: '4px', display: 'block' }}
+                      alt=""
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      style={{ maxHeight: '48px', maxWidth: '160px', objectFit: 'contain', display: 'block' }}
                     />
                   )}
-                  <div style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#000000', letterSpacing: '-0.2px' }}>
-                    {printReport.labName || branding?.displayName || currentTenant?.name || 'Diagnostic Laboratory'}
-                  </div>
-                  {(printReport.tagline || branding?.tagline) && (
-                    <div style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#475569', marginTop: '2px' }}>
-                      {printReport.tagline || branding?.tagline}
+                  <div>
+                    <div style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>
+                      {printReport.labName || branding?.displayName || currentTenant?.name || 'Diagnostic Laboratory'}
                     </div>
-                  )}
+                    {(printReport.tagline || branding?.tagline) && (
+                      <div style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', marginTop: '2px' }}>
+                        {printReport.tagline || branding?.tagline}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div style={{ textAlign: 'right', minWidth: '180px' }}>
+                {/* Top-Right: Report Title */}
+                <div style={{ textAlign: 'right' }}>
                   <div
                     style={{
                       display: 'inline-block',
-                      background: '#1e3a8a',
-                      color: '#ffffff',
+                      fontSize: '1.05rem',
                       fontWeight: 800,
-                      fontSize: '0.75rem',
-                      padding: '3px 14px',
-                      borderRadius: '4px',
+                      color: '#0f172a',
                       letterSpacing: '0.5px',
+                      textTransform: 'uppercase',
                     }}
                   >
-                    LAB REPORT
+                    Diagnostic Pathology Report
                   </div>
-                  {(printReport.labEmail || currentTenant?.email) && (
-                    <div style={{ fontSize: '0.6875rem', color: '#4b5563', marginTop: '4px' }}>
-                      E: {printReport.labEmail || currentTenant?.email}
-                    </div>
-                  )}
-                  {(currentTenant?.website || printReport.labWebsite) && (
-                    <div style={{ fontSize: '0.6875rem', color: '#4b5563' }}>
-                      W: {currentTenant?.website || printReport.labWebsite}
-                    </div>
-                  )}
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>
+                    Official Laboratory Findings
+                  </div>
                 </div>
               </div>
 
-              {/* Header Separator Line */}
-              <div style={{ borderBottom: '1.5px solid #000000', margin: '4px 0 8px 0' }} />
+              {/* Header Thin Divider */}
+              <div style={{ borderBottom: '1.5px solid #0f172a', margin: '4px 0 10px 0' }} />
 
-              {/* Compact Patient, Sample & Report Demographics Box (Reference Matched 2-column) */}
+              {/* 2 & 3. Compact Patient, Sample & Report Details Block with Vector Barcode */}
               <div
                 style={{
-                  border: '1px solid #000000',
-                  padding: '6px 10px',
-                  margin: '6px 0 10px 0',
+                  border: '1px solid #334155',
+                  borderRadius: '4px',
+                  padding: '8px 12px',
+                  margin: '6px 0 12px 0',
                   fontSize: '0.75rem',
-                  color: '#000000',
+                  color: '#0f172a',
                   display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '2px 20px',
+                  gridTemplateColumns: '1.15fr 0.85fr',
+                  gap: '6px 24px',
+                  background: '#ffffff',
                 }}
               >
+                {/* Left Column: Barcode, Patient Demographics */}
                 <div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Barcode No</span>
-                    <span>: {printReport.barcode || printReport.orderNumber}</span>
+                  {/* Actual Generated Code 128 Barcode with Readable Identifier */}
+                  {barcodeSvgHtml ? (
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Barcode</span>
+                      <div style={{ flex: 1, maxWidth: '175px' }}>
+                        <div
+                          dangerouslySetInnerHTML={{ __html: barcodeSvgHtml }}
+                          style={{ width: '100%', height: '36px' }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Barcode No</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>: {printReport.barcode || printReport.orderNumber || '—'}</span>
+                    </div>
+                  )}
+
+                  {/* Patient Name */}
+                  <div style={{ display: 'flex', marginBottom: '3px' }}>
+                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Patient Name</span>
+                    <span style={{ fontWeight: 800, color: '#0f172a' }}>: {printReport.patientName || '—'}</span>
                   </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Patient Name</span>
-                    <span style={{ fontWeight: 800 }}>: {printReport.patientName}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Age / Gender</span>
-                    <span>: {printReport.patientAge || '—'} / {printReport.patientGender || '—'}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Referred By</span>
-                    <span>: {printReport.physicianName || 'Self / Attending Physician'}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Ref. Lab/Hosp</span>
-                    <span>: {printReport.referralHospital || '—'}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Patient MRN</span>
-                    <span>: {printReport.patientMrn}</span>
-                  </div>
+
+                  {/* Patient MRN */}
+                  {printReport.patientMrn && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Patient MRN</span>
+                      <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>: {printReport.patientMrn}</span>
+                    </div>
+                  )}
+
+                  {/* Age / Gender */}
+                  {(printReport.patientAge || printReport.patientGender) && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Age / Gender</span>
+                      <span>: {[printReport.patientAge ? `${printReport.patientAge} Y` : '', printReport.patientGender].filter(Boolean).join(' / ') || '—'}</span>
+                    </div>
+                  )}
+
+                  {/* Referring Doctor (Hidden if not recorded) */}
+                  {printReport.physicianName && printReport.physicianName !== '—' && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Referring Doctor</span>
+                      <span>: {printReport.physicianName}</span>
+                    </div>
+                  )}
+
+                  {/* Referral Clinic / Hospital (Hidden if not recorded) */}
+                  {printReport.referralHospital && printReport.referralHospital !== '—' && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Ref. Clinic / Hosp</span>
+                      <span>: {printReport.referralHospital}</span>
+                    </div>
+                  )}
                 </div>
 
+                {/* Right Column: Order, Accession, Dates, Specimen */}
                 <div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Lab No</span>
-                    <span style={{ fontWeight: 700 }}>: {printReport.orderNumber}</span>
+                  {/* Lab / Order Number */}
+                  <div style={{ display: 'flex', marginBottom: '3px' }}>
+                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Lab / Order No</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>: {printReport.orderNumber || '—'}</span>
                   </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Reg Date</span>
-                    <span>: {printReport.orderDate ? new Date(printReport.orderDate).toLocaleString() : (printReport.createdAt ? new Date(printReport.createdAt).toLocaleString() : '—')}</span>
+
+                  {/* Registration Date */}
+                  {(printReport.orderDate || printReport.createdAt) && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Registered On</span>
+                      <span>: {formatReportDateTime(printReport.orderDate || printReport.createdAt)}</span>
+                    </div>
+                  )}
+
+                  {/* Sample Collection Date (Hidden if not available) */}
+                  {printReport.collectedAt && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Collected On</span>
+                      <span>: {formatReportDateTime(printReport.collectedAt)}</span>
+                    </div>
+                  )}
+
+                  {/* Sample Received Date (Hidden if not available) */}
+                  {printReport.receivedAt && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Received On</span>
+                      <span>: {formatReportDateTime(printReport.receivedAt)}</span>
+                    </div>
+                  )}
+
+                  {/* Report Date */}
+                  <div style={{ display: 'flex', marginBottom: '3px' }}>
+                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Reported On</span>
+                    <span style={{ fontWeight: 700 }}>: {formatReportDateTime(printReport.releasedAt || printReport.verifiedAt || new Date())}</span>
                   </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Sample Coll. Date</span>
-                    <span>: {printReport.collectedAt ? new Date(printReport.collectedAt).toLocaleString() : 'Recorded at Collection'}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Sample Rec. Date</span>
-                    <span>: {printReport.receivedAt ? new Date(printReport.receivedAt).toLocaleString() : 'Recorded at Accession'}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Report Date</span>
-                    <span style={{ fontWeight: 700 }}>: {printReport.releasedAt ? new Date(printReport.releasedAt).toLocaleString() : (printReport.verifiedAt ? new Date(printReport.verifiedAt).toLocaleString() : new Date().toLocaleString())}</span>
-                  </div>
-                  <div style={{ display: 'flex', marginBottom: '2px' }}>
-                    <span style={{ width: '125px', fontWeight: 700 }}>Specimen Type</span>
-                    <span>: {printReport.specimenType || 'Venous Whole Blood / Serum'}</span>
-                  </div>
+
+                  {/* Specimen Type */}
+                  {printReport.specimenType && (
+                    <div style={{ display: 'flex', marginBottom: '3px' }}>
+                      <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Specimen Type</span>
+                      <span>: {printReport.specimenType}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Department-wise Test Sections */}
+              {/* 4. Test Results Layout Grouped by Department */}
               {Object.entries(
                 (printReport.items || []).reduce((acc, it) => {
                   const dept = (it.department || printReport.department || 'Clinical Pathology').toUpperCase();
@@ -2069,20 +2157,34 @@ export function ReportsPage() {
                   return acc;
                 }, {})
               ).map(([deptName, deptItems], deptIdx) => (
-                <div key={deptIdx} style={{ marginBottom: '14px', pageBreakInside: 'avoid' }}>
-                  {/* Department Header */}
-                  <div style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.8438rem', color: '#000000', margin: '8px 0 6px 0', letterSpacing: '0.6px', textTransform: 'uppercase' }}>
-                    DEPARTMENT OF {deptName}
+                <div key={deptIdx} style={{ marginBottom: '16px', pageBreakInside: 'avoid' }}>
+                  {/* Department Banner Header */}
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      fontWeight: 800,
+                      fontSize: '0.85rem',
+                      color: '#0f172a',
+                      backgroundColor: '#f8fafc',
+                      borderTop: '1px solid #0f172a',
+                      borderBottom: '1px solid #0f172a',
+                      padding: '4px 8px',
+                      margin: '10px 0 6px 0',
+                      letterSpacing: '0.8px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Department of {deptName}
                   </div>
 
                   {/* Clean 4-Column Table */}
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7813rem' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7813rem', tableLayout: 'fixed' }}>
                     <thead>
-                      <tr style={{ borderTop: '1px solid #000000', borderBottom: '1px solid #000000', textAlign: 'left', color: '#000000' }}>
-                        <th style={{ padding: '5px 6px', width: '40%', fontWeight: 700 }}>Test Name</th>
-                        <th style={{ padding: '5px 6px', width: '20%', fontWeight: 700, textAlign: 'center' }}>Result</th>
-                        <th style={{ padding: '5px 6px', width: '15%', fontWeight: 700 }}>Unit</th>
-                        <th style={{ padding: '5px 6px', width: '25%', fontWeight: 700 }}>Bio. Ref. Interval</th>
+                      <tr style={{ borderBottom: '1.5px solid #0f172a', textAlign: 'left', color: '#0f172a' }}>
+                        <th style={{ padding: '6px 8px', width: '38%', fontWeight: 700 }}>Test Name</th>
+                        <th style={{ padding: '6px 8px', width: '22%', fontWeight: 700, textAlign: 'center' }}>Result</th>
+                        <th style={{ padding: '6px 8px', width: '15%', fontWeight: 700 }}>Unit</th>
+                        <th style={{ padding: '6px 8px', width: '25%', fontWeight: 700 }}>Biological Ref. Interval</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2090,9 +2192,9 @@ export function ReportsPage() {
                         const hasParams = Array.isArray(it.parameterResults) && it.parameterResults.length > 0;
                         return (
                           <React.Fragment key={itIdx}>
-                            {/* Test Group Header */}
+                            {/* Test Panel Header */}
                             <tr>
-                              <td colSpan="4" style={{ fontWeight: 800, padding: '7px 4px 2px 4px', fontSize: '0.8125rem', color: '#000000' }}>
+                              <td colSpan="4" style={{ fontWeight: 800, padding: '7px 8px 3px 8px', fontSize: '0.8125rem', color: '#0f172a', textDecoration: 'underline' }}>
                                 {it.testName} {it.testCode ? `(${it.testCode})` : ''}
                               </td>
                             </tr>
@@ -2105,18 +2207,24 @@ export function ReportsPage() {
                                 const intervalText = resolveParamInterval(pr);
 
                                 return (
-                                  <tr key={pIdx} style={{ borderBottom: '1px solid #f8fafc', background: flagInfo.isAbnormal ? '#fff5f5' : 'transparent' }}>
-                                    <td style={{ padding: '4px 6px 4px 14px', color: '#111827' }}>
+                                  <tr
+                                    key={pIdx}
+                                    style={{
+                                      borderBottom: '1px solid #f1f5f9',
+                                      background: flagInfo.isAbnormal ? '#fef2f2' : 'transparent',
+                                    }}
+                                  >
+                                    <td style={{ padding: '4px 8px 4px 18px', color: '#0f172a', wordBreak: 'break-word' }}>
                                       <div style={{ fontWeight: 600 }}>{paramName}</div>
                                       {pr.method && (
-                                        <div style={{ fontSize: '0.6563rem', color: '#64748b', fontStyle: 'italic' }}>{pr.method}</div>
+                                        <div style={{ fontSize: '0.675rem', color: '#64748b', fontStyle: 'italic' }}>Method: {pr.method}</div>
                                       )}
                                     </td>
-                                    <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                                    <td style={{ padding: '4px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                                       {isBlank ? (
-                                        <span style={{ color: '#d97706', fontStyle: 'italic', fontWeight: 500 }}>Missing</span>
+                                        <span style={{ color: '#d97706', fontStyle: 'italic', fontWeight: 500 }}>Pending</span>
                                       ) : (
-                                        <span style={{ fontWeight: flagInfo.isAbnormal ? 800 : 600, color: flagInfo.isAbnormal ? '#dc2626' : '#000000' }}>
+                                        <span style={{ fontWeight: flagInfo.isAbnormal ? 800 : 600, color: flagInfo.isAbnormal ? '#dc2626' : '#0f172a' }}>
                                           {String(pr.value)}
                                         </span>
                                       )}
@@ -2126,32 +2234,31 @@ export function ReportsPage() {
                                         </span>
                                       )}
                                     </td>
-                                    <td style={{ padding: '4px 6px', color: '#374151' }}>{pr.unit || '—'}</td>
-                                    <td style={{ padding: '4px 6px', color: '#111827' }}>{intervalText}</td>
+                                    <td style={{ padding: '4px 8px', color: '#334155' }}>{pr.unit || '—'}</td>
+                                    <td style={{ padding: '4px 8px', color: '#0f172a' }}>{intervalText}</td>
                                   </tr>
                                 );
                               })
                             ) : (
-                              <tr style={{ borderBottom: '1px solid #f8fafc' }}>
-                                <td style={{ padding: '4px 6px 4px 14px', color: '#111827', fontWeight: 600 }}>
+                              <tr style={{ borderBottom: '1px solid #f1f5f9', background: it.isAbnormal ? '#fef2f2' : 'transparent' }}>
+                                <td style={{ padding: '4px 8px 4px 18px', color: '#0f172a', fontWeight: 600, wordBreak: 'break-word' }}>
                                   {it.testName}
-                                  {it.method && <div style={{ fontSize: '0.6563rem', color: '#64748b', fontStyle: 'italic' }}>{it.method}</div>}
+                                  {it.method && <div style={{ fontSize: '0.675rem', color: '#64748b', fontStyle: 'italic' }}>Method: {it.method}</div>}
                                 </td>
-                                <td style={{ padding: '4px 6px', textAlign: 'center', fontWeight: it.isAbnormal ? 800 : 600, color: it.isAbnormal ? '#dc2626' : '#000000' }}>
+                                <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: it.isAbnormal ? 800 : 600, color: it.isAbnormal ? '#dc2626' : '#0f172a' }}>
                                   {it.resultValue || 'Completed'}
                                   {it.isAbnormal && <span style={{ marginLeft: '6px', fontSize: '0.6875rem', fontWeight: 800, color: '#dc2626' }}>[ABNORMAL]</span>}
                                 </td>
-                                <td style={{ padding: '4px 6px', color: '#374151' }}>{it.unit || '—'}</td>
-                                <td style={{ padding: '4px 6px', color: '#111827' }}>{resolveParamInterval(it)}</td>
+                                <td style={{ padding: '4px 8px', color: '#334155' }}>{it.unit || '—'}</td>
+                                <td style={{ padding: '4px 8px', color: '#0f172a' }}>{resolveParamInterval(it)}</td>
                               </tr>
                             )}
 
                             {/* Method / Comment */}
-                            {(it.method || it.comments || it.clinicalNotes) && (
+                            {(it.comments || it.clinicalNotes) && (
                               <tr>
-                                <td colSpan="4" style={{ padding: '2px 6px 6px 14px', fontSize: '0.6875rem', color: '#4b5563' }}>
-                                  {it.method && <div><em>Method: {it.method}</em></div>}
-                                  {(it.comments || it.clinicalNotes) && <div><strong>Comment:</strong> {it.comments || it.clinicalNotes}</div>}
+                                <td colSpan="4" style={{ padding: '3px 8px 6px 18px', fontSize: '0.72rem', color: '#475569' }}>
+                                  <strong>Clinical Comment:</strong> {it.comments || it.clinicalNotes}
                                 </td>
                               </tr>
                             )}
@@ -2163,106 +2270,98 @@ export function ReportsPage() {
                 </div>
               ))}
 
-              {/* Pathologist Findings & Clinical Impression */}
+              {/* 5. Pathologist Findings & Clinical Impression (Preserved Clinical Data) */}
               {printReport.findings && (
                 <div
                   className="page-break-inside-avoid"
                   style={{
-                    borderTop: '1px solid #000000',
+                    borderTop: '1px solid #0f172a',
                     paddingTop: '6px',
-                    marginTop: '10px',
+                    marginTop: '12px',
                     fontSize: '0.75rem',
-                    color: '#000000',
+                    color: '#0f172a',
                   }}
                 >
-                  <div style={{ fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>
-                    COMMENTS / CLINICAL IMPRESSION:
+                  <div style={{ fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px', color: '#0f172a' }}>
+                    Comments / Clinical Impression:
                   </div>
-                  <div style={{ lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                  <div style={{ lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
                     {printReport.findings}
                   </div>
                   {printReport.verificationNotes && (
-                    <div style={{ marginTop: '4px', fontSize: '0.7188rem', color: '#475569', fontStyle: 'italic' }}>
+                    <div style={{ marginTop: '4px', fontSize: '0.72rem', color: '#475569', fontStyle: 'italic' }}>
                       <strong>Sign-off Note:</strong> {printReport.verificationNotes}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Signatures: Single Right-Aligned Authorized Pathologist Signature */}
+              {/* Right-Aligned Authorized Pathologist Signature */}
               <div
                 className="page-break-inside-avoid"
                 style={{
                   display: 'flex',
                   justifyContent: 'flex-end',
                   alignItems: 'flex-end',
-                  marginTop: '24px',
+                  marginTop: '28px',
                   paddingTop: '6px',
                 }}
               >
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ borderBottom: '1px solid #94a3b8', width: '200px', marginBottom: '4px', marginLeft: 'auto' }} />
-                  <div style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#000000' }}>
+                  <div style={{ borderBottom: '1px solid #334155', width: '210px', marginBottom: '5px', marginLeft: 'auto' }} />
+                  <div style={{ fontWeight: 800, fontSize: '0.825rem', color: '#0f172a' }}>
                     {formatPathologistName(printReport.releasedBy || printReport.reviewedBy)}
                   </div>
-                  <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
-                    (Consultant Pathologist)
+                  <div style={{ fontSize: '0.7rem', color: '#475569' }}>
+                    Consultant Pathologist
                   </div>
-                </div>
-              </div>
-
-              {/* Bottom Note */}
-              <div
-                className="page-break-inside-avoid"
-                style={{
-                  marginTop: '14px',
-                  fontSize: '0.6875rem',
-                  color: '#475569',
-                  fontStyle: 'italic',
-                  borderTop: '1px solid #e2e8f0',
-                  paddingTop: '4px',
-                }}
-              >
-                This test was performed by {printReport.labName || branding?.displayName || currentTenant?.name || 'Diagnostic Laboratory'}{(typeof printReport.labAddress === 'string' && printReport.labAddress.trim() ? `, ${printReport.labAddress.trim()}` : (typeof currentTenant?.address === 'string' && currentTenant.address.trim() ? `, ${currentTenant.address.trim()}` : ''))}{(printReport.labPhone || currentTenant?.phone) ? `, Tel: ${printReport.labPhone || currentTenant?.phone}` : ''}.
-              </div>
-
-              {/* Simple Footer Bar */}
-              <div
-                className="page-break-inside-avoid"
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginTop: '8px',
-                  paddingTop: '6px',
-                  borderTop: '1.5px solid #000000',
-                  fontSize: '0.6875rem',
-                  color: '#334155',
-                }}
-              >
-                <div style={{ maxWidth: '70%' }}>
-                  <div>
-                    <strong>Regd Office:</strong> {typeof printReport.labAddress === 'string' && printReport.labAddress.trim() ? printReport.labAddress.trim() : (typeof currentTenant?.address === 'string' && currentTenant.address.trim() ? currentTenant.address.trim() : [currentTenant?.address?.street, currentTenant?.address?.city, currentTenant?.address?.state, currentTenant?.address?.postalCode, currentTenant?.address?.country].filter(Boolean).join(', ') || 'Diagnostic Pathology Laboratory')}
-                  </div>
-                  {(printReport.labPhone || currentTenant?.phone) && (
-                    <div>Customer Care / Tel: {printReport.labPhone || currentTenant?.phone}</div>
-                  )}
-                  {(printReport.accreditation || branding?.accreditation || currentTenant?.branding?.accreditation) && (
-                    <div style={{ fontWeight: 600, color: '#166534' }}>
-                      {printReport.accreditation || branding?.accreditation || currentTenant?.branding?.accreditation}
+                  {printReport.releasedAt && (
+                    <div style={{ fontSize: '0.675rem', color: '#64748b', marginTop: '1px' }}>
+                      Digitally Verified & Released
                     </div>
                   )}
                 </div>
+              </div>
 
+              {/* Clean Footer Bar with Verification QR & Page Count (Unnecessary promotional text removed) */}
+              <div
+                className="page-break-inside-avoid"
+                style={{
+                  marginTop: '16px',
+                  paddingTop: '8px',
+                  borderTop: '1.5px solid #0f172a',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.7rem',
+                  color: '#475569',
+                }}
+              >
+                {/* Left: Verification QR Code & Authenticity Tag */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   {qrCodeDataUrl && (
                     <img
                       src={qrCodeDataUrl}
-                      alt="Verification QR"
-                      style={{ width: '42px', height: '42px' }}
+                      alt="Report Verification QR"
+                      style={{ width: '42px', height: '42px', display: 'block' }}
                     />
                   )}
-                  <div style={{ textAlign: 'right', fontWeight: 600 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                      Authentic Digital Diagnostic Report
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                      Scan QR code to verify clinical authenticity & release status.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: End of Report Mark & Page Number */}
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: '#0f172a', letterSpacing: '0.5px' }}>
+                    *** END OF REPORT ***
+                  </div>
+                  <div style={{ fontWeight: 600, color: '#64748b', marginTop: '2px' }}>
                     Page 1 of 1
                   </div>
                 </div>

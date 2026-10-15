@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Building2,
   CheckCircle2,
@@ -30,10 +30,13 @@ import {
   Sparkles,
   Eye,
   EyeOff,
-  Camera,
   Trash2,
   Pencil,
   User,
+  Search,
+  ArrowUpDown,
+  Users,
+  RotateCcw,
 } from 'lucide-react';
 import StatCard from '../../components/common/StatCard';
 import Badge from '../../components/common/Badge';
@@ -43,11 +46,171 @@ import AdminSecurityBoundary from '../../components/common/AdminSecurityBoundary
 import superAdminService from '../../services/superAdminService';
 import notify from '../../utils/notify';
 
+// Curated Light Pastel Palettes for Registered Laboratory Directory Cards
+const LAB_CARD_PALETTES = [
+  {
+    id: 'blue',
+    bg: '#f0f9ff',
+    border: '#bae6fd',
+    hoverBorder: '#38bdf8',
+    hoverShadow: 'rgba(2, 132, 199, 0.16)',
+    avatarBg: '#0284c7',
+    avatarText: '#ffffff',
+    codeBg: '#e0f2fe',
+    codeColor: '#0369a1',
+    codeBorder: '#b9e6fe',
+    accent: '#0284c7',
+  },
+  {
+    id: 'emerald',
+    bg: '#f0fdf4',
+    border: '#bbf7d0',
+    hoverBorder: '#4ade80',
+    hoverShadow: 'rgba(22, 163, 74, 0.16)',
+    avatarBg: '#16a34a',
+    avatarText: '#ffffff',
+    codeBg: '#dcfce7',
+    codeColor: '#15803d',
+    codeBorder: '#bbf7d0',
+    accent: '#16a34a',
+  },
+  {
+    id: 'purple',
+    bg: '#faf5ff',
+    border: '#e9d5ff',
+    hoverBorder: '#c084fc',
+    hoverShadow: 'rgba(147, 51, 234, 0.16)',
+    avatarBg: '#9333ea',
+    avatarText: '#ffffff',
+    codeBg: '#f3e8ff',
+    codeColor: '#7e22ce',
+    codeBorder: '#e9d5ff',
+    accent: '#9333ea',
+  },
+  {
+    id: 'amber',
+    bg: '#fffbeb',
+    border: '#fde68a',
+    hoverBorder: '#fbbf24',
+    hoverShadow: 'rgba(217, 119, 6, 0.16)',
+    avatarBg: '#d97706',
+    avatarText: '#ffffff',
+    codeBg: '#fef3c7',
+    codeColor: '#b45309',
+    codeBorder: '#fde68a',
+    accent: '#d97706',
+  },
+  {
+    id: 'rose',
+    bg: '#fff1f2',
+    border: '#fecdd3',
+    hoverBorder: '#fb7185',
+    hoverShadow: 'rgba(225, 29, 72, 0.16)',
+    avatarBg: '#e11d48',
+    avatarText: '#ffffff',
+    codeBg: '#ffe4e6',
+    codeColor: '#be123c',
+    codeBorder: '#fecdd3',
+    accent: '#e11d48',
+  },
+  {
+    id: 'cyan',
+    bg: '#ecfeff',
+    border: '#a5f3fc',
+    hoverBorder: '#22d3ee',
+    hoverShadow: 'rgba(8, 145, 178, 0.16)',
+    avatarBg: '#0891b2',
+    avatarText: '#ffffff',
+    codeBg: '#cffafe',
+    codeColor: '#0e7490',
+    codeBorder: '#a5f3fc',
+    accent: '#0891b2',
+  },
+  {
+    id: 'indigo',
+    bg: '#eef2ff',
+    border: '#c7d2fe',
+    hoverBorder: '#818cf8',
+    hoverShadow: 'rgba(79, 70, 229, 0.16)',
+    avatarBg: '#4f46e5',
+    avatarText: '#ffffff',
+    codeBg: '#e0e7ff',
+    codeColor: '#4338ca',
+    codeBorder: '#c7d2fe',
+    accent: '#4f46e5',
+  },
+  {
+    id: 'teal',
+    bg: '#f0fdfa',
+    border: '#99f6e4',
+    hoverBorder: '#2dd4bf',
+    hoverShadow: 'rgba(13, 148, 136, 0.16)',
+    avatarBg: '#0d9488',
+    avatarText: '#ffffff',
+    codeBg: '#ccfbf1',
+    codeColor: '#0f766e',
+    codeBorder: '#99f6e4',
+    accent: '#0d9488',
+  },
+];
+
 export function SuperAdminOverview() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [laboratories, setLaboratories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Search & Filter state for Registered Laboratories
+  const [labSearchTerm, setLabSearchTerm] = useState('');
+  const [labSortBy, setLabSortBy] = useState('a_to_z'); // 'a_to_z' | 'z_to_a' | 'newest' | 'oldest'
+  const [labStatusFilter, setLabStatusFilter] = useState('ALL');
+
+  // Filtered & Sorted laboratories memo
+  const filteredAndSortedLaboratories = useMemo(() => {
+    let list = [...laboratories];
+
+    // Status filter
+    if (labStatusFilter !== 'ALL') {
+      list = list.filter((lab) => (lab.status || '').toUpperCase() === labStatusFilter);
+    }
+
+    // Search query filter (name, code, city, state, email)
+    if (labSearchTerm.trim()) {
+      const q = labSearchTerm.trim().toLowerCase();
+      list = list.filter((lab) => {
+        const name = (lab.name || '').toLowerCase();
+        const code = (lab.code || '').toLowerCase();
+        const city = (lab.address?.city || '').toLowerCase();
+        const state = (lab.address?.state || '').toLowerCase();
+        const email = (lab.email || lab.contactEmail || '').toLowerCase();
+        return name.includes(q) || code.includes(q) || city.includes(q) || state.includes(q) || email.includes(q);
+      });
+    }
+
+    // Sort order
+    list.sort((a, b) => {
+      if (labSortBy === 'a_to_z') {
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (labSortBy === 'z_to_a') {
+        return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (labSortBy === 'newest') {
+        const dateA = new Date(a.createdAt || a.registrationDate || 0).getTime();
+        const dateB = new Date(b.createdAt || b.registrationDate || 0).getTime();
+        return dateB - dateA;
+      }
+      if (labSortBy === 'oldest') {
+        const dateA = new Date(a.createdAt || a.registrationDate || 0).getTime();
+        const dateB = new Date(b.createdAt || b.registrationDate || 0).getTime();
+        return dateA - dateB;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [laboratories, labSearchTerm, labSortBy, labStatusFilter]);
 
   // Active Dedicated Form: null | 'laboratory' | 'admin'
   const [activeForm, setActiveForm] = useState(null);
@@ -105,7 +268,6 @@ export function SuperAdminOverview() {
     email: '',
     password: '',
     phone: '',
-    profilePhoto: null,
     department: 'Administration',
   };
 
@@ -162,7 +324,7 @@ export function SuperAdminOverview() {
     try {
       const [overviewData, labsData] = await Promise.all([
         superAdminService.getOverview(),
-        superAdminService.listLaboratories({ limit: 100 }).catch(() => ({ laboratories: [] })),
+        superAdminService.listLaboratories({ page: 1, limit: 20 }).catch(() => ({ laboratories: [] })),
       ]);
 
       setData(overviewData);
@@ -372,28 +534,6 @@ export function SuperAdminOverview() {
     }
   };
 
-  const handleAdminPhotoUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setAdminError('Please upload a valid image file (JPG, PNG, WebP).');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setAdminError('Image file size must be under 2MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAdminForm((prev) => ({ ...prev, profilePhoto: reader.result }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveAdminPhoto = () => {
-    setAdminForm((prev) => ({ ...prev, profilePhoto: null }));
-  };
-
   // Lab Admin Submission
   const handleAdminSubmit = async (e) => {
     e.preventDefault();
@@ -429,7 +569,6 @@ export function SuperAdminOverview() {
       password: adminForm.password,
       phone: adminForm.phone.trim(),
       age: adminForm.age ? Number(adminForm.age) : undefined,
-      profilePhoto: adminForm.profilePhoto || undefined,
       department: adminForm.department.trim() || 'Administration',
       role: 'lab_admin',
     };
@@ -448,7 +587,6 @@ export function SuperAdminOverview() {
         email: '',
         password: '',
         phone: '',
-        profilePhoto: null,
       }));
       fetchOverview();
     } catch (err) {
@@ -1647,95 +1785,19 @@ export function SuperAdminOverview() {
               </div>
             </div>
 
-            {/* Bottom Row: Simple Profile Photo Upload & Department */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '1rem',
-                alignItems: 'center',
-                background: 'rgba(255, 255, 255, 0.75)',
-                padding: '0.9rem 1.15rem',
-                borderRadius: '10px',
-                border: '1px solid #bae6fd',
-              }}
-            >
-              {/* Profile Photo (Optional - Clean modern simple avatar uploader) */}
-              <div>
-                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600, marginBottom: '6px', display: 'block' }}>
-                  Profile Photo <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div
-                    style={{
-                      width: '46px',
-                      height: '46px',
-                      borderRadius: '50%',
-                      background: adminForm.profilePhoto ? 'transparent' : '#e0f2fe',
-                      border: '2px solid #bae6fd',
-                      overflow: 'hidden',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {adminForm.profilePhoto ? (
-                      <img
-                        src={adminForm.profilePhoto}
-                        alt="Profile Preview"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <User size={22} style={{ color: '#0284c7' }} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label
-                      htmlFor="adminPhotoUpload"
-                      className="btn btn-secondary btn-sm"
-                      style={{ cursor: 'pointer', margin: 0, padding: '5px 12px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                    >
-                      <Camera size={13} />
-                      <span>{adminForm.profilePhoto ? 'Change Photo' : 'Upload Photo'}</span>
-                    </label>
-                    <input
-                      id="adminPhotoUpload"
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleAdminPhotoUpload}
-                    />
-                    {adminForm.profilePhoto && (
-                      <button
-                        type="button"
-                        onClick={handleRemoveAdminPhoto}
-                        className="btn btn-danger btn-sm"
-                        style={{ padding: '5px 8px', fontSize: '0.75rem' }}
-                        title="Remove photo"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                    <span style={{ fontSize: '0.725rem', color: '#64748b' }}>JPG/PNG max 2MB</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Department / Designation */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
-                  Department / Designation
-                </label>
-                <input
-                  type="text"
-                  name="department"
-                  className="form-input"
-                  placeholder="e.g. Administration / Lab In-Charge"
-                  value={adminForm.department}
-                  onChange={handleAdminInputChange}
-                />
-              </div>
+            {/* Department / Designation */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
+                Department / Designation
+              </label>
+              <input
+                type="text"
+                name="department"
+                className="form-input"
+                placeholder="e.g. Administration / Lab In-Charge"
+                value={adminForm.department}
+                onChange={handleAdminInputChange}
+              />
             </div>
 
             {/* Form Actions */}
@@ -1767,9 +1829,9 @@ export function SuperAdminOverview() {
         </div>
       )}
 
-      {/* 4. Registered Laboratories Directory Cards (Small Cards with Basic Details) */}
+      {/* 4. Registered Laboratories Directory Cards (Multi-Row Pastel Cards with Search & Filters) */}
       <section className="card" style={{ padding: '1.25rem' }}>
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Building2 size={18} style={{ color: 'var(--primary-blue)' }} />
@@ -1789,15 +1851,194 @@ export function SuperAdminOverview() {
                 fontWeight: 600,
                 color: '#0369a1',
                 background: '#e0f2fe',
-                padding: '3px 10px',
+                padding: '4px 12px',
                 borderRadius: '20px',
+                border: '1px solid #bae6fd',
               }}
             >
-              {laboratories.length} Active Facilities
+              {filteredAndSortedLaboratories.length === laboratories.length
+                ? `${laboratories.length} Active Facilities`
+                : `Showing ${filteredAndSortedLaboratories.length} of ${laboratories.length} Facilities`}
             </span>
           </div>
         </div>
 
+        {/* Search & Sort / Filter Toolbar */}
+        {laboratories.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              marginBottom: '1.1rem',
+              padding: '0.75rem 0.9rem',
+              background: '#f8fafc',
+              borderRadius: '11px',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            {/* Search Input Box */}
+            <div style={{ position: 'relative', flex: '1 1 260px', minWidth: '220px' }}>
+              <Search
+                size={15}
+                style={{
+                  position: 'absolute',
+                  left: '11px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#64748b',
+                  pointerEvents: 'none',
+                }}
+              />
+              <input
+                type="text"
+                value={labSearchTerm}
+                onChange={(e) => setLabSearchTerm(e.target.value)}
+                placeholder="Search by lab name, code, city, email..."
+                style={{
+                  width: '100%',
+                  padding: '7px 32px 7px 34px',
+                  fontSize: '0.825rem',
+                  borderRadius: '7px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  outline: 'none',
+                  color: '#0f172a',
+                  transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#0284c7';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.12)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#cbd5e1';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {labSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setLabSearchTerm('')}
+                  title="Clear search"
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: '3px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Controls Group: Sort + Status Filter + Reset */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Sort By Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ArrowUpDown size={13} style={{ color: '#64748b' }} />
+                  <span>Sort:</span>
+                </span>
+                <select
+                  value={labSortBy}
+                  onChange={(e) => setLabSortBy(e.target.value)}
+                  style={{
+                    padding: '6px 26px 6px 10px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '7px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="a_to_z">A to Z (Name)</option>
+                  <option value="z_to_a">Z to A (Name)</option>
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                </select>
+              </div>
+
+              {/* Status Filter Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#475569' }}>Status:</span>
+                <select
+                  value={labStatusFilter}
+                  onChange={(e) => setLabStatusFilter(e.target.value)}
+                  style={{
+                    padding: '6px 26px 6px 10px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    borderRadius: '7px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="SUSPENDED">Suspended</option>
+                </select>
+              </div>
+
+              {/* Reset Filters Button */}
+              {(labSearchTerm || labSortBy !== 'a_to_z' || labStatusFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLabSearchTerm('');
+                    setLabSortBy('a_to_z');
+                    setLabStatusFilter('ALL');
+                  }}
+                  title="Reset filters"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '6px 11px',
+                    fontSize: '0.76rem',
+                    fontWeight: 600,
+                    color: '#dc2626',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    borderRadius: '7px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#fee2e2';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fef2f2';
+                  }}
+                >
+                  <RotateCcw size={12} />
+                  <span>Reset</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content Area: Empty State vs Filter Zero State vs Cards Grid */}
         {laboratories.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
             <Building2 size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
@@ -1808,175 +2049,293 @@ export function SuperAdminOverview() {
               <span>Register Your First Laboratory</span>
             </button>
           </div>
+        ) : filteredAndSortedLaboratories.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+            <Search size={32} style={{ margin: '0 auto 10px', opacity: 0.35, color: '#64748b' }} />
+            <h3 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '4px' }}>No Laboratories Match Filter</h3>
+            <p style={{ fontSize: '0.825rem', marginBottom: '14px', color: '#64748b' }}>
+              We couldn't find any facilities matching your search or status filter.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setLabSearchTerm('');
+                setLabSortBy('a_to_z');
+                setLabStatusFilter('ALL');
+              }}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            >
+              <RotateCcw size={13} />
+              <span>Clear Search & Filters</span>
+            </button>
+          </div>
         ) : (
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
-              gap: '0.85rem',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              gap: '1rem',
             }}
           >
-            {laboratories.map((lab) => {
+            {filteredAndSortedLaboratories.map((lab, index) => {
               const labKey = lab.tenantId || lab.id || lab._id;
               const detailsUrl = `/super-admin/laboratories/${labKey}`;
+              const palette = LAB_CARD_PALETTES[index % LAB_CARD_PALETTES.length];
 
               return (
-                <Link
+                <div
                   key={labKey}
-                  to={detailsUrl}
+                  onClick={() => navigate(detailsUrl)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(detailsUrl);
+                    }
+                  }}
                   style={{
-                    background: '#ffffff',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '12px',
-                    padding: '0.9rem 1.1rem',
-                    textDecoration: 'none',
+                    backgroundColor: palette.bg,
+                    border: `1px solid ${palette.border}`,
+                    borderRadius: '14px',
+                    padding: '1.05rem 1.15rem',
                     display: 'flex',
-                    alignItems: 'center',
+                    flexDirection: 'column',
                     justifyContent: 'space-between',
                     gap: '0.85rem',
-                    transition: 'all 0.18s ease',
-                    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.05)',
+                    position: 'relative',
+                    outline: 'none',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#0284c7';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(2, 132, 199, 0.12)';
+                    e.currentTarget.style.borderColor = palette.hoverBorder;
+                    e.currentTarget.style.transform = 'translateY(-3px)';
+                    e.currentTarget.style.boxShadow = `0 10px 22px ${palette.hoverShadow}`;
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.borderColor = palette.border;
                     e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(15, 23, 42, 0.04)';
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(15, 23, 42, 0.05)';
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '9px',
-                        backgroundColor: '#eff6ff',
-                        color: '#2563eb',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: '0.95rem',
-                        flexShrink: 0,
-                        border: '1px solid #dbeafe',
-                      }}
-                    >
-                      {(lab.name || 'L').charAt(0).toUpperCase()}
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                  {/* Top Row: Avatar + Lab Title & Location + Status Badge */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                      {/* Avatar Circle */}
                       <div
                         style={{
-                          fontWeight: 700,
-                          color: '#0f172a',
-                          fontSize: '0.925rem',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          lineHeight: 1.3,
+                          width: '42px',
+                          height: '42px',
+                          borderRadius: '11px',
+                          backgroundColor: palette.avatarBg,
+                          color: palette.avatarText,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '1.05rem',
+                          flexShrink: 0,
+                          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.12)',
                         }}
-                        title={lab.name}
                       >
-                        {lab.name}
+                        {(lab.name || 'L').charAt(0).toUpperCase()}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'nowrap' }}>
-                        <span
+
+                      {/* Name & Subtitle */}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
                           style={{
-                            fontFamily: 'monospace',
                             fontWeight: 700,
-                            fontSize: '0.72rem',
-                            color: '#0369a1',
-                            background: '#f0f9ff',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            whiteSpace: 'nowrap',
-                            border: '1px solid #e0f2fe',
+                            color: '#0f172a',
+                            fontSize: '0.96rem',
+                            lineHeight: 1.35,
+                            wordBreak: 'break-word',
                           }}
+                          title={lab.name}
                         >
-                          {lab.code}
-                        </span>
-                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>•</span>
-                        <span style={{ fontSize: '0.72rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                          {lab.staffCount ?? lab.staff?.length ?? 1} Staff
-                        </span>
+                          {lab.name}
+                        </div>
+                        {lab.address?.city ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px', fontSize: '0.74rem', color: '#64748b' }}>
+                            <MapPin size={11} style={{ flexShrink: 0, opacity: 0.7 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {lab.address.city}{lab.address.state ? `, ${lab.address.state}` : ''}
+                            </span>
+                          </div>
+                        ) : lab.email || lab.contactEmail ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px', fontSize: '0.74rem', color: '#64748b' }}>
+                            <Mail size={11} style={{ flexShrink: 0, opacity: 0.7 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {lab.email || lab.contactEmail}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
+                    </div>
+
+                    {/* Status Badge Docked at Top-Right */}
+                    <div style={{ flexShrink: 0, marginLeft: 'auto' }}>
+                      {getStatusBadge(lab.status)}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    {getStatusBadge(lab.status)}
-
-                    {/* Edit Lab Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleEditLabClick(e, lab)}
-                      title="Edit Laboratory Details"
+                  {/* Middle Row: Meta Information Badges (Code, Staff, Plan) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                    <span
                       style={{
-                        background: '#f8fafc',
-                        border: '1px solid #cbd5e1',
-                        color: '#0284c7',
-                        width: '28px',
-                        height: '28px',
-                        borderRadius: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        fontSize: '0.74rem',
+                        color: palette.codeColor,
+                        background: palette.codeBg,
+                        border: `1px solid ${palette.codeBorder}`,
+                        padding: '2px 8px',
+                        borderRadius: '5px',
+                        letterSpacing: '0.02em',
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#e0f2fe';
-                        e.currentTarget.style.borderColor = '#0284c7';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                        e.currentTarget.style.borderColor = '#cbd5e1';
-                      }}
+                      title="Laboratory Code"
                     >
-                      <Pencil size={13} />
-                    </button>
+                      {lab.code || 'N/A'}
+                    </span>
 
-                    {/* Delete Lab Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteLabClick(e, lab)}
-                      title="Delete Laboratory"
+                    <span
                       style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fecaca',
-                        color: '#dc2626',
-                        width: '28px',
-                        height: '28px',
-                        borderRadius: '6px',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
+                        gap: '4px',
+                        fontSize: '0.73rem',
+                        fontWeight: 600,
+                        color: '#475569',
+                        background: '#ffffff',
+                        border: '1px solid rgba(0,0,0,0.08)',
+                        padding: '2px 8px',
+                        borderRadius: '5px',
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#fee2e2';
-                        e.currentTarget.style.borderColor = '#dc2626';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#fef2f2';
-                        e.currentTarget.style.borderColor = '#fecaca';
-                      }}
+                      title="Registered Staff Count"
                     >
-                      <Trash2 size={13} />
-                    </button>
+                      <Users size={12} style={{ color: '#64748b' }} />
+                      <span>{lab.staffCount ?? lab.staff?.length ?? 0} Staff</span>
+                    </span>
 
-                    <ChevronRight size={16} style={{ color: '#94a3b8' }} />
+                    {(lab.subscriptionPlan || lab.plan) && (
+                      <span
+                        style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          color: '#64748b',
+                          background: 'rgba(255, 255, 255, 0.75)',
+                          border: '1px solid rgba(0,0,0,0.06)',
+                          padding: '2px 7px',
+                          borderRadius: '5px',
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {lab.subscriptionPlan || lab.plan} Plan
+                      </span>
+                    )}
                   </div>
-                </Link>
+
+                  {/* Bottom Row: Manage Lab Link + Isolated Action Buttons */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingTop: '0.7rem',
+                      marginTop: '0.15rem',
+                      borderTop: '1px solid rgba(0, 0, 0, 0.06)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        color: palette.accent,
+                        transition: 'gap 0.15s ease',
+                      }}
+                    >
+                      <span>Manage Lab</span>
+                      <ChevronRight size={14} />
+                    </div>
+
+                    {/* Action Buttons Container (Stops Propagation to Avoid Opening Card Link) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                      {/* Edit Lab Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleEditLabClick(e, lab)}
+                        title="Edit Laboratory Details"
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #cbd5e1',
+                          color: '#0284c7',
+                          width: '29px',
+                          height: '29px',
+                          borderRadius: '7px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#e0f2fe';
+                          e.currentTarget.style.borderColor = '#0284c7';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#ffffff';
+                          e.currentTarget.style.borderColor = '#cbd5e1';
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+
+                      {/* Delete Lab Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteLabClick(e, lab)}
+                        title="Delete Laboratory"
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #fecaca',
+                          color: '#dc2626',
+                          width: '29px',
+                          height: '29px',
+                          borderRadius: '7px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fef2f2';
+                          e.currentTarget.style.borderColor = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#ffffff';
+                          e.currentTarget.style.borderColor = '#fecaca';
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               );
             })}
           </div>
         )}
       </section>
+
 
       {/* Delete Laboratory Confirmation Modal */}
       {deleteConfirmLab && (

@@ -7,6 +7,7 @@
 
 import authService, { AuthenticationError } from '../services/auth.service.js';
 import tokenService from '../services/token.service.js';
+import { extractToken } from '../middleware/auth.middleware.js';
 import ApiResponse from '../utils/apiResponse.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -108,6 +109,20 @@ class AuthController {
    * POST /api/v1/auth/logout
    */
   async logout(req, res) {
+    try {
+      const token = extractToken(req);
+      if (token) {
+        try {
+          const decoded = tokenService.verifyToken(token);
+          await authService.logoutUser(decoded);
+        } catch {
+          // Token expired or invalid, continue logout
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
     // Clear the authentication cookie
     res.clearCookie('lms_token', {
       httpOnly: true,

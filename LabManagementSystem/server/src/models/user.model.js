@@ -97,6 +97,11 @@ export const UserSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    activeSessionId: {
+      type: String,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
