@@ -1913,46 +1913,19 @@ class TenantClinicalService {
     const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
 
     if (TestModel) {
-      let list = await TestModel.find({ tenantId, isActive: true }).sort({ category: 1, name: 1 });
-      if (list.length === 0) {
-        // Seed default tests for this tenant
-        await this.seedDefaultTests(tenantId);
-        list = await TestModel.find({ tenantId, isActive: true }).sort({ category: 1, name: 1 });
-      }
+      const list = await TestModel.find({ tenantId, isActive: true }).sort({ category: 1, name: 1 });
       return list.map((t) => t.toSafeJSON());
     }
 
-    if (!this.memoryTests.has(tenantId) || this.memoryTests.get(tenantId).size === 0) {
-      await this.seedDefaultTests(tenantId);
+    if (!this.memoryTests.has(tenantId)) {
+      this.memoryTests.set(tenantId, new Map());
     }
     return Array.from(this.memoryTests.get(tenantId).values());
   }
 
   async seedDefaultTests(tenantId) {
-    const defaults = [
-      { code: 'CBC', name: 'Complete Blood Count with Differential', category: 'Hematology', specimenType: 'Whole Blood', price: 25.00, turnaroundHours: 4 },
-      { code: 'CMP', name: 'Comprehensive Metabolic Panel (14 Tests)', category: 'Biochemistry', specimenType: 'Serum', price: 45.00, turnaroundHours: 6 },
-      { code: 'LIPID', name: 'Lipid Profile (Cholesterol, HDL, LDL, Triglycerides)', category: 'Biochemistry', specimenType: 'Serum', price: 35.00, turnaroundHours: 8 },
-      { code: 'TSH', name: 'Thyroid Stimulating Hormone Ultra-Sensitive', category: 'Endocrinology', specimenType: 'Serum', price: 40.00, turnaroundHours: 12 },
-      { code: 'HBA1C', name: 'Hemoglobin A1c Glycated Blood Monitor', category: 'Biochemistry', specimenType: 'Whole Blood', price: 30.00, turnaroundHours: 6 },
-      { code: 'URINE', name: 'Routine Urinalysis with Microscopic Examination', category: 'Urinalysis', specimenType: 'Urine', price: 20.00, turnaroundHours: 2 },
-    ];
-
-    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
-    if (TestModel) {
-      for (const t of defaults) {
-        const testId = this.generateId('tst');
-        const doc = new TestModel({ testId, tenantId, ...t, isActive: true });
-        await doc.save();
-      }
-      return;
-    }
-
-    if (!this.memoryTests.has(tenantId)) this.memoryTests.set(tenantId, new Map());
-    for (const t of defaults) {
-      const testId = this.generateId('tst');
-      this.memoryTests.get(tenantId).set(testId, { testId, tenantId, ...t, isActive: true, toSafeJSON() { return { ...this }; } });
-    }
+    // Disabled: tests are created manually by the laboratory administrator.
+    return;
   }
 
   async createTest(tenantId, data, actor = {}) {

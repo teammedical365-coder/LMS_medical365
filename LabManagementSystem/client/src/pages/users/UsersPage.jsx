@@ -77,10 +77,10 @@ export function UsersPage() {
   });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
-  // Helper to resolve standard/first active staff role
+  // Helper to resolve standard/first active staff role (excludes lab_admin)
   const getAvailableStaffRole = useCallback((roleList = []) => {
-    const active = roleList.filter((r) => r.isActive);
-    return active.find((r) => r.code !== 'lab_admin')?.code || active[0]?.code || '';
+    const active = roleList.filter((r) => r.isActive && r.code !== 'lab_admin');
+    return active[0]?.code || '';
   }, []);
 
   // Role Builder Modal
@@ -109,7 +109,7 @@ export function UsersPage() {
         roleService.listUsers(tenantId).catch(() => []),
       ]);
 
-      const fetchedRoles = rolesRes || [];
+      const fetchedRoles = Array.isArray(rolesRes) ? rolesRes : [];
       setMatrixData(matrixRes);
       setRoles(fetchedRoles);
       setUsers(usersRes || []);
@@ -1109,13 +1109,13 @@ export function UsersPage() {
                 onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
                 required
               >
-                {roles.filter((r) => r.isActive).length === 0 ? (
+                {roles.filter((r) => r.isActive && r.code !== 'lab_admin').length === 0 ? (
                   <option value="" disabled>No roles created yet. Please define roles in Super Admin first.</option>
                 ) : (
                   <>
                     <option value="" disabled>Select a laboratory role...</option>
                     {roles
-                      .filter((r) => r.isActive)
+                      .filter((r) => r.isActive && r.code !== 'lab_admin')
                       .map((r) => (
                         <option key={r.code} value={r.code}>
                           {r.name} ({r.code})
@@ -1168,11 +1168,11 @@ export function UsersPage() {
                 onChange={(e) => setSelectedAssignRoleId(e.target.value)}
                 required
               >
-                {roles.filter((r) => r.isActive).length === 0 ? (
+                {roles.filter((r) => r.isActive && r.code !== 'lab_admin').length === 0 ? (
                   <option value="" disabled>No active laboratory roles found.</option>
                 ) : (
                   roles
-                    .filter((r) => r.isActive)
+                    .filter((r) => r.isActive && r.code !== 'lab_admin')
                     .map((r) => (
                       <option key={r.code} value={r.code}>
                         {r.name} — {r.permissions?.length || 0} permissions

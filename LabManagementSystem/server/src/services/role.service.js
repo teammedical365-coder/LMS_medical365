@@ -449,10 +449,11 @@ class RoleService {
    */
   async seedDefaultRoles(tenantId) {
     const RoleModel = tenantConnectionService.getTenantRoleModel(tenantId);
+    // Strictly retrieve roles created by Super Admin in platform_master
     const masterRoles = await this.listMasterRoles().catch(() => []);
-    const rolesToSeed = masterRoles && masterRoles.length > 0 ? masterRoles : DEFAULT_LAB_ROLES;
+    const rolesToSeed = masterRoles || [];
 
-    if (!rolesToSeed || rolesToSeed.length === 0) return;
+    if (rolesToSeed.length === 0) return;
 
     if (RoleModel) {
       for (const def of rolesToSeed) {
@@ -468,58 +469,10 @@ class RoleService {
             dashboardPath: def.dashboardPath,
             navigationItems: def.navigationItems,
             permissions: def.permissions,
-            isSystemDefault: def.isSystemDefault ?? true,
+            isSystemDefault: def.isSystemDefault ?? false,
             isActive: def.isActive ?? true,
           });
-        } else if (existing.code === 'lab_admin') {
-          let updated = false;
-          const allowedNav = ['dashboard', 'tests', 'reports', 'billing', 'users'];
-          const disallowedPerms = [
-            'patients:view', 'patients:create', 'patients:update', 'patients:delete',
-            'orders:view', 'orders:create', 'orders:update', 'orders:delete',
-            'samples:view', 'samples:collect', 'samples:process', 'samples:verify',
-            'audit:view',
-            'settings:view', 'settings:manage',
-          ];
-          const filteredPerms = existing.permissions.filter((p) => !disallowedPerms.includes(p));
-          if (filteredPerms.length !== existing.permissions.length) {
-            existing.permissions = filteredPerms;
-            updated = true;
-          }
-          if (JSON.stringify(existing.navigationItems) !== JSON.stringify(allowedNav)) {
-            existing.navigationItems = allowedNav;
-            updated = true;
-          }
-          if (updated) {
-            await existing.save();
-          }
-        } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
-          let updated = false;
-          // Strict Separation of Duties (SoD): sample_collection / phlebotomist only has collection privileges
-          const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
-          const filtered = existing.permissions.filter((p) => allowedForCollector.includes(p));
-          for (const perm of allowedForCollector) {
-            if (!filtered.includes(perm)) filtered.push(perm);
-          }
-          if (filtered.length !== existing.permissions.length || !existing.permissions.every((p) => filtered.includes(p))) {
-            existing.permissions = filtered;
-            updated = true;
-          }
-          if (updated) {
-            await existing.save();
-          }
-        } else if (existing.code === 'lab_technician') {
-          let updated = false;
-          const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
-          for (const p of techRequired) {
-            if (!existing.permissions.includes(p)) {
-              existing.permissions.push(p);
-              updated = true;
-            }
-          }
-          if (updated) {
-            await existing.save();
-          }
+          await roleDoc.save();
         }
       }
       return;
@@ -545,7 +498,7 @@ class RoleService {
           dashboardPath: def.dashboardPath,
           navigationItems: def.navigationItems,
           permissions: [...def.permissions],
-          isSystemDefault: def.isSystemDefault ?? true,
+          isSystemDefault: def.isSystemDefault ?? false,
           isActive: def.isActive ?? true,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -554,17 +507,6 @@ class RoleService {
           },
         };
         tenantRoles.set(roleId, mockRole);
-      } else if (['phlebotomist', 'sample_collection'].includes(existing.code)) {
-        const allowedForCollector = ['patients:view', 'orders:view', 'samples:view', 'samples:collect'];
-        existing.permissions = existing.permissions.filter((p) => allowedForCollector.includes(p));
-        for (const perm of allowedForCollector) {
-          if (!existing.permissions.includes(perm)) existing.permissions.push(perm);
-        }
-      } else if (existing.code === 'lab_technician') {
-        const techRequired = ['samples:view', 'samples:receive', 'samples:process', 'samples:verify'];
-        for (const p of techRequired) {
-          if (!existing.permissions.includes(p)) existing.permissions.push(p);
-        }
       }
     }
   }

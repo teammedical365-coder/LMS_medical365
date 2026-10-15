@@ -354,37 +354,20 @@ export function RegisterLaboratoryPage() {
                 </span>
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="legalName">
-                  Legal / Registered Entity Name
-                </label>
-                <input
-                  id="legalName"
-                  name="legalName"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Apex Diagnostics Group LLC"
-                  value={formData.legalName}
-                  onChange={handleInputChange}
-                />
-              </div>
-
               <div className="grid-2">
                 <div className="form-group">
-                  <label className="form-label" htmlFor="subscriptionPlan">
-                    Subscription Tier
+                  <label className="form-label" htmlFor="legalName">
+                    Legal / Registered Entity Name
                   </label>
-                  <select
-                    id="subscriptionPlan"
-                    name="subscriptionPlan"
-                    className="form-select"
-                    value={formData.subscriptionPlan}
+                  <input
+                    id="legalName"
+                    name="legalName"
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Apex Diagnostics Group LLC"
+                    value={formData.legalName}
                     onChange={handleInputChange}
-                  >
-                    <option value="standard">Standard Laboratory</option>
-                    <option value="enterprise">Enterprise Hospital Lab</option>
-                    <option value="reference">Reference Pathology Network</option>
-                  </select>
+                  />
                 </div>
 
                 <div className="form-group">

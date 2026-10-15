@@ -110,14 +110,32 @@ p {
   white-space: nowrap;
 }
 
-.btn-primary {
+.btn-primary,
+a.btn-primary,
+button.btn-primary {
   background-color: var(--primary-blue);
-  color: white;
+  color: #ffffff !important;
+  text-decoration: none;
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
 }
-.btn-primary:hover {
+.btn-primary:hover,
+a.btn-primary:hover,
+button.btn-primary:hover,
+.btn-primary:focus,
+a.btn-primary:focus,
+button.btn-primary:focus,
+.btn-primary:visited,
+a.btn-primary:visited {
   background-color: var(--primary-blue-hover);
+  color: #ffffff !important;
+  text-decoration: none;
   box-shadow: 0 3px 8px rgba(37, 99, 235, 0.32);
+}
+
+.btn-primary svg,
+a.btn-primary svg {
+  color: #ffffff !important;
+  stroke: currentColor;
 }
 
 .btn-secondary {

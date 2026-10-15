@@ -77,7 +77,7 @@ export function LaboratoryDetailsPage() {
     fullName: '',
     email: '',
     password: '',
-    role: 'lab_admin',
+    role: '',
     phone: '',
     department: '',
   });
@@ -89,7 +89,7 @@ export function LaboratoryDetailsPage() {
     try {
       await superAdminService.createLaboratoryStaff(lab.tenantId, staffFormData);
       setStaffModalOpen(false);
-      setStaffFormData({ fullName: '', email: '', password: '', role: 'lab_admin', phone: '', department: '' });
+      setStaffFormData({ fullName: '', email: '', password: '', role: '', phone: '', department: '' });
       setActionFeedback({
         type: 'success',
         message: `Staff member ${staffFormData.fullName} (${staffFormData.email}) created successfully with role ${staffFormData.role}.`,
@@ -105,12 +105,18 @@ export function LaboratoryDetailsPage() {
     }
   };
 
+  const [availableRoles, setAvailableRoles] = useState([]);
+
   const fetchLabDetails = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await superAdminService.getLaboratory(id);
+      const [data, rolesData] = await Promise.all([
+        superAdminService.getLaboratory(id),
+        superAdminService.listRoles().catch(() => []),
+      ]);
       setLab(data);
+      setAvailableRoles(Array.isArray(rolesData) ? rolesData : []);
       setEditFormData({
         name: data.name || '',
         legalName: data.legalName || '',
@@ -672,10 +678,18 @@ export function LaboratoryDetailsPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-primary"
+              style={{
+                color: '#ffffff',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontWeight: 600,
+              }}
               title="Open Whitelabel Portal in a new tab"
             >
-              <span>Launch Portal</span>
-              <Globe size={14} />
+              <span style={{ color: '#ffffff' }}>Launch Portal</span>
+              <Globe size={14} style={{ color: '#ffffff', stroke: '#ffffff' }} />
             </a>
           </div>
         </div>
@@ -1092,12 +1106,14 @@ export function LaboratoryDetailsPage() {
               onChange={(e) => setStaffFormData({ ...staffFormData, role: e.target.value })}
               required
             >
-              <option value="lab_admin">Laboratory Administrator (Full Lab Access)</option>
-              <option value="pathologist">Pathologist / Medical Reviewer</option>
-              <option value="lab_technician">Laboratory Technician</option>
-              <option value="receptionist">Receptionist / Front Desk</option>
-              <option value="phlebotomist">Phlebotomist / Sample Collector</option>
-              <option value="billing_clerk">Billing Clerk / Accountant</option>
+              <option value="" disabled>Select a laboratory role...</option>
+              {availableRoles
+                .filter((r) => r.isActive && r.code !== 'lab_admin')
+                .map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.name} ({r.code})
+                  </option>
+                ))}
             </select>
           </div>
 

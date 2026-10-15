@@ -651,8 +651,8 @@ export function LaboratoriesPage() {
           )}
 
           <form onSubmit={handleLabRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
-            {/* Line 1 (3 fields) */}
-            <div className="form-row-3col">
+            {/* Line 1 (2 fields: Name & Code) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
               {/* Lab Name */}
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
@@ -703,24 +703,6 @@ export function LaboratoriesPage() {
                 ) : (
                   <span className="form-hint">URL slug: /lab/apex-01</span>
                 )}
-              </div>
-
-              {/* Subscription Plan */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.825rem', fontWeight: 600 }}>
-                  Subscription Plan <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <select
-                  name="subscriptionPlan"
-                  className="form-select"
-                  value={labForm.subscriptionPlan}
-                  onChange={handleLabInputChange}
-                  required
-                >
-                  <option value="standard">Standard Plan</option>
-                  <option value="professional">Professional Plan</option>
-                  <option value="enterprise">Enterprise Plan</option>
-                </select>
               </div>
             </div>
 
