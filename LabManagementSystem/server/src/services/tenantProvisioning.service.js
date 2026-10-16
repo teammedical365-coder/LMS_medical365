@@ -114,49 +114,59 @@ export class MongoTenantProvisioningAdapter {
     // Derive tenant URI: replace default DB name with tenant database name
     const tenantUri = this.getTenantConnectionUri(databaseName);
     let connection = null;
+    let shouldClose = false;
 
     try {
       logger.info(`[PROVISIONING] Connecting to tenant database: ${databaseName}`);
-      connection = await mongoose.createConnection(this.baseUri, {
-        dbName: databaseName,
-        serverSelectionTimeoutMS: 15000,
-      }).asPromise();
+      let db;
+
+      if (mongoose.connection && mongoose.connection.readyState === 1) {
+        // High-performance connection reuse: use existing warm socket pool via useDb
+        const tenantConn = mongoose.connection.useDb(databaseName, { useCache: true });
+        db = tenantConn.db;
+        connection = tenantConn;
+        shouldClose = false;
+      } else {
+        connection = await mongoose.createConnection(this.baseUri, {
+          dbName: databaseName,
+          serverSelectionTimeoutMS: 15000,
+        }).asPromise();
+        db = connection.db;
+        shouldClose = true;
+      }
 
       // Core tenant collections & schema index initialization
       const collections = ['users', 'roles', 'patients', 'lab_orders', 'samples', 'audit_logs'];
 
-      // Initialize collections & indexes
-      const db = connection.db;
+      // Initialize collections & indexes in parallel for sub-second provisioning
+      await Promise.all([
+        (async () => {
+          const usersColl = await db.createCollection('users').catch((err) => (err.code === 48 ? db.collection('users') : Promise.reject(err)));
+          await usersColl.createIndex({ tenantId: 1, email: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const rolesColl = await db.createCollection('roles').catch((err) => (err.code === 48 ? db.collection('roles') : Promise.reject(err)));
+          await rolesColl.createIndex({ tenantId: 1, code: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const patientsColl = await db.createCollection('patients').catch((err) => (err.code === 48 ? db.collection('patients') : Promise.reject(err)));
+          await patientsColl.createIndex({ tenantId: 1, mrn: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const ordersColl = await db.createCollection('lab_orders').catch((err) => (err.code === 48 ? db.collection('lab_orders') : Promise.reject(err)));
+          await ordersColl.createIndex({ tenantId: 1, orderNumber: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const samplesColl = await db.createCollection('samples').catch((err) => (err.code === 48 ? db.collection('samples') : Promise.reject(err)));
+          await samplesColl.createIndex({ tenantId: 1, barcode: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const auditColl = await db.createCollection('audit_logs').catch((err) => (err.code === 48 ? db.collection('audit_logs') : Promise.reject(err)));
+          await auditColl.createIndex({ timestamp: -1 });
+        })(),
+      ]);
 
-      // 1. users collection
-      const usersColl = await db.createCollection('users');
-      await usersColl.createIndex({ tenantId: 1, email: 1 }, { unique: true });
-
-      // 2. roles collection (Phase 4A)
-      const rolesColl = await db.createCollection('roles');
-      await rolesColl.createIndex({ tenantId: 1, code: 1 }, { unique: true });
-
-      // 3. patients collection
-      const patientsColl = await db.createCollection('patients');
-      await patientsColl.createIndex({ tenantId: 1, mrn: 1 }, { unique: true });
-
-      // 4. lab_orders collection
-      const ordersColl = await db.createCollection('lab_orders');
-      await ordersColl.createIndex({ tenantId: 1, orderNumber: 1 }, { unique: true });
-
-      // 5. samples collection
-      const samplesColl = await db.createCollection('samples');
-      await samplesColl.createIndex({ tenantId: 1, barcode: 1 }, { unique: true });
-
-      // 6. audit_logs collection
-      const auditColl = await db.createCollection('audit_logs');
-      await auditColl.createIndex({ timestamp: -1 });
-
-      // Verification probe
-      const collectionsList = await db.listCollections().toArray();
-      const createdNames = collectionsList.map((c) => c.name);
-
-      logger.info(`[PROVISIONING] Successfully initialized ${createdNames.length} collections in ${databaseName}`);
+      logger.info(`[PROVISIONING] Successfully initialized ${collections.length} collections in parallel in ${databaseName}`);
 
       return {
         success: true,
@@ -173,7 +183,7 @@ export class MongoTenantProvisioningAdapter {
       logger.error(`[PROVISIONING] Failed to initialize ${databaseName}: ${sanitized}`);
       throw new Error(sanitized);
     } finally {
-      if (connection) {
+      if (shouldClose && connection) {
         await connection.close().catch(() => {});
       }
     }

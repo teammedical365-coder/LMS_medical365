@@ -22,6 +22,10 @@ tenantUserRouter.post('/', requirePermission('users:manage'), tenantUserControll
 // Get specific user by ID
 tenantUserRouter.get('/:userId', requirePermission('users:view'), tenantUserController.getUserById);
 
+// Update user details
+tenantUserRouter.put('/:userId', requirePermission('users:manage'), tenantUserController.updateUser);
+tenantUserRouter.patch('/:userId', requirePermission('users:manage'), tenantUserController.updateUser);
+
 // Update user active status (safe deactivation)
 tenantUserRouter.patch('/:userId/status', requirePermission('users:manage'), tenantUserController.updateUserStatus);
 

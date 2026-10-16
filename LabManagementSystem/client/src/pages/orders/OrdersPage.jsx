@@ -83,8 +83,11 @@ export function OrdersPage() {
 
   useEffect(() => {
     fetchOrders();
+  }, [fetchOrders]);
+
+  useEffect(() => {
     fetchPrerequisites();
-  }, [fetchOrders, fetchPrerequisites]);
+  }, [fetchPrerequisites]);
 
   const handleTestToggle = (code) => {
     setSelectedTestCodes((prev) =>
@@ -104,7 +107,7 @@ export function OrdersPage() {
       return;
     }
     if (selectedTestCodes.length === 0) {
-      notify.error('Please select at least one test from the catalog');
+      notify.error('Please select at least one test from the catalogue');
       return;
     }
 
@@ -1148,7 +1151,7 @@ export function OrdersPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Select Laboratory Panels (from Test Catalog) *</label>
+            <label className="form-label">Select Laboratory Panels (from Test Catalogue) *</label>
             <div
               style={{
                 maxHeight: '180px',
@@ -1163,7 +1166,7 @@ export function OrdersPage() {
             >
               {catalogTests.length === 0 ? (
                 <p style={{ fontSize: '0.8125rem', color: 'var(--slate-500)', padding: '0.5rem' }}>
-                  No tests in catalog. Please seed or create tests first.
+                  No tests in catalogue. Please seed or create tests first.
                 </p>
               ) : (
                 catalogTests.map((t) => {

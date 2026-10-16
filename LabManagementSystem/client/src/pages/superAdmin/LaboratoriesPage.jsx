@@ -185,7 +185,6 @@ export function LaboratoriesPage() {
       });
       setLaboratories(result.laboratories || []);
       setPagination(result.pagination || { page: currentPage, limit: 10, total: 0, totalPages: 1 });
-      fetchAllLabsForDropdown();
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to retrieve laboratories';
       const status = err.response?.status;
@@ -194,6 +193,10 @@ export function LaboratoriesPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchAllLabsForDropdown();
+  }, []);
 
   useEffect(() => {
     fetchLabs();
@@ -286,6 +289,7 @@ export function LaboratoriesPage() {
       setLabSuccess(null);
       setLabForm(initialLabFormState);
       fetchLabs();
+      fetchAllLabsForDropdown();
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setLabError('Super Administrator authentication required to register new medical facilities.');

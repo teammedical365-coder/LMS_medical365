@@ -232,7 +232,7 @@ class LaboratoryManagementService {
   /**
    * Retrieve single laboratory by tenantId or internal _id
    */
-  async getLaboratoryById(idOrTenantId) {
+  async getLaboratoryById(idOrTenantId, { includeStaff = false } = {}) {
     if (!idOrTenantId) {
       throw new LaboratoryManagementError('Laboratory ID is required', 400);
     }
@@ -261,7 +261,7 @@ class LaboratoryManagementService {
       lab = { ...tenant };
     }
 
-    if (lab) {
+    if (lab && includeStaff) {
       try {
         const users = await tenantUserService.listUsers(lab.tenantId);
         const adminUser = users.find((u) => u.role === 'lab_admin') || null;
@@ -288,6 +288,10 @@ class LaboratoryManagementService {
         lab.staff = [];
         lab.staffCount = 0;
       }
+    } else if (lab) {
+      lab.adminUser = null;
+      lab.staff = [];
+      lab.staffCount = 0;
     }
 
     return lab;
@@ -589,7 +593,7 @@ class LaboratoryManagementService {
       }
 
       await auditLogService.logEvent({
-        action: 'LABORATORY_DELETED',
+        action: AUDIT_ACTIONS.LAB_DELETED,
         targetTenantId: tenantId,
         actor,
         metadata: { name: existing.name, code: existing.code },

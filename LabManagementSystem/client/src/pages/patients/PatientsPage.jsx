@@ -243,12 +243,12 @@ export function PatientsPage() {
   }, [searchParams, setSearchParams]);
 
   // Fetch Patients List
-  const fetchPatients = useCallback(async () => {
+  const fetchPatients = useCallback(async (searchQuery = '') => {
     if (!tenantId) return;
     try {
       setIsLoading(true);
       setError(null);
-      const res = await clinicalService.getPatients(tenantId, { search: searchTerm });
+      const res = await clinicalService.getPatients(tenantId, { search: searchQuery });
       if (res.success && Array.isArray(res.data)) {
         setPatients(res.data);
       }
@@ -257,7 +257,7 @@ export function PatientsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [tenantId, searchTerm]);
+  }, [tenantId]);
 
   // Fetch Laboratory Test Catalog with rates set by Lab Admin
   const fetchTestCatalog = useCallback(async () => {
@@ -288,8 +288,9 @@ export function PatientsPage() {
     }
   }, [tenantId]);
 
+  // Load patient directory and reference catalogs once on mount / tenantId change
   useEffect(() => {
-    fetchPatients();
+    fetchPatients('');
     fetchTestCatalog();
     fetchCategories();
   }, [fetchPatients, fetchTestCatalog, fetchCategories]);
@@ -1586,8 +1587,19 @@ export function PatientsPage() {
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         title="Register Patient — Unified Clinical Intake"
-        maxWidth="1100px"
-        size="xl"
+        maxWidth="900px"
+        size="lg"
+        dialogStyle={{
+          maxHeight: '92vh',
+          height: 'min(88vh, 860px)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        bodyStyle={{
+          maxHeight: 'none',
+          flex: 1,
+          overflowY: 'auto',
+        }}
       >
         <form onSubmit={handleModalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           
@@ -1852,7 +1864,7 @@ export function PatientsPage() {
                     onChange={(e) => setSelectedTestDropdownCode(e.target.value)}
                     placeholder={
                       catalogLoading
-                        ? 'Loading catalog tests...'
+                        ? 'Loading catalogue tests...'
                         : testsForSelectedCategory.length === 0
                         ? '-- No tests found in this category --'
                         : `-- Choose Test (${testsForSelectedCategory.length} available) --`
@@ -1862,7 +1874,7 @@ export function PatientsPage() {
                       {
                         value: '',
                         label: catalogLoading
-                          ? 'Loading catalog tests...'
+                          ? 'Loading catalogue tests...'
                           : testsForSelectedCategory.length === 0
                           ? '-- No tests found in this category --'
                           : `-- Choose Test (${testsForSelectedCategory.length} available) --`,

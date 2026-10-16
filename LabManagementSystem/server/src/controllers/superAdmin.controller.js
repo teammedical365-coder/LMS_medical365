@@ -18,9 +18,11 @@ export class SuperAdminController {
    */
   static async getOverview(req, res, next) {
     try {
-      const metrics = await laboratoryManagementService.getPlatformOverview();
-      const auditResult = await auditLogService.getAuditLogs({ limit: 10 }).catch(() => ({ logs: [] }));
-      const recentLaboratories = await laboratoryManagementService.listLaboratories({ limit: 10 }).catch(() => ({ laboratories: [] }));
+      const [metrics, auditResult, recentLaboratories] = await Promise.all([
+        laboratoryManagementService.getPlatformOverview(),
+        auditLogService.getAuditLogs({ limit: 10 }).catch(() => ({ logs: [] })),
+        laboratoryManagementService.listLaboratories({ limit: 10 }).catch(() => ({ laboratories: [] })),
+      ]);
 
       const payload = {
         metrics,
@@ -60,7 +62,7 @@ export class SuperAdminController {
   static async getLaboratory(req, res, next) {
     try {
       const { id } = req.params;
-      const lab = await laboratoryManagementService.getLaboratoryById(id);
+      const lab = await laboratoryManagementService.getLaboratoryById(id, { includeStaff: true });
       return ApiResponse.success(res, lab, 'Laboratory details retrieved successfully');
     } catch (err) {
       if (err instanceof LaboratoryManagementError) {
@@ -76,7 +78,7 @@ export class SuperAdminController {
   static async getLaboratoryStaff(req, res, next) {
     try {
       const { id } = req.params;
-      const lab = await laboratoryManagementService.getLaboratoryById(id);
+      const lab = await laboratoryManagementService.getLaboratoryById(id, { includeStaff: true });
       return ApiResponse.success(res, lab.staff || [], 'Laboratory staff list retrieved successfully');
     } catch (err) {
       if (err instanceof LaboratoryManagementError) {

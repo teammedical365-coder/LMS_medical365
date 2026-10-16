@@ -33,6 +33,17 @@ export class ClinicalServiceError extends Error {
 
 export const MAX_SEARCH_LENGTH = 100;
 
+export const DIAGNOSTIC_DEPARTMENTS = [
+  'Hematology',
+  'Clinical Chemistry',
+  'Clinical Pathology',
+  'Endocrinology',
+  'Immunology & Serology',
+  'Microbiology',
+  'Molecular Diagnostics',
+  'Urinalysis',
+];
+
 /**
  * Escapes regex metacharacters in user-supplied strings for safe MongoDB regex queries.
  * Converts characters [.*+?^${}()|[\]\\] into literal escaped characters.
@@ -1941,6 +1952,57 @@ class TenantClinicalService {
     const sanitizedParams = validateAndSanitizeParameters(parameters);
     const resolvedCont = container?.trim() || resolveSpecimenContainer(specimenType, container);
     const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+
+    // Resolve and validate Department & Category relationship
+    let resolvedCategoryId = data.categoryId || null;
+    let resolvedCategory = (category || '').trim();
+    let resolvedDepartment = (department || '').trim();
+
+    if (CategoryModel && resolvedCategory) {
+      const matchedCategory = await CategoryModel.findOne({
+        tenantId,
+        $or: [
+          ...(resolvedCategoryId ? [{ categoryId: resolvedCategoryId }] : []),
+          { name: { $regex: `^${escapeRegex(resolvedCategory)}$`, $options: 'i' } },
+        ],
+      });
+
+      if (matchedCategory) {
+        resolvedCategoryId = matchedCategory.categoryId;
+        resolvedCategory = matchedCategory.name;
+
+        // If department was explicitly provided, verify it matches the category's department
+        if (
+          resolvedDepartment &&
+          matchedCategory.department &&
+          resolvedDepartment.toLowerCase() !== matchedCategory.department.toLowerCase()
+        ) {
+          throw new ClinicalServiceError(
+            `Category '${matchedCategory.name}' belongs to department '${matchedCategory.department}', not '${resolvedDepartment}'. Diagnostic tests must belong to a matching Department and Category hierarchy.`,
+            'INVALID_DEPARTMENT_CATEGORY',
+            400
+          );
+        }
+        resolvedDepartment = matchedCategory.department || resolvedDepartment || 'Clinical Pathology';
+      } else {
+        // If category is newly provided, create it under the specified department
+        resolvedDepartment = resolvedDepartment || 'Clinical Pathology';
+        const newCat = await this.createTestCategory(
+          tenantId,
+          { name: resolvedCategory, department: resolvedDepartment },
+          actor
+        );
+        resolvedCategoryId = newCat.categoryId;
+        resolvedCategory = newCat.name;
+        resolvedDepartment = newCat.department;
+      }
+    } else if (!resolvedDepartment && !resolvedCategory) {
+      resolvedDepartment = 'Clinical Pathology';
+      resolvedCategory = 'General Pathology';
+    } else if (!resolvedDepartment) {
+      resolvedDepartment = 'Clinical Pathology';
+    }
 
     if (TestModel) {
       const existing = await TestModel.findOne({ tenantId, code: cleanCode });
@@ -1950,10 +2012,11 @@ class TenantClinicalService {
       const doc = new TestModel({
         testId,
         tenantId,
+        categoryId: resolvedCategoryId,
         code: cleanCode,
         name: name.trim(),
-        category: category?.trim() || 'General Pathology',
-        department: department?.trim() || 'Laboratory Diagnostics',
+        category: resolvedCategory,
+        department: resolvedDepartment,
         specimenType: specimenType?.trim() || 'Serum',
         container: resolvedCont,
         price: Number(price) || 0,
@@ -1970,10 +2033,11 @@ class TenantClinicalService {
     const mock = {
       testId,
       tenantId,
+      categoryId: resolvedCategoryId,
       code: cleanCode,
       name: name.trim(),
-      category: category || 'General Pathology',
-      department: department || 'Laboratory Diagnostics',
+      category: resolvedCategory,
+      department: resolvedDepartment,
       specimenType: specimenType || 'Serum',
       container: resolvedCont,
       price: Number(price) || 0,
@@ -2017,6 +2081,7 @@ class TenantClinicalService {
   async updateTest(tenantId, testId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
 
     const updates = {};
     if (data.code !== undefined) {
@@ -2029,8 +2094,6 @@ class TenantClinicalService {
       if (!cleanName) throw new ClinicalServiceError('Test name cannot be empty', 'VALIDATION_ERROR', 400);
       updates.name = cleanName;
     }
-    if (data.category !== undefined) updates.category = String(data.category).trim();
-    if (data.department !== undefined) updates.department = String(data.department).trim();
     if (data.specimenType !== undefined) updates.specimenType = String(data.specimenType).trim();
     if (data.container !== undefined) updates.container = String(data.container).trim();
     if (data.price !== undefined) {
@@ -2051,6 +2114,55 @@ class TenantClinicalService {
     }
     if (data.parameters !== undefined) {
       updates.parameters = validateAndSanitizeParameters(data.parameters);
+    }
+
+    // Validate Department & Category relationship if either is provided
+    if (data.category !== undefined || data.department !== undefined || data.categoryId !== undefined) {
+      let currentTest = null;
+      if (TestModel) {
+        currentTest = await TestModel.findOne({
+          tenantId,
+          $or: [{ testId }, { code: String(testId).trim().toUpperCase() }],
+        });
+      }
+
+      const targetCatName = data.category !== undefined ? String(data.category).trim() : (currentTest?.category || '');
+      const targetDeptName = data.department !== undefined ? String(data.department).trim() : (currentTest?.department || '');
+      const targetCatId = data.categoryId || currentTest?.categoryId || null;
+
+      if (CategoryModel && targetCatName) {
+        const matchedCategory = await CategoryModel.findOne({
+          tenantId,
+          $or: [
+            ...(targetCatId ? [{ categoryId: targetCatId }] : []),
+            { name: { $regex: `^${escapeRegex(targetCatName)}$`, $options: 'i' } },
+          ],
+        });
+
+        if (matchedCategory) {
+          updates.categoryId = matchedCategory.categoryId;
+          updates.category = matchedCategory.name;
+
+          if (
+            targetDeptName &&
+            matchedCategory.department &&
+            targetDeptName.toLowerCase() !== matchedCategory.department.toLowerCase()
+          ) {
+            throw new ClinicalServiceError(
+              `Category '${matchedCategory.name}' belongs to department '${matchedCategory.department}', not '${targetDeptName}'. Diagnostic tests must belong to a matching Department and Category hierarchy.`,
+              'INVALID_DEPARTMENT_CATEGORY',
+              400
+            );
+          }
+          updates.department = matchedCategory.department || targetDeptName || 'Clinical Pathology';
+        } else {
+          updates.category = targetCatName;
+          if (targetDeptName) updates.department = targetDeptName;
+        }
+      } else {
+        if (data.category !== undefined) updates.category = targetCatName;
+        if (data.department !== undefined) updates.department = targetDeptName;
+      }
     }
 
     if (TestModel) {
@@ -2099,30 +2211,87 @@ class TenantClinicalService {
   }
 
   // -------------------------------------------------------------------------
+  // DIAGNOSTIC DEPARTMENTS
+  // -------------------------------------------------------------------------
+  async listDepartments(tenantId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+
+    const deptMap = new Map();
+    for (const d of DIAGNOSTIC_DEPARTMENTS) {
+      deptMap.set(d.toLowerCase(), { name: d, categoryCount: 0, testCount: 0 });
+    }
+
+    if (CategoryModel) {
+      const categories = await CategoryModel.find({ tenantId });
+      for (const cat of categories) {
+        const dName = (cat.department || 'Clinical Pathology').trim();
+        const dKey = dName.toLowerCase();
+        if (!deptMap.has(dKey)) {
+          deptMap.set(dKey, { name: dName, categoryCount: 0, testCount: 0 });
+        }
+        deptMap.get(dKey).categoryCount += 1;
+      }
+    }
+
+    if (TestModel) {
+      const tests = await TestModel.find({ tenantId });
+      for (const t of tests) {
+        const dName = (t.department || 'Clinical Pathology').trim();
+        const dKey = dName.toLowerCase();
+        if (!deptMap.has(dKey)) {
+          deptMap.set(dKey, { name: dName, categoryCount: 0, testCount: 0 });
+        }
+        deptMap.get(dKey).testCount += 1;
+      }
+    }
+
+    return Array.from(deptMap.values());
+  }
+
+  // -------------------------------------------------------------------------
   // TEST CATEGORIES MANAGEMENT (Lab Admin, Receptionist)
   // -------------------------------------------------------------------------
-  async listTestCategories(tenantId) {
+  async listTestCategories(tenantId, query = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
     const defaultCategories = [
-      { name: 'Hematology', department: 'Hematology', description: 'Complete Blood Count & Blood Morphologies' },
-      { name: 'Biochemistry', department: 'Clinical Chemistry', description: 'Metabolic, Lipid & Renal Panels' },
-      { name: 'Clinical Pathology', department: 'Clinical Pathology', description: 'Urine, Fluid & Stool Routine Analysis' },
-      { name: 'Endocrinology', department: 'Endocrinology', description: 'Hormones, Thyroid & Diabetes Diagnostics' },
-      { name: 'Immunology & Serology', department: 'Immunology', description: 'Infectious markers, Antibodies & CRP' },
-      { name: 'Microbiology', department: 'Microbiology', description: 'Cultures & Smear Examination' },
-      { name: 'Molecular Diagnostics', department: 'Molecular Diagnostics', description: 'PCR & Genetic Amplifications' },
+      // Hematology
+      { name: 'Complete Blood Count (CBC)', department: 'Hematology', description: 'Hemoglobin, RBC, WBC, Platelets & Indices' },
+      { name: 'Coagulation Studies', department: 'Hematology', description: 'PT/INR, APTT, Fibrinogen & Bleeding Profiles' },
+      { name: 'Anemia Profile', department: 'Hematology', description: 'Iron Studies, Ferritin, TIBC & Vitamin B12' },
+      // Clinical Chemistry
+      { name: 'Lipid Profile', department: 'Clinical Chemistry', description: 'Total Cholesterol, HDL, LDL, VLDL, Triglycerides' },
+      { name: 'Liver Function Test (LFT)', department: 'Clinical Chemistry', description: 'Bilirubin, SGOT/AST, SGPT/ALT, Alkaline Phosphatase, Protein' },
+      { name: 'Renal Function Test (RFT)', department: 'Clinical Chemistry', description: 'Blood Urea, Serum Creatinine, Uric Acid, BUN' },
+      { name: 'Diabetic Screen', department: 'Clinical Chemistry', description: 'Fasting Blood Glucose, Post-Prandial, HbA1c' },
+      { name: 'Cardiac Markers', department: 'Clinical Chemistry', description: 'Troponin I/T, CK-MB, CPK, Myoglobin' },
+      { name: 'Electrolytes Panel', department: 'Clinical Chemistry', description: 'Sodium, Potassium, Chloride, Bicarbonate, Calcium' },
+      // Endocrinology
+      { name: 'Thyroid Profile', department: 'Endocrinology', description: 'Total T3, Total T4, TSH, Free T3, Free T4' },
+      { name: 'Fertility Hormones', department: 'Endocrinology', description: 'FSH, LH, Prolactin, Beta-hCG, Testosterone, Progesterone' },
+      // Clinical Pathology
+      { name: 'Routine Urine Examination', department: 'Clinical Pathology', description: 'Physical, Chemical & Microscopic Urine Analysis' },
+      { name: 'Stool Examination', department: 'Clinical Pathology', description: 'Stool Routine, Microscopy & Occult Blood' },
+      // Immunology & Serology
+      { name: 'Infectious Disease Serology', department: 'Immunology & Serology', description: 'HIV 1 & 2, HBsAg, HCV, VDRL/Syphilis, Widal' },
+      { name: 'Autoimmune & Rheumatology', department: 'Immunology & Serology', description: 'RA Factor, Anti-CCP, ANA, CRP / hs-CRP' },
+      // Microbiology
+      { name: 'Cultures & Sensitivity', department: 'Microbiology', description: 'Blood, Urine, Sputum, Pus Culture & Antibiotic Susceptibility' },
+      // Molecular Diagnostics
+      { name: 'Viral PCR Testing', department: 'Molecular Diagnostics', description: 'Hepatitis B/C Viral Load, Qualitative RT-PCR' },
     ];
 
     if (CategoryModel) {
-      let categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+      let categories = await CategoryModel.find({ tenantId }).sort({ department: 1, name: 1 });
       if (categories.length === 0) {
         for (const cat of defaultCategories) {
           const categoryId = this.generateId('cat');
           const doc = new CategoryModel({ categoryId, tenantId, ...cat });
           await doc.save().catch(() => {});
         }
-        categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+        categories = await CategoryModel.find({ tenantId }).sort({ department: 1, name: 1 });
       }
 
       // Also incorporate categories from existing tests
@@ -2131,60 +2300,223 @@ class TenantClinicalService {
       if (TestModel) {
         const tests = await TestModel.find({ tenantId });
         for (const t of tests) {
-          const catName = (t.category || t.department || '').trim();
+          const catName = (t.category || '').trim();
           if (catName && !existingNames.has(catName.toLowerCase())) {
             const categoryId = this.generateId('cat');
-            const doc = new CategoryModel({ categoryId, tenantId, name: catName, department: t.department || 'General' });
+            const doc = new CategoryModel({
+              categoryId,
+              tenantId,
+              name: catName,
+              department: t.department || 'Clinical Pathology',
+            });
             await doc.save().catch(() => {});
             existingNames.add(catName.toLowerCase());
           }
         }
-        categories = await CategoryModel.find({ tenantId }).sort({ name: 1 });
+        categories = await CategoryModel.find({ tenantId }).sort({ department: 1, name: 1 });
       }
 
-      return categories.map((c) => c.toSafeJSON());
+      // Calculate test count for each category
+      const testCountMap = new Map();
+      if (TestModel) {
+        const tests = await TestModel.find({ tenantId });
+        for (const t of tests) {
+          if (t.categoryId) {
+            testCountMap.set(t.categoryId, (testCountMap.get(t.categoryId) || 0) + 1);
+          }
+          if (t.category) {
+            const key = t.category.toLowerCase().trim();
+            testCountMap.set(key, (testCountMap.get(key) || 0) + 1);
+          }
+        }
+      }
+
+      let result = categories.map((c) => {
+        const safe = c.toSafeJSON();
+        const count = testCountMap.get(c.categoryId) || testCountMap.get(c.name.toLowerCase().trim()) || 0;
+        return {
+          ...safe,
+          testCount: count,
+        };
+      });
+
+      // Filter by department if query.department is specified
+      if (query && query.department && query.department.trim() && query.department.toLowerCase() !== 'all') {
+        const targetDept = query.department.trim().toLowerCase();
+        result = result.filter((c) => c.department && c.department.toLowerCase() === targetDept);
+      }
+
+      // Filter by search query if specified
+      if (query && query.search && query.search.trim()) {
+        const term = query.search.trim().toLowerCase();
+        result = result.filter(
+          (c) =>
+            c.name.toLowerCase().includes(term) ||
+            (c.department && c.department.toLowerCase().includes(term)) ||
+            (c.description && c.description.toLowerCase().includes(term))
+        );
+      }
+
+      return result;
     }
 
-    return defaultCategories.map((c, i) => ({ categoryId: `cat_${i + 1}`, tenantId, ...c }));
+    return defaultCategories.map((c, i) => ({
+      categoryId: `cat_${i + 1}`,
+      tenantId,
+      ...c,
+      testCount: 0,
+    }));
   }
 
   async createTestCategory(tenantId, data, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    const { name, department = 'General', description = '' } = data;
+    const { name, department = 'Clinical Pathology', description = '' } = data;
     if (!name || !name.trim()) {
       throw new ClinicalServiceError('Category name is required', 'VALIDATION_ERROR', 400);
     }
     const cleanName = name.trim();
+    const cleanDept = (department || 'Clinical Pathology').trim();
     const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
     const categoryId = this.generateId('cat');
 
     if (CategoryModel) {
       const existing = await CategoryModel.findOne({
         tenantId,
-        name: { $regex: `^${cleanName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, $options: 'i' },
+        name: { $regex: `^${escapeRegex(cleanName)}$`, $options: 'i' },
       });
       if (existing) {
-        throw new ClinicalServiceError(`Category '${cleanName}' already exists`, 'DUPLICATE_CATEGORY', 409);
+        throw new ClinicalServiceError(
+          `Category '${cleanName}' already exists under department '${existing.department}'`,
+          'DUPLICATE_CATEGORY',
+          409
+        );
       }
       const doc = new CategoryModel({
         categoryId,
         tenantId,
         name: cleanName,
-        department: department.trim(),
+        department: cleanDept,
         description: description.trim(),
       });
       await doc.save();
-      return doc.toSafeJSON();
+      return { ...doc.toSafeJSON(), testCount: 0 };
     }
 
-    return { categoryId, tenantId, name: cleanName, department, description };
+    return { categoryId, tenantId, name: cleanName, department: cleanDept, description, testCount: 0 };
+  }
+
+  async updateTestCategory(tenantId, categoryId, data, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+
+    if (CategoryModel) {
+      const category = await CategoryModel.findOne({
+        tenantId,
+        $or: [{ categoryId }, { name: categoryId }],
+      });
+      if (!category) {
+        throw new ClinicalServiceError(`Category '${categoryId}' not found`, 'CATEGORY_NOT_FOUND', 404);
+      }
+
+      const oldName = category.name;
+      const oldDept = category.department;
+
+      if (data.name !== undefined) {
+        const cleanName = String(data.name).trim();
+        if (!cleanName) {
+          throw new ClinicalServiceError('Category name cannot be empty', 'VALIDATION_ERROR', 400);
+        }
+        if (cleanName.toLowerCase() !== category.name.toLowerCase()) {
+          const dup = await CategoryModel.findOne({
+            tenantId,
+            name: { $regex: `^${escapeRegex(cleanName)}$`, $options: 'i' },
+            categoryId: { $ne: category.categoryId },
+          });
+          if (dup) {
+            throw new ClinicalServiceError(
+              `Category '${cleanName}' already exists under department '${dup.department}'`,
+              'DUPLICATE_CATEGORY',
+              409
+            );
+          }
+        }
+        category.name = cleanName;
+      }
+
+      if (data.department !== undefined) {
+        const cleanDept = String(data.department).trim();
+        if (!cleanDept) {
+          throw new ClinicalServiceError('Department cannot be empty', 'VALIDATION_ERROR', 400);
+        }
+        category.department = cleanDept;
+      }
+
+      if (data.description !== undefined) {
+        category.description = String(data.description).trim();
+      }
+
+      await category.save();
+
+      // If category name or department changed, cascade update to associated tests in TestCatalogModel
+      if (TestModel && (category.name !== oldName || category.department !== oldDept)) {
+        await TestModel.updateMany(
+          {
+            tenantId,
+            $or: [{ categoryId: category.categoryId }, { category: oldName }],
+          },
+          {
+            $set: {
+              categoryId: category.categoryId,
+              category: category.name,
+              department: category.department,
+            },
+          }
+        );
+      }
+
+      // Compute current test count
+      let testCount = 0;
+      if (TestModel) {
+        testCount = await TestModel.countDocuments({
+          tenantId,
+          $or: [{ categoryId: category.categoryId }, { category: category.name }],
+        });
+      }
+
+      return { ...category.toSafeJSON(), testCount };
+    }
+
+    return { categoryId, tenantId, ...data, testCount: 0 };
   }
 
   async deleteTestCategory(tenantId, categoryId, actor = {}) {
     await tenantUserService.assertTenantReady(tenantId);
     const CategoryModel = tenantConnectionService.getTenantTestCategoryModel(tenantId);
+    const TestModel = tenantConnectionService.getTenantTestCatalogModel(tenantId);
+
     if (CategoryModel) {
-      await CategoryModel.deleteOne({ tenantId, $or: [{ categoryId }, { name: categoryId }] });
+      const category = await CategoryModel.findOne({ tenantId, $or: [{ categoryId }, { name: categoryId }] });
+      if (!category) {
+        return { success: true, categoryId };
+      }
+
+      // Check if tests are linked
+      if (TestModel) {
+        const testCount = await TestModel.countDocuments({
+          tenantId,
+          $or: [{ categoryId: category.categoryId }, { category: category.name }],
+        });
+        if (testCount > 0) {
+          throw new ClinicalServiceError(
+            `Cannot delete category '${category.name}' because ${testCount} diagnostic test(s) are assigned to it. Please reassign or delete the tests first.`,
+            'CATEGORY_IN_USE',
+            400
+          );
+        }
+      }
+
+      await CategoryModel.deleteOne({ _id: category._id });
     }
     return { success: true, categoryId };
   }

@@ -322,13 +322,9 @@ export function SuperAdminOverview() {
     setLoading(true);
     setError(null);
     try {
-      const [overviewData, labsData] = await Promise.all([
-        superAdminService.getOverview(),
-        superAdminService.listLaboratories({ page: 1, limit: 20 }).catch(() => ({ laboratories: [] })),
-      ]);
-
+      const overviewData = await superAdminService.getOverview();
       setData(overviewData);
-      setLaboratories(labsData?.laboratories || overviewData?.recentLaboratories || []);
+      setLaboratories(overviewData?.recentLaboratories || []);
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to load platform overview';
       const status = err.response?.status;

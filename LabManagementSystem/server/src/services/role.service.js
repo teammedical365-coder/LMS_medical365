@@ -456,24 +456,31 @@ class RoleService {
     if (rolesToSeed.length === 0) return;
 
     if (RoleModel) {
-      for (const def of rolesToSeed) {
-        const existing = await RoleModel.findOne({ tenantId, code: def.code });
-        if (!existing) {
-          const roleId = def.roleId || this.generateRoleId();
-          const roleDoc = new RoleModel({
-            roleId,
-            tenantId,
-            code: def.code,
-            name: def.name,
-            description: def.description,
-            dashboardPath: def.dashboardPath,
-            navigationItems: def.navigationItems,
-            permissions: def.permissions,
-            isSystemDefault: def.isSystemDefault ?? false,
-            isActive: def.isActive ?? true,
-          });
-          await roleDoc.save();
-        }
+      const existingRoles = await RoleModel.find({
+        tenantId,
+        code: { $in: rolesToSeed.map((r) => r.code) },
+      }).select('code').lean();
+
+      const existingCodes = new Set(existingRoles.map((r) => r.code));
+      const toInsert = rolesToSeed
+        .filter((def) => !existingCodes.has(def.code))
+        .map((def) => ({
+          roleId: def.roleId || this.generateRoleId(),
+          tenantId,
+          code: def.code,
+          name: def.name,
+          description: def.description,
+          dashboardPath: def.dashboardPath,
+          navigationItems: def.navigationItems,
+          permissions: def.permissions,
+          isSystemDefault: def.isSystemDefault ?? false,
+          isActive: def.isActive ?? true,
+        }));
+
+      if (toInsert.length > 0) {
+        await RoleModel.insertMany(toInsert, { ordered: false }).catch((err) => {
+          logger.warn(`[ROLES] Batch insert encountered warning for ${tenantId}: ${err.message}`);
+        });
       }
       return;
     }

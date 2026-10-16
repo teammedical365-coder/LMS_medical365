@@ -61,6 +61,23 @@ class TenantUserController {
   }
 
   /**
+   * Update staff user details
+   * PUT /api/v1/tenants/:tenantId/users/:userId
+   */
+  async updateUser(req, res, next) {
+    try {
+      const { tenantId, userId } = req.params;
+      const user = await tenantUserService.updateUser(tenantId, userId, req.body, req.user);
+      return ApiResponse.success(res, user, 'Laboratory user updated successfully');
+    } catch (err) {
+      if (err instanceof TenantUserError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  /**
    * Update user status (safe activation / deactivation)
    * PATCH /api/v1/tenants/:tenantId/users/:userId/status
    */

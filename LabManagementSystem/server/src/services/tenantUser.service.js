@@ -91,6 +91,9 @@ class TenantUserService {
     if (!fullName || typeof fullName !== 'string') {
       throw new TenantUserError('User full name is required', 'VALIDATION_ERROR', 400);
     }
+    if (phone && String(phone).replace(/\D/g, '').length !== 10) {
+      throw new TenantUserError('Phone number must be exactly 10 numeric digits', 'VALIDATION_ERROR', 400);
+    }
 
     const cleanEmail = passwordService.normalizeEmail(email);
 
@@ -369,6 +372,141 @@ class TenantUserService {
 
     user.isActive = isActive;
     user.status = isActive ? 'active' : 'deactivated';
+    user.updatedAt = new Date();
+    return typeof user.toSafeJSON === 'function' ? user.toSafeJSON() : user;
+  }
+
+  /**
+   * Update existing staff user details within a tenant database
+   * @param {string} tenantId
+   * @param {string} userId
+   * @param {Object} updateData
+   * @param {Object} actor
+   */
+  async updateUser(tenantId, userId, updateData = {}, actor = {}) {
+    await this.assertTenantReady(tenantId);
+
+    if (!userId || typeof userId !== 'string') {
+      throw new TenantUserError('Target user ID is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const { email, password, fullName, department, phone, role } = updateData;
+    const UserModel = tenantConnectionService.getTenantUserModel(tenantId);
+
+    if (UserModel) {
+      const user = await UserModel.findOne({ tenantId, userId: userId.trim() });
+      if (!user) {
+        throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
+      }
+      if (user.isDeleted || user.status === 'deleted') {
+        throw new TenantUserError('Cannot update a deleted staff account.', 'USER_ALREADY_DELETED', 400);
+      }
+
+      if (fullName !== undefined) {
+        if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+          throw new TenantUserError('User full name is required', 'VALIDATION_ERROR', 400);
+        }
+        user.fullName = fullName.trim();
+      }
+
+      if (email !== undefined) {
+        if (!email || typeof email !== 'string' || !email.trim()) {
+          throw new TenantUserError('User email is required', 'VALIDATION_ERROR', 400);
+        }
+        const cleanEmail = passwordService.normalizeEmail(email);
+        if (cleanEmail !== user.email) {
+          const existing = await UserModel.findOne({ tenantId, email: cleanEmail, userId: { $ne: user.userId } });
+          if (existing) {
+            throw new TenantUserError(
+              `User with email ${cleanEmail} already exists in this laboratory`,
+              'EMAIL_EXISTS',
+              409
+            );
+          }
+          user.email = cleanEmail;
+        }
+      }
+
+      if (phone !== undefined) {
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        if (cleanPhone.length !== 10) {
+          throw new TenantUserError('Phone number must be exactly 10 numeric digits', 'VALIDATION_ERROR', 400);
+        }
+        user.phone = cleanPhone;
+      }
+
+      if (department !== undefined) {
+        user.department = department?.trim() || null;
+      }
+
+      if (role !== undefined) {
+        let cleanRoleInput = String(role || '').trim().toLowerCase();
+        const ROLE_ALIASES = {
+          accountant: USER_ROLES.BILLING_CLERK,
+          report_reviewer: USER_ROLES.PATHOLOGIST,
+          approver: USER_ROLES.PATHOLOGIST,
+          reviewer: USER_ROLES.PATHOLOGIST,
+          sample_collection: USER_ROLES.SAMPLE_COLLECTION,
+          sample_collector: USER_ROLES.SAMPLE_COLLECTION,
+          phlebotomy: USER_ROLES.PHLEBOTOMIST,
+        };
+        if (ROLE_ALIASES[cleanRoleInput]) {
+          cleanRoleInput = ROLE_ALIASES[cleanRoleInput];
+        }
+
+        if (['super_admin', 'platform_support', 'platform_admin'].includes(cleanRoleInput)) {
+          throw new TenantUserError(
+            'Platform Super Admin privileges cannot be assigned to laboratory accounts',
+            'FORBIDDEN_ROLE',
+            403
+          );
+        }
+
+        const roleDoc = await roleService.getRoleById(tenantId, cleanRoleInput);
+        if (!roleDoc.isActive) {
+          throw new TenantUserError(`Role '${roleDoc.name}' is inactive and cannot be assigned`, 'ROLE_INACTIVE', 400);
+        }
+        user.role = roleDoc.code;
+        user.roleId = roleDoc.roleId;
+      }
+
+      if (password && password.trim()) {
+        const passCheck = passwordService.validatePassword(password);
+        if (!passCheck.isValid) {
+          throw new TenantUserError(passCheck.message, 'WEAK_PASSWORD', 400);
+        }
+        user.passwordHash = await passwordService.hashPassword(password);
+      }
+
+      await user.save();
+
+      await auditLogService.recordEvent({
+        action: AUDIT_ACTIONS.TENANT_USER_UPDATE,
+        actorType: actor.accountType || 'TENANT_USER',
+        actorId: actor.sub || actor.userId || 'system',
+        actorEmail: actor.email,
+        targetTenantId: tenantId,
+        resource: 'user',
+        details: { userId, updatedFields: Object.keys(updateData) },
+      });
+
+      return user.toSafeJSON();
+    }
+
+    // In-memory test store fallback
+    const tenantUsers = this.memoryStore.get(tenantId);
+    const user = tenantUsers?.get(userId);
+    if (!user) {
+      throw new TenantUserError('Laboratory user not found', 'USER_NOT_FOUND', 404);
+    }
+    if (fullName) user.fullName = fullName.trim();
+    if (email) user.email = passwordService.normalizeEmail(email);
+    if (department !== undefined) user.department = department?.trim() || null;
+    if (phone) user.phone = String(phone).replace(/\D/g, '');
+    if (role) user.role = role;
+    if (password && password.trim()) {
+      user.passwordHash = await passwordService.hashPassword(password);
+    }
     user.updatedAt = new Date();
     return typeof user.toSafeJSON === 'function' ? user.toSafeJSON() : user;
   }

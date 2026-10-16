@@ -156,7 +156,7 @@ export function LoginPage() {
               Multi-tenant control. <span>Unified clinical governance.</span>
             </h1>
             <p className="auth-intro-copy">
-              Centralized administration console to manage laboratories, audit security compliance, configure master catalogs, and oversee facility lifecycles.
+              Centralized administration console to manage laboratories, audit security compliance, configure master catalogues, and oversee facility lifecycles.
             </p>
 
             <div className="auth-trust-list">

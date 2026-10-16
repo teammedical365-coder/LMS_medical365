@@ -197,41 +197,8 @@ export function LaboratoryLoginPage() {
     }
   };
 
-  // State 1: Resolving Laboratory Identifier
-  if (resolvingLab) {
-    return (
-      <div className="auth-page-wrapper">
-        <header className="auth-topbar">
-          <div className="auth-brand">
-            <div className="auth-logo">
-              <FlaskConical size={20} />
-            </div>
-            <div>
-              <div className="auth-brand-name">Medical365 LMS</div>
-              <div className="auth-brand-caption">Laboratory management</div>
-            </div>
-          </div>
-          <div className="auth-top-right">
-            <Shield size={16} />
-            <span>Secure staff portal</span>
-          </div>
-        </header>
-
-        <main className="auth-main">
-          <div className="auth-login-card" style={{ maxWidth: '420px', width: '100%', textAlign: 'center', padding: '36px 28px' }}>
-            <Loader2 size={34} className="animate-spin" style={{ color: 'var(--primary-blue, #2358d5)', margin: '0 auto 14px' }} />
-            <h2 className="auth-card-title" style={{ fontSize: '20px' }}>Resolving Facility Portal</h2>
-            <p className="auth-card-subtitle" style={{ marginTop: '6px' }}>
-              Connecting to secure white-label configuration for <code>{labId}</code>...
-            </p>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // State 2: Laboratory Not Found
-  if (resolveError || !labProfile) {
+  // State 2: Laboratory Not Found (displayed only if background verification fails)
+  if (!resolvingLab && (resolveError || !labProfile)) {
     return (
       <div className="auth-page-wrapper">
         <header className="auth-topbar">
@@ -302,9 +269,9 @@ export function LaboratoryLoginPage() {
   }
 
   // State 3: Active Laboratory Whitelabel Login Portal
-  const brandTitle = labProfile.branding?.displayName || labProfile.name || 'Laboratory Portal';
-  const logoUrl = labProfile.branding?.logoUrl;
-  const facilityCode = (labProfile.code || labProfile.tenantId || labId || '').toUpperCase();
+  const brandTitle = labProfile?.branding?.displayName || labProfile?.name || (labId ? `${labId.toUpperCase()} Laboratory` : 'Laboratory Portal');
+  const logoUrl = labProfile?.branding?.logoUrl;
+  const facilityCode = (labProfile?.code || labProfile?.tenantId || labId || '').toUpperCase();
 
   return (
     <div className="auth-page-wrapper">

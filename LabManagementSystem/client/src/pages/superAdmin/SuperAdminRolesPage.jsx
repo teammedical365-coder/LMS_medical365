@@ -99,7 +99,7 @@ export const PERMISSION_MODULE_GROUPS = [
   {
     id: 'lab_testing',
     label: 'Laboratory Testing',
-    description: 'Master test catalog, standard pricing, and analyzer normal reference ranges',
+    description: 'Master test catalogue, standard pricing, and analyzer normal reference ranges',
     icon: Activity,
     color: '#7c3aed', // Purple
     bgLight: '#f5f3ff',
@@ -225,7 +225,7 @@ export const ACTION_METADATA = {
     levelLabel: 'Operational',
   },
   'tests:view': {
-    title: 'View Test Catalog',
+    title: 'View Test Catalogue',
     description: 'Browse diagnostic test list, prices, and sample requirements',
     level: 'read',
     levelLabel: 'Read-Only',
@@ -1009,7 +1009,7 @@ export function SuperAdminRolesPage() {
                   <option value="/patients">Patient Registration (/patients)</option>
                   <option value="/orders">Requisition Orders (/orders)</option>
                   <option value="/billing">Billing & Invoicing (/billing)</option>
-                  <option value="/tests">Test Catalog (/tests)</option>
+                  <option value="/tests">Test Catalogue (/tests)</option>
                   <option value="/users">Staff Directory (/users)</option>
                   <option value="/settings">Lab Settings (/settings)</option>
                 </select>

@@ -38,10 +38,10 @@ export const MODULE_ACTIONS = {
     },
   },
   tests: {
-    label: 'Test Catalog & Analyzers',
+    label: 'Test Catalogue & Analyzers',
     actions: ['view', 'manage'],
     actionLabels: {
-      view: 'View Test Catalog',
+      view: 'View Test Catalogue',
       manage: 'Manage Tests & Reference Ranges',
     },
   },
@@ -101,7 +101,7 @@ export const AVAILABLE_NAV_ITEMS = [
   { key: 'patients', label: 'Patients', path: '/patients' },
   { key: 'orders', label: 'Lab Orders', path: '/orders' },
   { key: 'samples', label: 'Samples', path: '/samples' },
-  { key: 'tests', label: 'Test Catalog', path: '/tests' },
+  { key: 'tests', label: 'Test Catalogue', path: '/tests' },
   { key: 'reports', label: 'Reports', path: '/reports' },
   { key: 'billing', label: 'Billing', path: '/billing' },
   { key: 'users', label: 'Users & Roles', path: '/users' },

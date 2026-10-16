@@ -150,7 +150,7 @@ export function Sidebar({ isOpen, onClose }) {
     { key: 'patients', name: 'Patients', path: '/patients', icon: Users, color: 'cyan' },
     { key: 'orders', name: 'Lab Orders', path: '/orders', icon: ClipboardList, color: 'indigo' },
     { key: 'samples', name: 'Samples', path: '/samples', icon: FlaskConical, color: 'emerald' },
-    { key: 'tests', name: 'Test Catalog', path: '/tests', icon: TestTube2, color: 'amber' },
+    { key: 'tests', name: 'Test Catalogue', path: '/tests', icon: TestTube2, color: 'amber' },
     { key: 'reports', name: 'Reports', path: '/reports', icon: FileText, color: 'rose' },
     { key: 'billing', name: 'Billing & Ledger', path: '/billing', icon: CreditCard, color: 'emerald' },
     { key: 'users', name: 'Staff & Roles', path: '/users', icon: ShieldCheck, color: 'purple' },

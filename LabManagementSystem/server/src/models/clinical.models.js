@@ -302,6 +302,7 @@ SampleSchema.index({ tenantId: 1, orderId: 1 });
 SampleSchema.index({ tenantId: 1, createdAt: -1 });
 SampleSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
 SampleSchema.index({ tenantId: 1, collectionStatus: 1, processingStatus: 1 });
+SampleSchema.index({ tenantId: 1, processingStatus: 1 });
 
 SampleSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -416,6 +417,7 @@ export const TestCatalogSchema = new mongoose.Schema(
   {
     testId: { type: String, required: true, index: true },
     tenantId: { type: String, required: true, index: true },
+    categoryId: { type: String, default: null, index: true },
     code: { type: String, required: true, trim: true },
     name: { type: String, required: true, trim: true },
     category: { type: String, default: 'General' },
@@ -435,6 +437,8 @@ export const TestCatalogSchema = new mongoose.Schema(
 );
 
 TestCatalogSchema.index({ tenantId: 1, code: 1 }, { unique: true });
+TestCatalogSchema.index({ tenantId: 1, categoryId: 1 });
+TestCatalogSchema.index({ tenantId: 1, department: 1 });
 
 TestCatalogSchema.methods.toSafeJSON = function () {
   const obj = this.toObject ? this.toObject() : { ...this };
@@ -443,6 +447,7 @@ TestCatalogSchema.methods.toSafeJSON = function () {
     id: obj._id,
     testId: obj.testId,
     tenantId: obj.tenantId,
+    categoryId: obj.categoryId || null,
     code: obj.code,
     name: obj.name,
     category: obj.category,

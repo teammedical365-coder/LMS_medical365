@@ -11,7 +11,7 @@ const ROUTE_NAME_MAP = {
   patients: 'Patients',
   orders: 'Lab Orders',
   samples: 'Samples',
-  tests: 'Test Catalog',
+  tests: 'Test Catalogue',
   reports: 'Reports',
   billing: 'Billing',
   users: 'Users and Roles',

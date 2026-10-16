@@ -84,21 +84,30 @@ export function LaboratoryDetailsPage() {
 
   const handleCreateStaff = async (e) => {
     e.preventDefault();
+    const cleanPhone = (staffFormData.phone || '').replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      notify.error('Phone number is required and must be exactly 10 numeric digits.');
+      return;
+    }
     setActionLoading(true);
     setActionFeedback(null);
     try {
-      await superAdminService.createLaboratoryStaff(lab.tenantId, staffFormData);
-      setStaffModalOpen(false);
-      setStaffFormData({ fullName: '', email: '', password: '', role: '', phone: '', department: '' });
-      setActionFeedback({
-        type: 'success',
-        message: `Staff member ${staffFormData.fullName} (${staffFormData.email}) created successfully with role ${staffFormData.role}.`,
+      await superAdminService.createLaboratoryStaff(lab.tenantId, {
+        ...staffFormData,
+        phone: cleanPhone,
       });
+      setStaffModalOpen(false);
+      const createdName = staffFormData.fullName;
+      const createdEmail = staffFormData.email;
+      setStaffFormData({ fullName: '', email: '', password: '', role: '', phone: '', department: '' });
+      notify.success(`Staff member ${createdName} (${createdEmail}) created successfully.`);
       fetchLabDetails();
     } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to create staff member';
+      notify.error(msg);
       setActionFeedback({
         type: 'warning',
-        message: err.response?.data?.message || err.message || 'Failed to create staff member',
+        message: msg,
       });
     } finally {
       setActionLoading(false);
@@ -1119,13 +1128,18 @@ export function LaboratoryDetailsPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div className="form-group">
-              <label className="form-label">Phone</label>
+              <label className="form-label">Phone *</label>
               <input
                 type="tel"
                 className="form-input"
-                placeholder="+91 98765 43210"
+                placeholder="e.g. 9876543210"
+                maxLength={10}
                 value={staffFormData.phone}
-                onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setStaffFormData({ ...staffFormData, phone: digits });
+                }}
+                required
               />
             </div>
             <div className="form-group">

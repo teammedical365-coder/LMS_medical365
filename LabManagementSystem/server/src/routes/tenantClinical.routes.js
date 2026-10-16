@@ -60,8 +60,11 @@ tenantClinicalRouter.get('/tests/:testId', requirePermission(['tests:view', 'ord
 tenantClinicalRouter.post('/tests', requirePermission('tests:manage'), tenantClinicalController.createTest);
 tenantClinicalRouter.patch('/tests/:testId', requirePermission('tests:manage'), tenantClinicalController.updateTest);
 
+tenantClinicalRouter.get('/departments', requirePermission(['tests:view', 'orders:create']), tenantClinicalController.listDepartments);
 tenantClinicalRouter.get('/test-categories', requirePermission(['tests:view', 'orders:create']), tenantClinicalController.listTestCategories);
 tenantClinicalRouter.post('/test-categories', requirePermission('tests:manage'), tenantClinicalController.createTestCategory);
+tenantClinicalRouter.put('/test-categories/:categoryId', requirePermission('tests:manage'), tenantClinicalController.updateTestCategory);
+tenantClinicalRouter.patch('/test-categories/:categoryId', requirePermission('tests:manage'), tenantClinicalController.updateTestCategory);
 tenantClinicalRouter.delete('/test-categories/:categoryId', requirePermission('tests:manage'), tenantClinicalController.deleteTestCategory);
 
 // ---------------------------------------------------------------------------

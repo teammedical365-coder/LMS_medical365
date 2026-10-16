@@ -53,7 +53,6 @@ export function UsersPage() {
   const [matrixData, setMatrixData] = useState({ modules: {}, navigationItems: [] });
   const [loading, setLoading] = useState(true);
   const [errorBanner, setErrorBanner] = useState(null);
-  const [successBanner, setSuccessBanner] = useState(null);
 
   // Modals state
   const [selectedUser, setSelectedUser] = useState(null);
@@ -76,6 +75,27 @@ export function UsersPage() {
     role: '',
   });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Edit Staff Member Modal state
+  const [editUserModalOpen, setEditUserModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [editUserForm, setEditUserForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    department: '',
+    phone: '',
+    role: '',
+  });
+  const [initialEditUserForm, setInitialEditUserForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    department: '',
+    phone: '',
+    role: '',
+  });
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
 
   // Helper to resolve standard/first active staff role (excludes lab_admin)
   const getAvailableStaffRole = useCallback((roleList = []) => {
@@ -207,10 +227,10 @@ export function UsersPage() {
     try {
       if (editingRole) {
         await roleService.updateRole(tenantId, editingRole.roleId, roleForm);
-        setSuccessBanner(`Role '${roleForm.name}' updated successfully.`);
+        notify.success(`Role '${roleForm.name}' updated successfully.`);
       } else {
         await roleService.createRole(tenantId, roleForm);
-        setSuccessBanner(`Custom role '${roleForm.name}' created successfully.`);
+        notify.success(`Custom role '${roleForm.name}' created successfully.`);
       }
       setRoleModalOpen(false);
       await loadData();
@@ -231,7 +251,6 @@ export function UsersPage() {
     try {
       await roleService.updateRoleStatus(tenantId, role.roleId, newStatus);
       notify.success(`Role '${role.name}' ${newStatus ? 'activated' : 'deactivated'} successfully.`);
-      setSuccessBanner(`Role '${role.name}' ${newStatus ? 'activated' : 'deactivated'} successfully.`);
       await loadData();
     } catch (err) {
       notify.error(err, { fallback: 'Failed to update role status.' });
@@ -254,7 +273,6 @@ export function UsersPage() {
       setIsDeletingRole(true);
       await roleService.deleteRole(tenantId, roleToDelete.roleId);
       notify.success(`Role "${roleToDelete.name}" deleted successfully.`);
-      setSuccessBanner(`Role "${roleToDelete.name}" deleted successfully.`);
       setRoleToDelete(null);
       await loadData();
     } catch (err) {
@@ -300,11 +318,21 @@ export function UsersPage() {
   // Create Staff User
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    setIsCreatingUser(true);
     setErrorBanner(null);
+
+    const cleanPhone = (newUserForm.phone || '').replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      notify.error('Phone number is required and must be exactly 10 numeric digits.');
+      return;
+    }
+
+    setIsCreatingUser(true);
     try {
-      await roleService.createUser(tenantId, newUserForm);
-      setSuccessBanner(`Staff user '${newUserForm.fullName}' created successfully.`);
+      await roleService.createUser(tenantId, {
+        ...newUserForm,
+        phone: cleanPhone,
+      });
+      notify.success(`Staff user '${newUserForm.fullName}' created successfully.`);
       setCreateUserModalOpen(false);
       const defaultRole = getAvailableStaffRole(roles);
       setNewUserForm({
@@ -317,9 +345,98 @@ export function UsersPage() {
       });
       await loadData();
     } catch (err) {
-      setErrorBanner(err.response?.data?.message || err.message || 'Failed to create staff member.');
+      const msg = err.response?.data?.message || err.message || 'Failed to create staff member.';
+      notify.error(msg);
+      setErrorBanner(msg);
     } finally {
       setIsCreatingUser(false);
+    }
+  };
+
+  // Helper to detect if any field in the Edit Staff modal has been modified
+  const isEditFormChanged = Boolean(
+    editingUser && (
+      (editUserForm.fullName || '').trim() !== (initialEditUserForm.fullName || '').trim() ||
+      (editUserForm.email || '').trim().toLowerCase() !== (initialEditUserForm.email || '').trim().toLowerCase() ||
+      (editUserForm.password || '').trim() !== '' ||
+      (editUserForm.department || '').trim() !== (initialEditUserForm.department || '').trim() ||
+      (editUserForm.phone || '').trim() !== (initialEditUserForm.phone || '').trim() ||
+      editUserForm.role !== initialEditUserForm.role
+    )
+  );
+
+  // Open Edit Staff Modal populated with target user data
+  const handleOpenEditUserModal = (u) => {
+    const matchedRole = roles.find((r) => r.code === u.role || r.roleId === u.roleId);
+    const resolvedRole = matchedRole?.code || u.role || getAvailableStaffRole(roles);
+    const initialData = {
+      fullName: u.fullName || '',
+      email: u.email || '',
+      password: '',
+      department: u.department || '',
+      phone: u.phone ? String(u.phone).replace(/\D/g, '').slice(0, 10) : '',
+      role: resolvedRole,
+    };
+    setEditingUser(u);
+    setEditUserForm({ ...initialData });
+    setInitialEditUserForm({ ...initialData });
+    setEditUserModalOpen(true);
+  };
+
+  // Update Staff User
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!editingUser || !isEditFormChanged) return;
+
+    if (!editUserForm.fullName.trim()) {
+      notify.error('Staff full name is required.');
+      return;
+    }
+
+    if (!editUserForm.email.trim()) {
+      notify.error('Staff email address is required.');
+      return;
+    }
+
+    const cleanPhone = (editUserForm.phone || '').replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      notify.error('Phone number is required and must be exactly 10 numeric digits.');
+      return;
+    }
+
+    if (!editUserForm.role) {
+      notify.error('Please assign a laboratory role.');
+      return;
+    }
+
+    if (editUserForm.password && editUserForm.password.trim() && editUserForm.password.trim().length < 8) {
+      notify.error('Password must be at least 8 characters long.');
+      return;
+    }
+
+    setIsUpdatingUser(true);
+    try {
+      const payload = {
+        fullName: editUserForm.fullName.trim(),
+        email: editUserForm.email.trim().toLowerCase(),
+        department: editUserForm.department.trim(),
+        phone: cleanPhone,
+        role: editUserForm.role,
+      };
+      if (editUserForm.password && editUserForm.password.trim()) {
+        payload.password = editUserForm.password.trim();
+      }
+
+      await roleService.updateUser(tenantId, editingUser.userId || editingUser.id, payload);
+      notify.success(`Staff user '${editUserForm.fullName}' updated successfully.`);
+      setEditUserModalOpen(false);
+      setEditingUser(null);
+      await loadData();
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to update staff member.';
+      notify.error(msg);
+    } finally {
+      setIsUpdatingUser(false);
     }
   };
 
@@ -340,11 +457,13 @@ export function UsersPage() {
     setErrorBanner(null);
     try {
       await roleService.assignUserRole(tenantId, roleAssignModalUser.userId, selectedAssignRoleId);
-      setSuccessBanner(`Assigned role to '${roleAssignModalUser.fullName}'.`);
+      notify.success(`Assigned role to '${roleAssignModalUser.fullName}'.`);
       setRoleAssignModalUser(null);
       await loadData();
     } catch (err) {
-      setErrorBanner(err.response?.data?.message || err.message || 'Failed to assign role.');
+      const msg = err.response?.data?.message || err.message || 'Failed to assign role.';
+      notify.error(msg);
+      setErrorBanner(msg);
     } finally {
       setIsAssigningRole(false);
     }
@@ -355,10 +474,12 @@ export function UsersPage() {
     const nextStatus = !user.isActive;
     try {
       await roleService.updateUserStatus(tenantId, user.userId, nextStatus);
-      setSuccessBanner(`User '${user.fullName}' ${nextStatus ? 'activated' : 'deactivated'} successfully.`);
+      notify.success(`User '${user.fullName}' ${nextStatus ? 'activated' : 'deactivated'} successfully.`);
       await loadData();
     } catch (err) {
-      setErrorBanner(err.response?.data?.message || err.message || 'Failed to update user status.');
+      const msg = err.response?.data?.message || err.message || 'Failed to update user status.';
+      notify.error(msg);
+      setErrorBanner(msg);
     }
   };
 
@@ -377,12 +498,13 @@ export function UsersPage() {
     setErrorBanner(null);
     try {
       await roleService.deleteUser(tenantId, userToDelete.userId);
-      setSuccessBanner(`Staff account '${userToDelete.fullName}' (${userToDelete.email}) was deleted successfully.`);
+      notify.success(`Staff account '${userToDelete.fullName}' (${userToDelete.email}) was deleted successfully.`);
       setUserToDelete(null);
       await loadData();
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to delete staff account.';
       setDeleteModalError(msg);
+      notify.error(msg);
       setErrorBanner(msg);
     } finally {
       setIsDeletingUser(false);
@@ -444,33 +566,6 @@ export function UsersPage() {
         </div>
       )}
 
-      {successBanner && (
-        <div
-          style={{
-            background: 'var(--mint-bg)',
-            border: '1px solid var(--mint-200)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.75rem 1rem',
-            marginBottom: '1rem',
-            fontSize: '0.8125rem',
-            color: 'var(--mint-text)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Check size={16} />
-            <span>{successBanner}</span>
-          </div>
-          <button
-            onClick={() => setSuccessBanner(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--mint-text)' }}
-          >
-            <X size={15} />
-          </button>
-        </div>
-      )}
 
       {/* Tabs (Only visible if viewing as Super Admin) */}
       {isSuperAdmin && (
@@ -550,7 +645,7 @@ export function UsersPage() {
                   <th>Assigned Role</th>
                   <th>Department</th>
                   <th>Status</th>
-                  <th style={{ textAlign: 'right', minWidth: '310px' }}>Actions</th>
+                  <th style={{ textAlign: 'right', minWidth: '220px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -596,19 +691,11 @@ export function UsersPage() {
                           <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
                             <button
                               className="btn btn-secondary btn-sm"
-                              onClick={() => handleOpenRoleAssignModal(u)}
-                              title="Assign custom role"
+                              onClick={() => handleOpenEditUserModal(u)}
+                              title="Edit staff member"
                             >
-                              <Key size={13} />
-                              <span>Role</span>
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => setSelectedUser(u)}
-                              title="Inspect profile"
-                            >
-                              <Eye size={13} />
-                              <span>View</span>
+                              <Edit2 size={13} />
+                              <span>Edit</span>
                             </button>
                             <button
                               className="btn btn-secondary btn-sm"
@@ -1085,15 +1172,20 @@ export function UsersPage() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="new-phone">
-                  Phone
+                  Phone *
                 </label>
                 <input
                   id="new-phone"
-                  type="text"
+                  type="tel"
                   className="form-input"
                   value={newUserForm.phone}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, phone: e.target.value })}
-                  placeholder="e.g. +1 555-0192"
+                  maxLength={10}
+                  placeholder="e.g. 9876543210"
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setNewUserForm({ ...newUserForm, phone: digits });
+                  }}
+                  required
                 />
               </div>
             </div>
@@ -1138,6 +1230,149 @@ export function UsersPage() {
               <button type="submit" className="btn btn-primary" disabled={isCreatingUser}>
                 {isCreatingUser ? <Loader2 size={16} className="animate-spin" /> : null}
                 <span>Create Staff User</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MODAL: Edit Staff User */}
+      <Modal
+        isOpen={editUserModalOpen}
+        onClose={() => !isUpdatingUser && setEditUserModalOpen(false)}
+        title="Edit Laboratory Staff Member"
+      >
+        <form onSubmit={handleUpdateUser}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-fullname">
+                Full Name *
+              </label>
+              <input
+                id="edit-fullname"
+                type="text"
+                className="form-input"
+                value={editUserForm.fullName}
+                onChange={(e) => setEditUserForm({ ...editUserForm, fullName: e.target.value })}
+                placeholder="e.g. Dr. Arthur Conan, MD"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-email">
+                Staff Email Address *
+              </label>
+              <input
+                id="edit-email"
+                type="email"
+                className="form-input"
+                value={editUserForm.email}
+                onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                placeholder="staff@laboratory.org"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-password">
+                Password <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--slate-500)' }}>(leave blank to keep current)</span>
+              </label>
+              <input
+                id="edit-password"
+                type="password"
+                className="form-input"
+                value={editUserForm.password}
+                onChange={(e) => setEditUserForm({ ...editUserForm, password: e.target.value })}
+                placeholder="Enter new password only to change"
+                autoComplete="new-password"
+              />
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-dept">
+                  Department
+                </label>
+                <input
+                  id="edit-dept"
+                  type="text"
+                  className="form-input"
+                  value={editUserForm.department}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, department: e.target.value })}
+                  placeholder="e.g. Hematology"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-phone">
+                  Phone *
+                </label>
+                <input
+                  id="edit-phone"
+                  type="tel"
+                  className="form-input"
+                  value={editUserForm.phone}
+                  maxLength={10}
+                  placeholder="e.g. 9876543210"
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setEditUserForm({ ...editUserForm, phone: digits });
+                  }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-role">
+                Assigned Laboratory Role *
+              </label>
+              <select
+                id="edit-role"
+                className="form-input"
+                value={editUserForm.role}
+                onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}
+                required
+              >
+                {roles.filter((r) => r.isActive && r.code !== 'lab_admin').length === 0 ? (
+                  <option value="" disabled>No roles available.</option>
+                ) : (
+                  <>
+                    <option value="" disabled>Select a laboratory role...</option>
+                    {roles
+                      .filter((r) => r.isActive && r.code !== 'lab_admin')
+                      .map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.name} ({r.code})
+                        </option>
+                      ))}
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setEditUserModalOpen(false)}
+                disabled={isUpdatingUser}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={!isEditFormChanged || isUpdatingUser}
+                title={!isEditFormChanged ? 'Change any field to enable update' : 'Save changes'}
+                style={{
+                  opacity: !isEditFormChanged ? 0.6 : 1,
+                  cursor: !isEditFormChanged ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isUpdatingUser ? <Loader2 size={16} className="animate-spin" /> : null}
+                <span>Update Staff User</span>
               </button>
             </div>
           </div>

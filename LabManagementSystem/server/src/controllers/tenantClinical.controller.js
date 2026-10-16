@@ -261,12 +261,28 @@ export class TenantClinicalController {
   }
 
   // -------------------------------------------------------------------------
+  // DIAGNOSTIC DEPARTMENTS
+  // -------------------------------------------------------------------------
+  static async listDepartments(req, res, next) {
+    try {
+      const { tenantId } = req.params;
+      const departments = await tenantClinicalService.listDepartments(tenantId);
+      return ApiResponse.success(res, departments, 'Diagnostic departments retrieved successfully');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // TEST CATEGORIES
   // -------------------------------------------------------------------------
   static async listTestCategories(req, res, next) {
     try {
       const { tenantId } = req.params;
-      const categories = await tenantClinicalService.listTestCategories(tenantId);
+      const categories = await tenantClinicalService.listTestCategories(tenantId, req.query);
       return ApiResponse.success(res, categories, 'Test categories retrieved successfully');
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
@@ -281,6 +297,19 @@ export class TenantClinicalController {
       const { tenantId } = req.params;
       const category = await tenantClinicalService.createTestCategory(tenantId, req.body, req.user);
       return ApiResponse.success(res, category, 'Test category created successfully', HTTP_STATUS.CREATED);
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
+  static async updateTestCategory(req, res, next) {
+    try {
+      const { tenantId, categoryId } = req.params;
+      const category = await tenantClinicalService.updateTestCategory(tenantId, categoryId, req.body, req.user);
+      return ApiResponse.success(res, category, 'Test category updated successfully');
     } catch (err) {
       if (err instanceof ClinicalServiceError) {
         return ApiResponse.error(res, err.message, err.statusCode, err.code);

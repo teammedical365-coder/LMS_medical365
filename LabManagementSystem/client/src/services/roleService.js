@@ -86,6 +86,14 @@ export const roleService = {
   },
 
   /**
+   * Update existing user details in tenant
+   */
+  async updateUser(tenantId, userId, userData) {
+    const res = await api.put(`/tenants/${tenantId}/users/${userId}`, userData);
+    return res.data.data;
+  },
+
+  /**
    * Update user status (active/deactivated)
    */
   async updateUserStatus(tenantId, userId, isActive) {

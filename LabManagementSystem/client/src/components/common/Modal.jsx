@@ -20,6 +20,11 @@ export function Modal({
   children,
   footer,
   maxWidth,
+  maxHeight,
+  height,
+  style,
+  dialogStyle,
+  bodyStyle,
   size = 'md',
   className = '',
 }) {
@@ -42,6 +47,14 @@ export function Modal({
   if (!isOpen) return null;
 
   const resolvedMaxWidth = maxWidth || SIZE_MAX_WIDTH[size] || '580px';
+  const mergedDialogStyle = {
+    maxWidth: resolvedMaxWidth,
+    width: '100%',
+    ...(maxHeight ? { maxHeight } : {}),
+    ...(height ? { height } : {}),
+    ...dialogStyle,
+    ...style,
+  };
 
   return (
     <div
@@ -52,7 +65,7 @@ export function Modal({
     >
       <div
         className={`modal-dialog modal-${size || 'md'}`}
-        style={{ maxWidth: resolvedMaxWidth, width: '100%' }}
+        style={mergedDialogStyle}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
@@ -67,7 +80,7 @@ export function Modal({
           </button>
         </div>
 
-        <div className="modal-body">{children}</div>
+        <div className="modal-body" style={bodyStyle}>{children}</div>
 
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
