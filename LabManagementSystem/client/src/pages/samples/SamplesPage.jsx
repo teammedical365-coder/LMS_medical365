@@ -270,15 +270,40 @@ export function SamplesPage() {
               size: 60mm 25mm;
               margin: 0;
             }
+            @media print {
+              html, body {
+                width: 60mm !important;
+                height: 24mm !important;
+                max-height: 24mm !important;
+                overflow: hidden !important;
+                page-break-after: avoid !important;
+                break-after: avoid !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                margin: 0 !important;
+                padding: 1mm 2mm !important;
+              }
+              .barcode-wrap svg {
+                height: 8.5mm !important;
+                max-height: 8.5mm !important;
+              }
+            }
             * {
               box-sizing: border-box;
               margin: 0;
               padding: 0;
             }
+            html {
+              width: 60mm;
+              height: 24mm;
+              max-height: 24mm;
+              overflow: hidden;
+            }
             body {
               width: 60mm;
-              height: 25mm;
-              padding: 1.5mm 2.5mm;
+              height: 24mm;
+              max-height: 24mm;
+              padding: 1mm 2mm;
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
               background: #fff;
               color: #000;
@@ -286,6 +311,8 @@ export function SamplesPage() {
               flex-direction: column;
               justify-content: space-between;
               overflow: hidden;
+              page-break-after: avoid;
+              break-after: avoid;
             }
             .hdr {
               display: flex;
@@ -295,7 +322,7 @@ export function SamplesPage() {
               font-weight: 800;
               line-height: 1.1;
               border-bottom: 0.5px solid #000;
-              padding-bottom: 0.5mm;
+              padding-bottom: 0.4mm;
             }
             .hdr-lab {
               text-transform: uppercase;
@@ -319,7 +346,7 @@ export function SamplesPage() {
               align-items: baseline;
               font-size: 7.5pt;
               line-height: 1.1;
-              margin-top: 0.5mm;
+              margin-top: 0.4mm;
             }
             .patient-name {
               font-weight: 800;
@@ -338,11 +365,12 @@ export function SamplesPage() {
               display: flex;
               justify-content: center;
               align-items: center;
-              margin: 0.3mm 0;
+              margin: 0.2mm 0;
             }
             .barcode-wrap svg {
               width: 100%;
-              height: 11mm;
+              height: 8.5mm;
+              max-height: 8.5mm;
               display: block;
             }
             .ftr {
@@ -352,7 +380,7 @@ export function SamplesPage() {
               font-size: 6pt;
               line-height: 1.1;
               border-top: 0.5px solid #000;
-              padding-top: 0.5mm;
+              padding-top: 0.4mm;
             }
             .ftr-tests {
               font-weight: 700;

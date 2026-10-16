@@ -20,30 +20,56 @@ import AuthLayout from '../layouts/AuthLayout';
 // Route Guard
 import ProtectedRoute from '../components/common/ProtectedRoute';
 
-// Lazy-loaded Pages (Code-split per route)
-const LoginPage = lazy(() => import('../pages/auth/LoginPage'));
-const LaboratoryLoginPage = lazy(() => import('../pages/auth/LaboratoryLoginPage'));
-const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage'));
-const PatientsPage = lazy(() => import('../pages/patients/PatientsPage'));
-const OrdersPage = lazy(() => import('../pages/orders/OrdersPage'));
-const SamplesPage = lazy(() => import('../pages/samples/SamplesPage'));
-const TestCatalogPage = lazy(() => import('../pages/tests/TestCatalogPage'));
-const ReportsPage = lazy(() => import('../pages/reports/ReportsPage'));
-const BillingPage = lazy(() => import('../pages/billing/BillingPage'));
-const UsersPage = lazy(() => import('../pages/users/UsersPage'));
-const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
-const AuditLogsPage = lazy(() => import('../pages/audit/AuditLogsPage'));
-const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
+/**
+ * Resilient lazy loader that recovers gracefully from Vite dynamic import chunk invalidations,
+ * on-demand optimize dep updates, or stale browser cache issues.
+ */
+function lazyWithRetry(componentImport) {
+  return lazy(async () => {
+    const pageHasAlreadyBeenForceRefreshed = JSON.parse(
+      window.sessionStorage.getItem('page-has-been-force-refreshed') || 'false'
+    );
+
+    try {
+      const component = await componentImport();
+      window.sessionStorage.setItem('page-has-been-force-refreshed', 'false');
+      return component;
+    } catch (error) {
+      if (!pageHasAlreadyBeenForceRefreshed) {
+        window.sessionStorage.setItem('page-has-been-force-refreshed', 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      throw error;
+    }
+  });
+}
+
+// Lazy-loaded Pages (Code-split per route with resilient retry)
+const LoginPage = lazyWithRetry(() => import('../pages/auth/LoginPage'));
+const LaboratoryLoginPage = lazyWithRetry(() => import('../pages/auth/LaboratoryLoginPage'));
+const DashboardPage = lazyWithRetry(() => import('../pages/dashboard/DashboardPage'));
+const PatientsPage = lazyWithRetry(() => import('../pages/patients/PatientsPage'));
+const OrdersPage = lazyWithRetry(() => import('../pages/orders/OrdersPage'));
+const SamplesPage = lazyWithRetry(() => import('../pages/samples/SamplesPage'));
+const TestCatalogPage = lazyWithRetry(() => import('../pages/tests/TestCatalogPage'));
+const ReportsPage = lazyWithRetry(() => import('../pages/reports/ReportsPage'));
+const BillingPage = lazyWithRetry(() => import('../pages/billing/BillingPage'));
+const UsersPage = lazyWithRetry(() => import('../pages/users/UsersPage'));
+const SettingsPage = lazyWithRetry(() => import('../pages/settings/SettingsPage'));
+const AuditLogsPage = lazyWithRetry(() => import('../pages/audit/AuditLogsPage'));
+const NotFoundPage = lazyWithRetry(() => import('../pages/NotFoundPage'));
 
 // Super Admin Pages (Phase 2)
-const SuperAdminOverview = lazy(() => import('../pages/superAdmin/SuperAdminOverview'));
-const LaboratoriesPage = lazy(() => import('../pages/superAdmin/LaboratoriesPage'));
-const RegisterLaboratoryPage = lazy(() => import('../pages/superAdmin/RegisterLaboratoryPage'));
-const LaboratoryDetailsPage = lazy(() => import('../pages/superAdmin/LaboratoryDetailsPage'));
-const SuperAdminRolesPage = lazy(() => import('../pages/superAdmin/SuperAdminRolesPage'));
+const SuperAdminOverview = lazyWithRetry(() => import('../pages/superAdmin/SuperAdminOverview'));
+const LaboratoriesPage = lazyWithRetry(() => import('../pages/superAdmin/LaboratoriesPage'));
+const RegisterLaboratoryPage = lazyWithRetry(() => import('../pages/superAdmin/RegisterLaboratoryPage'));
+const LaboratoryDetailsPage = lazyWithRetry(() => import('../pages/superAdmin/LaboratoryDetailsPage'));
+const SuperAdminRolesPage = lazyWithRetry(() => import('../pages/superAdmin/SuperAdminRolesPage'));
 
 // Public Unauthenticated Pages
-const PublicVerifyReportPage = lazy(() => import('../pages/public/PublicVerifyReportPage'));
+const PublicVerifyReportPage = lazyWithRetry(() => import('../pages/public/PublicVerifyReportPage'));
+
 
 /**
  * Modern Medical365 Page Loading Fallback for Suspense transitions

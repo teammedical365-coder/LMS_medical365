@@ -1974,9 +1974,16 @@ export function DashboardPage() {
                           </td>
                           <td>{getPriorityBadge(order.priority)}</td>
                           <td>
-                            <Badge variant={order.status === 'released' ? 'success' : order.status === 'in_analysis' ? 'purple' : 'warning'}>
-                              {order.status || 'Active'}
-                            </Badge>
+                            {(() => {
+                              const s = (order.orderStatus || order.status || 'ordered').toLowerCase();
+                              const isDone = s === 'completed' || s === 'released';
+                              const isAnalysis = s === 'in_analysis' || s === 'processing';
+                              return (
+                                <Badge variant={isDone ? 'success' : isAnalysis ? 'purple' : 'warning'}>
+                                  {isDone ? 'Completed' : isAnalysis ? 'In Analysis' : s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Active'}
+                                </Badge>
+                              );
+                            })()}
                           </td>
                           <td>
                             <span className={`badge ${order.paymentStatus === 'paid' ? 'badge-success' : 'badge-warning'}`}>
@@ -2576,9 +2583,16 @@ export function DashboardPage() {
                 <p style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>Priority & Status</p>
                 <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                   {getPriorityBadge(selectedOrder.priority)}
-                  <Badge variant={selectedOrder.status === 'released' ? 'success' : 'purple'}>
-                    {selectedOrder.status}
-                  </Badge>
+                  {(() => {
+                    const s = (selectedOrder.orderStatus || selectedOrder.status || 'ordered').toLowerCase();
+                    const isDone = s === 'completed' || s === 'released';
+                    const isAnalysis = s === 'in_analysis' || s === 'processing';
+                    return (
+                      <Badge variant={isDone ? 'success' : isAnalysis ? 'purple' : 'warning'}>
+                        {isDone ? 'Completed' : isAnalysis ? 'In Analysis' : s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Active'}
+                      </Badge>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

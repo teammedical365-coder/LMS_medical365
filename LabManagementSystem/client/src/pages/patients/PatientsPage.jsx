@@ -204,6 +204,7 @@ export function PatientsPage() {
 
   // Modal Registration Form State
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [rebookPatient, setRebookPatient] = useState(null);
   const [selectedTests, setSelectedTests] = useState([]);
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -672,13 +673,15 @@ export function PatientsPage() {
       }
 
       const payload = {
+        patientId: rebookPatient ? (rebookPatient.patientId || rebookPatient._id || rebookPatient.id) : undefined,
+        mrn: rebookPatient ? rebookPatient.mrn : undefined,
         firstName,
         lastName,
         age: formData.age,
         dateOfBirth: null,
         gender: formData.gender,
         phone: formData.phone.trim(),
-        email: formData.email.trim(),
+        email: formData.email?.trim() || '',
         bloodGroup: formData.bloodGroup ? formData.bloodGroup.trim() : '',
         address: formData.address?.trim() || null,
         orderingPhysician: formData.orderingPhysician?.trim() || 'Self',
@@ -707,12 +710,15 @@ export function PatientsPage() {
       const res = await clinicalService.registerPatientWithOrder(tenantId, payload);
 
       if (res.success) {
-        notify.success('Patient registered successfully.');
+        notify.success(rebookPatient ? `Diagnostic order created for ${res.data.patient.fullName}` : 'Patient registered successfully.');
         setIntakeSuccessResult(res.data);
         setSuccessMsg(
-          `Patient accessioned: ${res.data.patient.fullName} (MRN: ${res.data.patient.mrn})` +
+          (rebookPatient ? `Requisition accessioned: ` : `Patient accessioned: `) +
+            `${res.data.patient.fullName} (MRN: ${res.data.patient.mrn})` +
             (res.data.order ? ` — Order #${res.data.order.orderNumber} created!` : '')
         );
+
+        const currentTargetPatient = res.data.patient || rebookPatient;
 
         // Reset form & close modal smoothly
         setFormData(INITIAL_FORM_STATE);
@@ -721,6 +727,11 @@ export function PatientsPage() {
         setSelectedTestDropdownCode('');
         setIsRegisterModalOpen(false);
         fetchPatients();
+
+        if (rebookPatient) {
+          setRebookPatient(null);
+          handleViewProfile(currentTargetPatient);
+        }
       }
     } catch (err) {
       notify.error(err, { fallback: 'Failed to complete patient registration' });
@@ -751,15 +762,15 @@ export function PatientsPage() {
       return;
     }
 
-    // 5. Email Address required & valid
-    if (!formData.email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+    // 5. Email Address optional (format check only if entered)
+    if (formData.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       notify.error('Please enter a valid Email Address (e.g. patient@example.com)');
       return;
     }
 
-    // 6. Attending Physician required
+    // 6. Referred By / Attending Doctor strictly required
     if (!formData.orderingPhysician?.trim()) {
-      notify.error('Attending / Referring Physician is required');
+      notify.error('Referred By / Attending Doctor is required');
       return;
     }
 
@@ -831,6 +842,7 @@ export function PatientsPage() {
         onBack={() => setSelectedPatient(null)}
         patientHistory={patientHistory}
         onNewOrder={(patient) => {
+          setRebookPatient(patient);
           setSelectedPatient(null);
           setIsRegisterModalOpen(true);
           const pName = patient.fullName || `${patient.firstName || ''} ${patient.lastName || ''}`.trim();
@@ -1585,8 +1597,14 @@ export function PatientsPage() {
           ========================================================================= */}
       <Modal
         isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
-        title="Register Patient — Unified Clinical Intake"
+        onClose={() => {
+          setIsRegisterModalOpen(false);
+          if (rebookPatient) {
+            handleViewProfile(rebookPatient);
+            setRebookPatient(null);
+          }
+        }}
+        title={rebookPatient ? `Create Diagnostic Order — ${rebookPatient.fullName} (${rebookPatient.mrn})` : "Register Patient — Unified Clinical Intake"}
         maxWidth="900px"
         size="lg"
         dialogStyle={{
@@ -1613,6 +1631,29 @@ export function PatientsPage() {
               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
             }}
           >
+            {rebookPatient && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  marginBottom: '1rem',
+                  fontSize: '0.8125rem',
+                  color: '#0369a1',
+                }}
+              >
+                <UserCheck size={16} style={{ color: '#0284c7', flexShrink: 0 }} />
+                <span>
+                  Rebooking diagnostic requisition for existing patient <strong>{rebookPatient.fullName}</strong>.
+                  MRN: <strong style={{ fontFamily: 'monospace' }}>{rebookPatient.mrn}</strong> will remain unchanged.
+                </span>
+              </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
               <Users size={17} style={{ color: '#0284c7' }} />
               <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
@@ -1688,16 +1729,15 @@ export function PatientsPage() {
                 />
               </div>
 
-              {/* Row 2, Col 2: Email Address * */}
+              {/* Row 2, Col 2: Email Address (Optional) */}
               <div className="form-group">
                 <label className="form-label" style={{ fontWeight: 600 }}>
-                  Email Address <span style={{ color: '#ef4444' }}>*</span>
+                  Email Address
                 </label>
                 <input
                   type="email"
                   className="form-input"
-                  placeholder="patient@example.com"
-                  required
+                  placeholder="patient@example.com (Optional)"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
@@ -1726,15 +1766,16 @@ export function PatientsPage() {
                 />
               </div>
 
-              {/* Row 3, Col 1: Referred By / Attending Doctor */}
+              {/* Row 3, Col 1: Referred By / Attending Doctor * */}
               <div className="form-group">
                 <label className="form-label" style={{ fontWeight: 600 }}>
-                  Referred By / Attending Doctor
+                  Referred By / Attending Doctor <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
                   type="text"
                   className="form-input"
                   placeholder="Enter Doctor Name or Self (e.g. Dr. Sharma)"
+                  required
                   value={formData.orderingPhysician}
                   onChange={(e) => setFormData({ ...formData, orderingPhysician: e.target.value })}
                 />
@@ -2396,7 +2437,13 @@ export function PatientsPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => setIsRegisterModalOpen(false)}
+              onClick={() => {
+                setIsRegisterModalOpen(false);
+                if (rebookPatient) {
+                  handleViewProfile(rebookPatient);
+                  setRebookPatient(null);
+                }
+              }}
               disabled={isSubmitting}
             >
               <X size={15} />

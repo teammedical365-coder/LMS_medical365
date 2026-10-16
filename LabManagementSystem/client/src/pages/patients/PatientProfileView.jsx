@@ -246,32 +246,31 @@ export function PatientProfileView({
               </span>
             </div>
 
-            {/* Line 1 of details under name: MRN • Age & Gender • Blood Group */}
+            {/* Details under name: Only MRN number */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                flexWrap: 'wrap',
-                fontSize: '0.78rem',
-                color: '#475569',
-                lineHeight: 1.3,
+                marginTop: '2px',
               }}
             >
               <div
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '5px',
                   background: '#f8fafc',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
                   border: '1px solid #e2e8f0',
-                  fontSize: '0.74rem',
+                  fontSize: '0.78rem',
                 }}
               >
                 <span style={{ color: '#64748b', fontWeight: 600 }}>MRN:</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7' }}>{patient.mrn}</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7', fontSize: '0.82rem' }}>
+                  {patient.mrn}
+                </span>
                 <button
                   type="button"
                   onClick={() => handleCopy(patient.mrn, 'mrn')}
@@ -286,50 +285,9 @@ export function PatientProfileView({
                     color: copiedMRN ? '#16a34a' : '#94a3b8',
                   }}
                 >
-                  {copiedMRN ? <Check size={11} /> : <Copy size={11} />}
+                  {copiedMRN ? <Check size={12} /> : <Copy size={12} />}
                 </button>
               </div>
-
-              <span style={{ color: '#cbd5e1' }}>•</span>
-              <span style={{ fontWeight: 600 }}>
-                {patient.age ? `${patient.age} yrs` : 'Age N/A'} • <span style={{ textTransform: 'capitalize' }}>{patient.gender || 'Unknown'}</span>
-              </span>
-
-              <span style={{ color: '#cbd5e1' }}>•</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600, color: patient.bloodGroup ? '#e11d48' : '#64748b' }}>
-                <Droplet size={11} />
-                <span>{patient.bloodGroup || 'Not Specified'}</span>
-              </span>
-            </div>
-
-            {/* Line 2 of details under name: Phone • Accessioned Date */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                flexWrap: 'wrap',
-                fontSize: '0.76rem',
-                color: '#64748b',
-                lineHeight: 1.3,
-              }}
-            >
-              {patient.phone ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                  <Phone size={11} style={{ color: '#0284c7' }} />
-                  <a href={`tel:${patient.phone}`} style={{ color: '#0f172a', textDecoration: 'none', fontWeight: 600 }}>
-                    {patient.phone}
-                  </a>
-                </span>
-              ) : (
-                <span>No phone recorded</span>
-              )}
-
-              <span style={{ color: '#cbd5e1' }}>•</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                <Calendar size={11} />
-                <span>Accessioned: {formatDate(patient.createdAt)}</span>
-              </span>
             </div>
           </div>
         </div>
@@ -604,13 +562,40 @@ export function PatientProfileView({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                       {orders.map((ord) => {
                         const items = ord.items || [];
-                        const statusColors = {
-                          pending: { bg: '#fef3c7', text: '#d97706', border: '#fde68a' },
-                          processing: { bg: '#e0f2fe', text: '#0284c7', border: '#bae6fd' },
-                          completed: { bg: '#dcfce7', text: '#16a34a', border: '#bbf7d0' },
-                          cancelled: { bg: '#fee2e2', text: '#dc2626', border: '#fecaca' },
-                        };
-                        const sc = statusColors[ord.status?.toLowerCase()] || statusColors.pending;
+
+                        // Check if order has a linked report that has been released or approved
+                        const linkedReport = reports.find((r) => 
+                          (r.orderId && (r.orderId === ord.orderId || r.orderId === ord._id)) ||
+                          (r.orderNumber && (r.orderNumber === ord.orderNumber || r.orderNumber === ord.orderId))
+                        );
+                        const isReleased = linkedReport && linkedReport.status === 'released';
+                        const isApproved = linkedReport && linkedReport.status === 'approved';
+
+                        // Canonical order status (checks orderStatus, status, and linked report release)
+                        const rawStatus = (ord.orderStatus || ord.status || '').toLowerCase().trim();
+                        const isCompleted = isReleased || isApproved || rawStatus === 'completed' || rawStatus === 'released';
+
+                        let displayStatus = 'Ordered';
+                        let sc = { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' }; // blue / ordered
+
+                        if (isCompleted) {
+                          displayStatus = 'Completed';
+                          sc = { bg: '#dcfce7', text: '#16a34a', border: '#bbf7d0' }; // green
+                        } else if (rawStatus === 'in_analysis' || rawStatus === 'processing') {
+                          displayStatus = 'In Analysis';
+                          sc = { bg: '#faf5ff', text: '#9333ea', border: '#e9d5ff' }; // purple
+                        } else if (rawStatus === 'cancelled') {
+                          displayStatus = 'Cancelled';
+                          sc = { bg: '#fee2e2', text: '#dc2626', border: '#fecaca' }; // red
+                        } else if (rawStatus === 'ordered' || rawStatus === 'pending_collection') {
+                          displayStatus = 'Ordered';
+                          sc = { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' }; // blue
+                        } else if (rawStatus === 'pending') {
+                          displayStatus = 'Pending';
+                          sc = { bg: '#fef3c7', text: '#d97706', border: '#fde68a' }; // yellow
+                        } else if (rawStatus) {
+                          displayStatus = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
+                        }
 
                         return (
                           <div
@@ -624,13 +609,18 @@ export function PatientProfileView({
                             }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '0.5rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                 <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>
                                   #{ord.orderNumber || ord.orderId}
                                 </span>
                                 <span style={{ fontSize: '0.72rem', background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`, padding: '2px 8px', borderRadius: '6px', fontWeight: 700, textTransform: 'capitalize' }}>
-                                  {ord.status || 'Pending'}
+                                  {displayStatus}
                                 </span>
+                                {isReleased && (
+                                  <span style={{ fontSize: '0.7rem', background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
+                                    ✓ Report Released
+                                  </span>
+                                )}
                                 {ord.priority === 'stat' && (
                                   <span style={{ fontSize: '0.7rem', background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
                                     STAT / URGENT

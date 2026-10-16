@@ -651,22 +651,13 @@ class TenantUserService {
         );
       }
 
-      // Security Guard: Protect the last active administrator
-      if ([USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR].includes(targetUser.role)) {
-        const activeAdminCount = await UserModel.countDocuments({
-          tenantId,
-          role: { $in: [USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR] },
-          isActive: true,
-          isDeleted: { $ne: true },
-        });
-
-        if (activeAdminCount <= 1) {
-          throw new TenantUserError(
-            'Cannot delete the last active Laboratory Administrator account. A laboratory must retain at least one active administrator.',
-            'LAST_ADMIN_PROTECTED',
-            400
-          );
-        }
+      // Security Guard: Laboratory Administrator accounts cannot be deleted
+      if ([USER_ROLES.LAB_ADMIN, USER_ROLES.LAB_DIRECTOR, 'admin'].includes(targetUser.role)) {
+        throw new TenantUserError(
+          'The primary Laboratory Administrator account cannot be deleted.',
+          'CANNOT_DELETE_ADMIN',
+          400
+        );
       }
 
       // Safe Soft Deletion

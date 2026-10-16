@@ -238,6 +238,7 @@ LabOrderSchema.methods.toSafeJSON = function () {
     balance: Math.max(0, obj.totalAmount - obj.paidAmount),
     paymentStatus: obj.paymentStatus,
     orderStatus: obj.orderStatus,
+    status: obj.orderStatus,
     createdBy: obj.createdBy,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,

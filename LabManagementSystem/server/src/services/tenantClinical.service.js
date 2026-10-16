@@ -504,22 +504,54 @@ class TenantClinicalService {
 
     const resolvedDoctor = (data.orderingPhysician || data.referredBy || data.physicianName || '').trim();
 
-    // 1. Create Patient Demographics
-    const patientData = {
-      firstName: data.firstName,
-      lastName: data.lastName,
-      dob: data.dob || data.dateOfBirth || (data.age ? `Age: ${data.age}` : ''),
-      age: data.age,
-      gender: data.gender,
-      phone: data.phone,
-      email: data.email,
-      bloodGroup: data.bloodGroup?.trim() || '',
-      orderingPhysician: resolvedDoctor,
-      referredBy: resolvedDoctor,
-      address: data.address,
-      medicalHistory: data.medicalHistory,
-    };
-    const patient = await this.createPatient(tenantId, patientData, actor);
+    // Check if requisition is for an existing patient (rebooking / repeat order)
+    let patient = null;
+    const targetPatientIdentifier = (data.patientId || data.existingPatientId || data.mrn || '').trim();
+    if (targetPatientIdentifier) {
+      patient = await this.getPatientById(tenantId, targetPatientIdentifier);
+    }
+
+    if (patient) {
+      // Existing Patient: Update demographic / contact fields if provided, retain exact MRN
+      const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
+      if (PatientModel) {
+        const updateFields = {};
+        if (data.phone) updateFields.phone = data.phone.trim();
+        if (data.email) updateFields.email = data.email.trim().toLowerCase();
+        if (data.address) updateFields.address = data.address.trim();
+        if (data.medicalHistory) updateFields.medicalHistory = data.medicalHistory.trim();
+        if (resolvedDoctor) {
+          updateFields.orderingPhysician = resolvedDoctor;
+          updateFields.referredBy = resolvedDoctor;
+        }
+        if (data.bloodGroup) updateFields.bloodGroup = data.bloodGroup.trim();
+
+        if (Object.keys(updateFields).length > 0) {
+          await PatientModel.updateOne(
+            { tenantId, $or: [{ patientId: patient.patientId }, { mrn: patient.mrn }] },
+            { $set: updateFields }
+          );
+          patient = await this.getPatientById(tenantId, patient.patientId);
+        }
+      }
+    } else {
+      // 1. Create New Patient Demographics
+      const patientData = {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        dob: data.dob || data.dateOfBirth || (data.age ? `Age: ${data.age}` : ''),
+        age: data.age,
+        gender: data.gender,
+        phone: data.phone,
+        email: data.email,
+        bloodGroup: data.bloodGroup?.trim() || '',
+        orderingPhysician: resolvedDoctor,
+        referredBy: resolvedDoctor,
+        address: data.address,
+        medicalHistory: data.medicalHistory,
+      };
+      patient = await this.createPatient(tenantId, patientData, actor);
+    }
 
     // 2. Check if test items/orders are specified
     const orderItems = (Array.isArray(data.items) && data.items.length > 0)
@@ -3241,6 +3273,19 @@ class TenantClinicalService {
       }
       this.memoryVerifications.set(report.verificationToken, verificationRecord);
 
+      // Ensure the associated order status is transitioned to 'completed'
+      try {
+        const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+        if (OrderModel && (report.orderId || report.orderNumber)) {
+          await OrderModel.updateOne(
+            { tenantId, $or: [{ orderId: report.orderId }, { orderNumber: report.orderNumber }] },
+            { $set: { orderStatus: 'completed' } }
+          );
+        }
+      } catch (ordErr) {
+        logger.warn('Failed to update order status upon report release', { error: ordErr.message });
+      }
+
       await auditLogService.recordEvent({
         action: 'REPORT_RELEASED',
         targetTenantId: tenantId,
@@ -3296,6 +3341,16 @@ class TenantClinicalService {
       releasedAt: report.releasedAt,
     };
     this.memoryVerifications.set(report.verificationToken, verificationRecord);
+
+    if (this.memoryOrders.has(tenantId)) {
+      const ordersMap = this.memoryOrders.get(tenantId);
+      for (const ord of ordersMap.values()) {
+        if (ord.orderId === report.orderId || ord.orderNumber === report.orderNumber) {
+          ord.orderStatus = 'completed';
+          break;
+        }
+      }
+    }
 
     return report;
   }

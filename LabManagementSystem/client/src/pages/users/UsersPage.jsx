@@ -303,14 +303,13 @@ export function UsersPage() {
 
   // Open Create Staff Modal with dynamic default role
   const handleOpenCreateUserModal = () => {
-    const defaultRole = getAvailableStaffRole(roles);
     setNewUserForm({
       fullName: '',
       email: '',
       password: '',
       department: '',
       phone: '',
-      role: defaultRole,
+      role: '',
     });
     setCreateUserModalOpen(true);
   };
@@ -319,6 +318,11 @@ export function UsersPage() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setErrorBanner(null);
+
+    if (!newUserForm.role) {
+      notify.error('Please choose a laboratory role.');
+      return;
+    }
 
     const cleanPhone = (newUserForm.phone || '').replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
@@ -334,14 +338,13 @@ export function UsersPage() {
       });
       notify.success(`Staff user '${newUserForm.fullName}' created successfully.`);
       setCreateUserModalOpen(false);
-      const defaultRole = getAvailableStaffRole(roles);
       setNewUserForm({
         fullName: '',
         email: '',
         password: '',
         department: '',
         phone: '',
-        role: defaultRole,
+        role: '',
       });
       await loadData();
     } catch (err) {
@@ -487,6 +490,10 @@ export function UsersPage() {
   const handleOpenDeleteModal = (targetUser) => {
     setErrorBanner(null);
     setDeleteModalError(null);
+    if (targetUser.role === 'lab_admin' || targetUser.role === 'admin') {
+      notify.warning('The primary Laboratory Administrator account cannot be deleted.');
+      return;
+    }
     setUserToDelete(targetUser);
   };
 
@@ -688,37 +695,41 @@ export function UsersPage() {
                           </Badge>
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => handleOpenEditUserModal(u)}
-                              title="Edit staff member"
-                            >
-                              <Edit2 size={13} />
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ color: u.isActive ? 'var(--danger-600)' : 'var(--mint-text)' }}
-                              onClick={() => handleToggleUserStatus(u)}
-                              title={u.isActive ? 'Deactivate staff account' : 'Activate staff account'}
-                            >
-                              {u.isActive ? 'Deactivate' : 'Activate'}
-                            </button>
-                            <button
-                              className="btn btn-danger btn-sm"
-                              style={{
-                                background: 'var(--danger-600, #dc2626)',
-                                color: '#ffffff',
-                                border: '1px solid var(--danger-700, #b91c1c)',
-                              }}
-                              onClick={() => handleOpenDeleteModal(u)}
-                              title={`Delete staff account ${u.fullName}`}
-                            >
-                              <Trash2 size={13} />
-                              <span>Delete</span>
-                            </button>
-                          </div>
+                          {u.role === 'lab_admin' || u.role === 'admin' || matchedRole?.code === 'lab_admin' ? (
+                            <span style={{ color: 'var(--slate-400)', fontSize: '0.8125rem' }}>—</span>
+                          ) : (
+                            <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleOpenEditUserModal(u)}
+                                title="Edit staff member"
+                              >
+                                <Edit2 size={13} />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                style={{ color: u.isActive ? 'var(--danger-600)' : 'var(--mint-text)' }}
+                                onClick={() => handleToggleUserStatus(u)}
+                                title={u.isActive ? 'Deactivate staff account' : 'Activate staff account'}
+                              >
+                                {u.isActive ? 'Deactivate' : 'Activate'}
+                              </button>
+                              <button
+                                className="btn btn-danger btn-sm"
+                                style={{
+                                  background: 'var(--danger-600, #dc2626)',
+                                  color: '#ffffff',
+                                  border: '1px solid var(--danger-700, #b91c1c)',
+                                }}
+                                onClick={() => handleOpenDeleteModal(u)}
+                                title={`Delete staff account ${u.fullName}`}
+                              >
+                                <Trash2 size={13} />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1205,7 +1216,7 @@ export function UsersPage() {
                   <option value="" disabled>No roles created yet. Please define roles in Super Admin first.</option>
                 ) : (
                   <>
-                    <option value="" disabled>Select a laboratory role...</option>
+                    <option value="" disabled>Choose Role</option>
                     {roles
                       .filter((r) => r.isActive && r.code !== 'lab_admin')
                       .map((r) => (
