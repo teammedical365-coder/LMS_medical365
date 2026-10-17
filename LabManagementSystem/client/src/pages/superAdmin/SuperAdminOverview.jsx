@@ -946,7 +946,7 @@ export function SuperAdminOverview() {
                 </h2>
                 <p style={{ margin: '2px 0 0 0', fontSize: '0.785rem', color: 'var(--slate-500)' }}>
                   {editingLabId
-                    ? 'Update facility profile, contact information, subscription plan, and branding.'
+                    ? 'Update facility profile, contact information, and branding.'
                     : 'Provision facility access, isolated database, and custom white-label portal.'}
                 </p>
               </div>
@@ -2160,7 +2160,7 @@ export function SuperAdminOverview() {
                     </div>
                   </div>
 
-                  {/* Middle Row: Meta Information Badges (Code, Staff, Plan) */}
+                  {/* Middle Row: Meta Information Badges (Code, Staff) */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
                     <span
                       style={{
@@ -2197,23 +2197,6 @@ export function SuperAdminOverview() {
                       <Users size={12} style={{ color: '#64748b' }} />
                       <span>{lab.staffCount ?? lab.staff?.length ?? 0} Staff</span>
                     </span>
-
-                    {(lab.subscriptionPlan || lab.plan) && (
-                      <span
-                        style={{
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
-                          color: '#64748b',
-                          background: 'rgba(255, 255, 255, 0.75)',
-                          border: '1px solid rgba(0,0,0,0.06)',
-                          padding: '2px 7px',
-                          borderRadius: '5px',
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {lab.subscriptionPlan || lab.plan} Plan
-                      </span>
-                    )}
                   </div>
 
                   {/* Bottom Row: Manage Lab Link + Isolated Action Buttons */}
