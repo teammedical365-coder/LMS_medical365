@@ -597,24 +597,20 @@ export class TenantClinicalController {
       const domainOrCode = req.query.domain || req.query.code || req.get('host') || req.hostname;
       const branding = await laboratoryManagementService.resolvePublicBranding(domainOrCode);
       if (!branding) {
-        const clean = (domainOrCode || '').toString().trim().toLowerCase();
-        if (clean === 'localhost' || clean === '127.0.0.1' || clean === '::1') {
-          return ApiResponse.success(res, {
-            tenantId: null,
-            name: 'Medical365 Laboratory Platform',
+        return ApiResponse.success(res, {
+          tenantId: null,
+          name: 'Medical365 Laboratory Platform',
+          displayName: 'Medical365 LMS',
+          branding: {
             displayName: 'Medical365 LMS',
-            branding: {
-              displayName: 'Medical365 LMS',
-              primaryColor: '#2563EB',
-              accentColor: '#22C1DC',
-              logoUrl: null,
-              faviconUrl: null,
-              loginBannerText: 'Welcome to Laboratory Management System',
-            },
-            status: 'ACTIVE',
-          }, 'Default platform branding resolved for local host');
-        }
-        return ApiResponse.error(res, 'No laboratory found matching the provided domain or code', HTTP_STATUS.NOT_FOUND);
+            primaryColor: '#2563EB',
+            accentColor: '#22C1DC',
+            logoUrl: null,
+            faviconUrl: null,
+            loginBannerText: 'Welcome to Laboratory Management System',
+          },
+          status: 'ACTIVE',
+        }, 'Default platform branding resolved');
       }
       return ApiResponse.success(res, branding, 'Laboratory branding resolved successfully');
     } catch (err) {

@@ -119,8 +119,16 @@ export function TenantProvider({ children }) {
         }
         const labCode = pathLab || urlParams.get('lab') || urlParams.get('tenant') || urlParams.get('org');
 
-        // On localhost/127.0.0.1 without a specific lab parameter, use default branding immediately
-        if ((!hostname || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') && !labCode) {
+        // On localhost or root platform domains without a specific lab parameter, use default branding immediately
+        const isPlatformHost = !hostname ||
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '::1' ||
+          hostname === 'lms-medical365.vercel.app' ||
+          hostname.endsWith('.vercel.app') ||
+          hostname.endsWith('.onrender.com');
+
+        if (isPlatformHost && !labCode) {
           applyThemeTokens(DEFAULT_BRANDING);
           setIsBrandingLoaded(true);
           return;

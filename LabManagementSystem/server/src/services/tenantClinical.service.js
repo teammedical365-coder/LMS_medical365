@@ -3486,8 +3486,15 @@ class TenantClinicalService {
 
     let lab = null;
     try {
-      lab = await laboratoryManagementService.getLaboratory(tenantId);
-    } catch {}
+      lab = await laboratoryManagementService.getLaboratoryById(tenantId);
+    } catch {
+      try {
+        const TenantModel = (await import('../models/tenant.model.js')).default;
+        if (TenantModel) {
+          lab = await TenantModel.findOne({ tenantId });
+        }
+      } catch {}
+    }
 
     const patientAge = patient?.age || (patient?.dob ? calculateAge(patient.dob) : '');
     const patientGender = patient?.gender ? patient.gender.toUpperCase() : '';
@@ -3495,7 +3502,9 @@ class TenantClinicalService {
     const patientPhone = patient?.phone || '';
     const patientAddress = patient?.address || '';
 
-    const orderingPhysician = order?.orderingPhysician || safeJson.orderingPhysician || 'Attending Physician';
+    const rawRefDoc = order?.orderingPhysician || patient?.referredBy || patient?.orderingPhysician || order?.referredBy || order?.referralDoctor || safeJson.orderingPhysician || safeJson.referralDoctor || safeJson.physicianName || '';
+    const orderingPhysician = rawRefDoc ? (rawRefDoc.startsWith('Dr.') || rawRefDoc.startsWith('Dr ') ? rawRefDoc : `Dr. ${rawRefDoc}`) : 'Attending Physician';
+    const referralDoctor = rawRefDoc ? (rawRefDoc.startsWith('Dr.') || rawRefDoc.startsWith('Dr ') ? rawRefDoc : `Dr. ${rawRefDoc}`) : 'Self / Direct';
     const orderDate = order?.createdAt || safeJson.createdAt;
     const primarySample = samples[0];
     const collectedAt = primarySample?.collectedAt || null;
@@ -3562,6 +3571,9 @@ class TenantClinicalService {
       patientPhone,
       patientAddress,
       orderingPhysician,
+      physicianName: referralDoctor,
+      referralDoctor,
+      referredBy: referralDoctor,
       orderDate,
       collectedAt,
       receivedAt,
@@ -3569,7 +3581,7 @@ class TenantClinicalService {
       container,
       barcode,
       items: enrichedItems,
-      labName: lab?.branding?.displayName || lab?.name || 'Diagnostic Laboratory',
+      labName: lab?.branding?.displayName || lab?.name || lab?.laboratoryName || safeJson.labName || 'Chonexa Lab',
       labLegalName: lab?.legalName || lab?.name || '',
       labPhone: lab?.phone || '',
       labEmail: lab?.email || '',
