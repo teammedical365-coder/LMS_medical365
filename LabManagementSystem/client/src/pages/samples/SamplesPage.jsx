@@ -374,27 +374,36 @@ export function SamplesPage() {
               display: block;
             }
             .ftr {
+              border-top: 0.5px solid #000;
+              padding-top: 0.3mm;
+              display: flex;
+              flex-direction: column;
+              gap: 0.2mm;
+            }
+            .ftr-row {
               display: flex;
               justify-content: space-between;
-              align-items: flex-end;
+              align-items: baseline;
               font-size: 6pt;
               line-height: 1.1;
-              border-top: 0.5px solid #000;
-              padding-top: 0.4mm;
             }
-            .ftr-tests {
-              font-weight: 700;
-              max-width: 28mm;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
+            .ftr-container {
+              font-weight: 800;
+              color: #000;
             }
             .ftr-date {
               font-family: monospace;
-              font-size: 6.5pt;
+              font-size: 6pt;
               font-weight: 800;
               color: #000;
               white-space: nowrap;
+            }
+            .ftr-test-line {
+              font-size: 6pt;
+              font-weight: 700;
+              line-height: 1.15;
+              color: #000;
+              word-break: break-word;
             }
           </style>
         </head>
@@ -411,8 +420,11 @@ export function SamplesPage() {
             ${labelData.svg}
           </div>
           <div class="ftr">
-            <div class="ftr-tests">${labelData.container || 'Specimen'} | ${labelData.testsSummary || ''}</div>
-            <div class="ftr-date">${realTimeTimestamp}</div>
+            <div class="ftr-row">
+              <span class="ftr-container">${labelData.container || 'Specimen'}</span>
+              <span class="ftr-date">${realTimeTimestamp}</span>
+            </div>
+            <div class="ftr-test-line">${labelData.testsSummary || ''}</div>
           </div>
           <script>
             window.onload = function() {
@@ -1703,13 +1715,15 @@ export function SamplesPage() {
                 dangerouslySetInnerHTML={{ __html: labelModalData.svg }}
               />
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #000', paddingTop: '4px', fontSize: '0.65rem' }}>
-                <div>
-                  <div style={{ fontWeight: 800 }}>{labelModalData.container}</div>
-                  <div style={{ color: '#222', fontWeight: 600 }}>{labelModalData.testsSummary}</div>
+              <div style={{ borderTop: '1px solid #000', paddingTop: '4px', fontSize: '0.68rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontWeight: 800 }}>{labelModalData.container}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', fontWeight: 800, color: '#000' }}>
+                    {new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                  </span>
                 </div>
-                <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', fontWeight: 800, color: '#000', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                <div style={{ color: '#000', fontWeight: 700, fontSize: '0.68rem', wordBreak: 'break-word' }}>
+                  {labelModalData.testsSummary}
                 </div>
               </div>
             </div>

@@ -683,9 +683,6 @@ export function UsersPage() {
                             <Badge variant={u.role === 'lab_admin' ? 'blue' : 'purple'}>
                               {matchedRole?.name || u.role}
                             </Badge>
-                            {matchedRole?.isSystemDefault && (
-                              <span style={{ fontSize: '0.6875rem', color: 'var(--slate-400)' }}>(default)</span>
-                            )}
                           </div>
                         </td>
                         <td>{u.department || 'General Diagnostic'}</td>

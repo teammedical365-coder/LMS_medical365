@@ -109,7 +109,6 @@ class TenantUserService {
 
     // Role aliases to map SaaS domain terminology to standard laboratory roles
     const ROLE_ALIASES = {
-      accountant: USER_ROLES.BILLING_CLERK,
       report_reviewer: USER_ROLES.PATHOLOGIST,
       approver: USER_ROLES.PATHOLOGIST,
       reviewer: USER_ROLES.PATHOLOGIST,
@@ -442,7 +441,6 @@ class TenantUserService {
       if (role !== undefined) {
         let cleanRoleInput = String(role || '').trim().toLowerCase();
         const ROLE_ALIASES = {
-          accountant: USER_ROLES.BILLING_CLERK,
           report_reviewer: USER_ROLES.PATHOLOGIST,
           approver: USER_ROLES.PATHOLOGIST,
           reviewer: USER_ROLES.PATHOLOGIST,
@@ -523,7 +521,6 @@ class TenantUserService {
 
     let cleanRoleInput = String(roleIdentifier).trim().toLowerCase();
     const ROLE_ALIASES = {
-      accountant: USER_ROLES.BILLING_CLERK,
       report_reviewer: USER_ROLES.PATHOLOGIST,
       approver: USER_ROLES.PATHOLOGIST,
       reviewer: USER_ROLES.PATHOLOGIST,

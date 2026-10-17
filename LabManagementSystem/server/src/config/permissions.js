@@ -225,9 +225,9 @@ export const DEFAULT_LAB_ROLES = [
     isSystemDefault: true,
   },
   {
-    code: 'billing_clerk',
-    name: 'Billing & Patient Accounts Clerk',
-    description: 'Manages patient invoicing, copays, insurer claim statements, and financial reports.',
+    code: 'accountant',
+    name: 'Accountant',
+    description: 'Manages patient invoicing, copays, financial reconciliation, and billing records.',
     dashboardPath: '/billing',
     navigationItems: ['dashboard', 'patients', 'orders', 'billing'],
     permissions: [

@@ -1077,9 +1077,21 @@ export function TestCatalogPage() {
                               {param.referenceRanges.map((rng, rIdx) => (
                                 <tr key={rIdx} style={{ borderBottom: '1px solid #F1F5F9' }}>
                                   <td style={{ padding: '4px 6px', fontWeight: 600 }}>{rng.gender}</td>
-                                  <td style={{ padding: '4px 6px' }}>
-                                    {Math.round(rng.ageMinDays / 365.25)} - {Math.round(rng.ageMaxDays / 365.25)} yrs
-                                    <span style={{ color: 'var(--slate-400)', fontSize: '0.7rem' }}> ({rng.ageMinDays}-{rng.ageMaxDays}d)</span>
+                                  <td style={{ padding: '4px 6px', fontWeight: 500, color: 'var(--slate-700)' }}>
+                                    {(() => {
+                                      const minYears = Math.round((rng.ageMinDays || 0) / 365.25);
+                                      const maxYears = Math.round((rng.ageMaxDays || 47450) / 365.25);
+                                      if ((!rng.ageMinDays || rng.ageMinDays === 0) && (rng.ageMaxDays >= 36500 || !rng.ageMaxDays)) {
+                                        return 'All Ages (0 – 130 yrs)';
+                                      }
+                                      if (!rng.ageMinDays || rng.ageMinDays === 0) {
+                                        return `0 – ${maxYears} yrs`;
+                                      }
+                                      if (rng.ageMaxDays >= 36500 || !rng.ageMaxDays) {
+                                        return `${minYears}+ yrs`;
+                                      }
+                                      return `${minYears} – ${maxYears} yrs`;
+                                    })()}
                                   </td>
                                   <td style={{ padding: '4px 6px', fontFamily: 'monospace', fontWeight: 600 }}>
                                     {rng.lowNormal !== null && rng.highNormal !== null

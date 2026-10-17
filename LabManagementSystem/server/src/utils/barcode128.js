@@ -168,9 +168,11 @@ export function generate50x25Label(sample, tenantBranding = {}) {
   const patientMrn = sample.patientMrn || 'MRN-PENDING';
   const patientInitialsOrName = sample.patientName ? sample.patientName.slice(0, 22) : 'Patient';
   const tubeTag = sample.totalTubes > 1 ? `Tube ${sample.tubeIndex}/${sample.totalTubes}` : 'Tube 1/1';
-  const testsSummary = (sample.testCodes && sample.testCodes.length > 0)
-    ? sample.testCodes.join(', ').slice(0, 28)
-    : (sample.sampleType || 'Specimen');
+  const testsSummary = (sample.testNames && sample.testNames.length > 0)
+    ? sample.testNames.join(', ')
+    : (sample.testCodes && sample.testCodes.length > 0)
+      ? sample.testCodes.join(', ')
+      : (sample.sampleType || 'Specimen');
   const collectionDate = sample.collectedAt
     ? new Date(sample.collectedAt).toISOString().slice(0, 16).replace('T', ' ')
     : 'Pending Collection';
