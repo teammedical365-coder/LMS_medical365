@@ -312,6 +312,10 @@ class LaboratoryManagementService {
     if (!labEmail) {
       throw new LaboratoryManagementError('Contact email address is required', 400);
     }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!emailRegex.test(labEmail)) {
+      throw new LaboratoryManagementError('Contact email must be a valid email ending with .com (e.g. contact@laboratory.com)', 400);
+    }
 
     // Normalize code
     const cleanCode = input.code.trim().toLowerCase();
@@ -502,7 +506,13 @@ class LaboratoryManagementService {
     const updates = {};
     if (input.name && input.name.trim()) updates.name = input.name.trim();
     if (input.legalName !== undefined) updates.legalName = input.legalName ? input.legalName.trim() : null;
-    if (input.email && input.email.trim()) updates.email = input.email.trim().toLowerCase();
+    if (input.email && input.email.trim()) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+      if (!emailRegex.test(input.email.trim())) {
+        throw new LaboratoryManagementError('Contact email must be a valid email ending with .com (e.g. contact@laboratory.com)', 400);
+      }
+      updates.email = input.email.trim().toLowerCase();
+    }
     if (input.phone !== undefined) updates.phone = input.phone ? input.phone.trim() : null;
     if (input.timezone) updates.timezone = input.timezone.trim();
     if (input.locale) updates.locale = input.locale.trim();

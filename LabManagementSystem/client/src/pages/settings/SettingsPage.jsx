@@ -103,6 +103,14 @@ export function SettingsPage() {
       return;
     }
 
+    if (contactEmail && contactEmail.trim()) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+      if (!emailRegex.test(contactEmail.trim())) {
+        notify.error('Contact email must be a valid email ending with .com (e.g. lab@medical365.com)');
+        return;
+      }
+    }
+
     try {
       setSaving(true);
       setError(null);

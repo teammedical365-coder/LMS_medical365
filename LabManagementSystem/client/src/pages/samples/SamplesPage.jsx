@@ -630,6 +630,7 @@ export function SamplesPage() {
     if (statusFilter === 'COLLECTED') return s.collectionStatus === 'collected';
     if (statusFilter === 'RECEIVED') return s.collectionStatus === 'received';
     if (statusFilter === 'REJECTED') return s.collectionStatus === 'rejected';
+    if (statusFilter === 'REVISION') return Boolean(s.rejectionReason);
     return true;
   });
 
@@ -649,7 +650,15 @@ export function SamplesPage() {
     }
   };
 
-  const getProcessingBadge = (status) => {
+  const getProcessingBadge = (status, rejectionReason) => {
+    if (rejectionReason) {
+      return (
+        <Badge variant="danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title={`Pathologist Rejection: ${rejectionReason}`}>
+          <AlertTriangle size={11} />
+          Revision Needed
+        </Badge>
+      );
+    }
     switch (status) {
       case 'completed': return <Badge variant="success">Completed</Badge>;
       case 'results_entered': return <Badge variant="purple">Pending Verification</Badge>;
@@ -753,14 +762,14 @@ export function SamplesPage() {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--slate-500)' }}>Filter:</span>
-                {['ALL', 'PENDING', 'COLLECTED', 'RECEIVED', 'REJECTED'].map((f) => (
+                {['ALL', 'PENDING', 'COLLECTED', 'RECEIVED', 'REVISION', 'REJECTED'].map((f) => (
                   <button
                     key={f}
                     className={`btn btn-sm ${statusFilter === f ? 'btn-primary' : 'btn-secondary'}`}
                     style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
                     onClick={() => setStatusFilter(f)}
                   >
-                    {f}
+                    {f === 'REVISION' ? 'CORRECTION NEEDED' : f}
                   </button>
                 ))}
               </div>
@@ -860,7 +869,7 @@ export function SamplesPage() {
                           </td>
 
                           <td>{getCollectionBadge(s.collectionStatus)}</td>
-                          <td>{getProcessingBadge(s.processingStatus)}</td>
+                          <td>{getProcessingBadge(s.processingStatus, s.rejectionReason)}</td>
 
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -927,14 +936,27 @@ export function SamplesPage() {
 
                                   {/* 2. Analyze: Strict Sequential State Machine */}
                                   {s.collectionStatus === 'received' ? (
-                                    <button
-                                      className="btn btn-primary btn-sm"
-                                      onClick={() => setResultEntrySample(s)}
-                                      disabled={actionLoading || s.processingStatus === 'completed'}
-                                      title="Enter test analyte results and push to pathologist sign-off queue"
-                                    >
-                                      {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
-                                    </button>
+                                    s.rejectionReason ? (
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        style={{ background: '#dc2626', borderColor: '#b91c1c', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => setResultEntrySample(s)}
+                                        disabled={actionLoading || s.processingStatus === 'completed'}
+                                        title={`Pathologist rejected: ${s.rejectionReason}`}
+                                      >
+                                        <RotateCcw size={12} />
+                                        Revise Results
+                                      </button>
+                                    ) : (
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => setResultEntrySample(s)}
+                                        disabled={actionLoading || s.processingStatus === 'completed'}
+                                        title="Enter test analyte results and push to pathologist sign-off queue"
+                                      >
+                                        {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
+                                      </button>
+                                    )
                                   ) : (
                                     <span
                                       title="Sample must be received in lab before analysis"
@@ -1005,14 +1027,27 @@ export function SamplesPage() {
                                   )}
 
                                   {s.collectionStatus === 'received' ? (
-                                    <button
-                                      className="btn btn-primary btn-sm"
-                                      onClick={() => setResultEntrySample(s)}
-                                      disabled={actionLoading || s.processingStatus === 'completed'}
-                                      title="Enter test results and push to pathologist sign-off queue"
-                                    >
-                                      {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
-                                    </button>
+                                    s.rejectionReason ? (
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        style={{ background: '#dc2626', borderColor: '#b91c1c', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => setResultEntrySample(s)}
+                                        disabled={actionLoading || s.processingStatus === 'completed'}
+                                        title={`Pathologist rejected: ${s.rejectionReason}`}
+                                      >
+                                        <RotateCcw size={12} />
+                                        Revise Results
+                                      </button>
+                                    ) : (
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => setResultEntrySample(s)}
+                                        disabled={actionLoading || s.processingStatus === 'completed'}
+                                        title="Enter test results and push to pathologist sign-off queue"
+                                      >
+                                        {s.processingStatus === 'results_entered' ? 'Edit Results' : 'Analyze'}
+                                      </button>
+                                    )
                                   ) : (
                                     <span
                                       title="Sample must be received in lab before analysis"

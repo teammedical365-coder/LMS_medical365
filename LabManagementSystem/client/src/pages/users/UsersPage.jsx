@@ -324,6 +324,16 @@ export function UsersPage() {
       return;
     }
 
+    if (!newUserForm.email || !newUserForm.email.trim()) {
+      notify.error('Staff email address is required.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i.test(newUserForm.email.trim())) {
+      notify.error('Staff email must be a valid email ending with .com (e.g. staff@laboratory.com).');
+      return;
+    }
+
     const cleanPhone = (newUserForm.phone || '').replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
       notify.error('Phone number is required and must be exactly 10 numeric digits.');
@@ -396,8 +406,13 @@ export function UsersPage() {
       return;
     }
 
-    if (!editUserForm.email.trim()) {
+    if (!editUserForm.email || !editUserForm.email.trim()) {
       notify.error('Staff email address is required.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i.test(editUserForm.email.trim())) {
+      notify.error('Staff email must be a valid email ending with .com (e.g. staff@laboratory.com).');
       return;
     }
 

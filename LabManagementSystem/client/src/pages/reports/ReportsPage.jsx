@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck, Search, X } from 'lucide-react';
+import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Eye, Printer, Download, PlusCircle, Loader2, ShieldCheck, Search, X, RotateCcw, Send } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
@@ -203,6 +203,14 @@ export function ReportsPage() {
   const [rejectModalReport, setRejectModalReport] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectError, setRejectError] = useState(null);
+
+  // Report Revision & Correction State (Pathologist Rejection -> Technician Revision Workflow)
+  const [correctionReport, setCorrectionReport] = useState(null);
+  const [correctionItems, setCorrectionItems] = useState([]);
+  const [correctionFindings, setCorrectionFindings] = useState('');
+  const [correctionNotes, setCorrectionNotes] = useState('');
+  const [correctionError, setCorrectionError] = useState(null);
+  const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
 
   // Print & QR Code State
   const [printReport, setPrintReport] = useState(null);
@@ -705,6 +713,66 @@ export function ReportsPage() {
       setRejectError(err.response?.data?.message || err.message || 'Failed to reject report');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const openCorrectionModal = (report) => {
+    if (!report) return;
+    setCorrectionReport(report);
+    const clonedItems = Array.isArray(report.items)
+      ? JSON.parse(JSON.stringify(report.items))
+      : [];
+    setCorrectionItems(clonedItems);
+    setCorrectionFindings(report.findings || '');
+    setCorrectionNotes(report.notes || '');
+    setCorrectionError(null);
+  };
+
+  const handleCorrectionValueChange = (itemIdx, paramIdx, field, val) => {
+    setCorrectionItems((prev) => {
+      const next = [...prev];
+      const targetItem = { ...next[itemIdx] };
+      if (paramIdx !== null && paramIdx !== undefined && Array.isArray(targetItem.parameterResults)) {
+        const nextParams = [...targetItem.parameterResults];
+        nextParams[paramIdx] = {
+          ...nextParams[paramIdx],
+          [field]: val,
+        };
+        targetItem.parameterResults = nextParams;
+      } else {
+        targetItem[field] = val;
+      }
+      next[itemIdx] = targetItem;
+      return next;
+    });
+  };
+
+  const handleConfirmCorrection = async (e) => {
+    if (e) e.preventDefault();
+    if (!correctionReport || !tenantId) return;
+
+    try {
+      setIsSubmittingCorrection(true);
+      setCorrectionError(null);
+
+      const payload = {
+        items: correctionItems,
+        findings: correctionFindings,
+        notes: correctionNotes,
+      };
+
+      const res = await clinicalService.updateReport(tenantId, correctionReport.reportId, payload);
+      if (res.success) {
+        notify.success(`Report ${correctionReport.reportNumber} updated and re-submitted to Pathologist for review!`);
+        setCorrectionReport(null);
+        await fetchReports();
+      } else {
+        setCorrectionError(res.message || 'Failed to resubmit report');
+      }
+    } catch (err) {
+      setCorrectionError(err.response?.data?.message || err.message || 'Failed to update and resubmit report');
+    } finally {
+      setIsSubmittingCorrection(false);
     }
   };
 
@@ -1469,6 +1537,18 @@ export function ReportsPage() {
                             </button>
                           </>
                         )}
+                        {r.status === 'rejected' && (
+                          <button
+                            className="btn btn-warning btn-sm"
+                            style={{ background: 'var(--amber-500, #f59e0b)', color: '#0f172a', fontWeight: 600, border: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                            onClick={() => openCorrectionModal(r)}
+                            disabled={actionLoading}
+                            title="Pathologist returned report for correction. Click to revise findings and resubmit."
+                          >
+                            <RotateCcw size={14} />
+                            <span>Revise & Resubmit</span>
+                          </button>
+                        )}
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => setSelectedReport(r)}
@@ -1491,6 +1571,17 @@ export function ReportsPage() {
         isOpen={!!selectedReport}
         onClose={() => setSelectedReport(null)}
         title={selectedReport ? `Diagnostic Report: ${selectedReport.reportNumber}` : ''}
+        size="xl"
+        maxWidth="960px"
+        dialogStyle={{
+          maxWidth: '960px',
+          width: '95vw',
+        }}
+        bodyStyle={{
+          padding: '24px',
+          maxHeight: 'calc(88vh - 120px)',
+          overflowY: 'auto',
+        }}
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
             <div>
@@ -1516,6 +1607,21 @@ export function ReportsPage() {
                     <span>Reject</span>
                   </button>
                 </div>
+              )}
+              {selectedReport?.status === 'rejected' && (
+                <button
+                  className="btn btn-warning btn-sm"
+                  style={{ background: 'var(--amber-500, #f59e0b)', color: '#0f172a', fontWeight: 600, border: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                  onClick={() => {
+                    const rep = selectedReport;
+                    setSelectedReport(null);
+                    openCorrectionModal(rep);
+                  }}
+                  title="Open revision editor to correct and resubmit report to Pathologist"
+                >
+                  <RotateCcw size={14} />
+                  <span>Revise & Resubmit to Pathologist</span>
+                </button>
               )}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -2142,6 +2248,19 @@ export function ReportsPage() {
         isOpen={!!printReport}
         onClose={() => setPrintReport(null)}
         title={printReport ? `Official Report Print Preview: ${printReport.reportNumber}` : ''}
+        size="xl"
+        maxWidth="1020px"
+        dialogStyle={{
+          maxWidth: '1020px',
+          width: '96vw',
+        }}
+        bodyStyle={{
+          padding: '20px 24px',
+          maxHeight: 'calc(88vh - 120px)',
+          overflowY: 'auto',
+          overflowX: 'auto',
+          background: '#f8fafc',
+        }}
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
             <div style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
@@ -2249,6 +2368,10 @@ export function ReportsPage() {
                 fontSize: '0.8125rem',
                 lineHeight: 1.4,
                 boxSizing: 'border-box',
+                maxWidth: '940px',
+                minWidth: '700px',
+                margin: '0 auto',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
               }}
             >
               {/* 1. Header: Left = Lab Name & Logo, Right = Barcode */}
@@ -2259,10 +2382,12 @@ export function ReportsPage() {
                   alignItems: 'center',
                   paddingBottom: '8px',
                   minHeight: '52px',
+                  flexWrap: 'wrap',
+                  gap: '12px',
                 }}
               >
                 {/* Top-Left: Reserved Area for Laboratory Logo & Name */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '30%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 240px' }}>
                   {Boolean(branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl) && (
                     <img
                       src={branding?.logoUrl || currentTenant?.branding?.logoUrl || printReport.branding?.logoUrl}
@@ -2283,15 +2408,15 @@ export function ReportsPage() {
                   </div>
                 </div>
 
-                {/* Top-Center: Centered DIAGNOSTIC PATHOLOGY REPORT in 1 line */}
-                <div style={{ width: '44%', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', letterSpacing: '0.5px', textTransform: 'uppercase', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                {/* Top-Center: Centered DIAGNOSTIC PATHOLOGY REPORT */}
+                <div style={{ flex: '0 0 auto', textAlign: 'center', padding: '0 8px' }}>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', letterSpacing: '0.5px', textTransform: 'uppercase', lineHeight: 1.2 }}>
                     DIAGNOSTIC PATHOLOGY REPORT
                   </div>
                 </div>
 
-                {/* Top-Right: Barcode & Ref (Date removed) */}
-                <div style={{ width: '26%', textAlign: 'right' }}>
+                {/* Top-Right: Barcode & Ref */}
+                <div style={{ flex: '0 0 190px', textAlign: 'right' }}>
                   <div style={{ display: 'inline-block', textAlign: 'right' }}>
                     {barcodeSvgHtml ? (
                       <div style={{ display: 'inline-block', width: '165px', textAlign: 'right' }}>
@@ -2317,46 +2442,46 @@ export function ReportsPage() {
                 style={{
                   border: '1.2px solid #334155',
                   borderRadius: '4px',
-                  padding: '8px 12px',
-                  margin: '6px 0 12px 0',
-                  fontSize: '0.75rem',
+                  padding: '10px 14px',
+                  margin: '8px 0 14px 0',
+                  fontSize: '0.7813rem',
                   color: '#0f172a',
                   display: 'grid',
-                  gridTemplateColumns: '1.15fr 0.85fr',
-                  gap: '6px 24px',
+                  gridTemplateColumns: 'minmax(280px, 1.15fr) minmax(260px, 0.85fr)',
+                  gap: '6px 20px',
                   background: '#ffffff',
                 }}
               >
                 {/* Left Column: Patient Details, Doctor, Refer By Doctor */}
                 <div>
                   {/* Patient Name */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Patient Name</span>
-                    <span style={{ fontWeight: 800, color: '#0f172a' }}>: {printReport.patientName || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '115px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Patient Name</span>
+                    <span style={{ fontWeight: 800, color: '#0f172a', wordBreak: 'break-word' }}>: {printReport.patientName || '—'}</span>
                   </div>
 
                   {/* Patient MRN */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Patient MRN</span>
-                    <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>: {printReport.patientMrn || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '115px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Patient MRN</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'monospace', wordBreak: 'break-word' }}>: {printReport.patientMrn || '—'}</span>
                   </div>
 
                   {/* Age / Gender */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Age / Gender</span>
-                    <span>: {[printReport.patientAge ? `${printReport.patientAge} Y` : '', printReport.patientGender].filter(Boolean).join(' / ') || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '115px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Age / Gender</span>
+                    <span style={{ wordBreak: 'break-word' }}>: {[printReport.patientAge ? `${printReport.patientAge} Y` : '', printReport.patientGender].filter(Boolean).join(' / ') || '—'}</span>
                   </div>
 
                   {/* Doctor / Consultant (Pathologist) */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Doctor / Consult</span>
-                    <span style={{ fontWeight: 600 }}>: {formatPathologistName(printReport.releasedBy || printReport.reviewedBy)}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '115px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Doctor / Consult</span>
+                    <span style={{ fontWeight: 600, wordBreak: 'break-word' }}>: {formatPathologistName(printReport.releasedBy || printReport.reviewedBy)}</span>
                   </div>
 
                   {/* Refer By Doctor */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '120px', fontWeight: 700, color: '#334155' }}>Refer By Doctor</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a' }}>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '115px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Refer By Doctor</span>
+                    <span style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
                       : {(printReport.physicianName && printReport.physicianName !== '—') ? printReport.physicianName : (printReport.referralDoctor || printReport.referredBy || printReport.orderingPhysician || 'Self / Direct')}
                       {printReport.referralHospital && printReport.referralHospital !== '—' ? ` (${printReport.referralHospital})` : ''}
                     </span>
@@ -2366,33 +2491,33 @@ export function ReportsPage() {
                 {/* Right Column: Order No, Sample, Dates */}
                 <div>
                   {/* Lab / Order Number */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Order / Lab No</span>
-                    <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>: {printReport.orderNumber || printReport.barcode || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '120px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Order / Lab No</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'monospace', wordBreak: 'break-word' }}>: {printReport.orderNumber || printReport.barcode || '—'}</span>
                   </div>
 
                   {/* Specimen / Sample */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Sample / Specimen</span>
-                    <span>: {printReport.specimenType || 'Specimen'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '120px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Sample / Specimen</span>
+                    <span style={{ wordBreak: 'break-word' }}>: {printReport.specimenType || 'Specimen'}</span>
                   </div>
 
                   {/* Collected Date */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Collected On</span>
-                    <span>: {formatReportDateTime(printReport.collectedAt) || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '120px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Collected On</span>
+                    <span style={{ wordBreak: 'break-word' }}>: {formatReportDateTime(printReport.collectedAt) || '—'}</span>
                   </div>
 
                   {/* Received Date */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Received On</span>
-                    <span>: {formatReportDateTime(printReport.receivedAt) || '—'}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '120px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Received On</span>
+                    <span style={{ wordBreak: 'break-word' }}>: {formatReportDateTime(printReport.receivedAt) || '—'}</span>
                   </div>
 
                   {/* Reported Date */}
-                  <div style={{ display: 'flex', marginBottom: '3px' }}>
-                    <span style={{ width: '130px', fontWeight: 700, color: '#334155' }}>Reported On</span>
-                    <span style={{ fontWeight: 700 }}>: {formatReportDateTime(printReport.releasedAt || printReport.verifiedAt || new Date())}</span>
+                  <div style={{ display: 'flex', marginBottom: '3px', alignItems: 'baseline' }}>
+                    <span style={{ minWidth: '120px', fontWeight: 700, color: '#334155', flexShrink: 0 }}>Reported On</span>
+                    <span style={{ fontWeight: 700, wordBreak: 'break-word' }}>: {formatReportDateTime(printReport.releasedAt || printReport.verifiedAt || new Date())}</span>
                   </div>
                 </div>
               </div>
@@ -2551,6 +2676,228 @@ export function ReportsPage() {
               <div style={{ textAlign: 'center', fontSize: '0.68rem', color: '#94a3b8', marginTop: '8px', letterSpacing: '1.5px', fontWeight: 700 }}>
                 *** END OF DIAGNOSTIC REPORT ***
               </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Report Revision & Resubmission Modal (Technician / Staff Correction Flow) */}
+      <Modal
+        isOpen={!!correctionReport}
+        onClose={() => !isSubmittingCorrection && setCorrectionReport(null)}
+        title={correctionReport ? `Revise & Resubmit Report: ${correctionReport.reportNumber}` : ''}
+        size="xl"
+        maxWidth="920px"
+        dialogStyle={{ maxWidth: '920px', width: '95vw' }}
+        bodyStyle={{ padding: '20px 24px', maxHeight: 'calc(88vh - 120px)', overflowY: 'auto' }}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
+              Saving revision will update results and re-route this report back to Pathologist review queue.
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCorrectionReport(null)}
+                disabled={isSubmittingCorrection}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmCorrection}
+                disabled={isSubmittingCorrection}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                {isSubmittingCorrection ? <Loader2 size={15} className="spin" /> : <Send size={15} />}
+                <span>{isSubmittingCorrection ? 'Resubmitting...' : 'Save Revision & Resubmit to Pathologist'}</span>
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {correctionReport && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Prominent Pathologist Clinical Rejection Banner */}
+            <div
+              style={{
+                padding: '12px 16px',
+                background: '#fff1f2',
+                border: '1.5px solid #fecdd3',
+                borderRadius: '8px',
+                color: '#9f1239',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.9375rem' }}>
+                <AlertTriangle size={18} style={{ color: '#e11d48' }} />
+                <span>Pathologist Returned Report for Revision</span>
+              </div>
+              <div style={{ marginTop: '6px', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                <strong>Rejection Reason / Required Correction:</strong>
+                <p style={{ margin: '4px 0 0 0', padding: '6px 10px', background: '#ffe4e6', borderRadius: '4px', fontStyle: 'italic', color: '#881337' }}>
+                  "{correctionReport.rejectionReason || 'Clinical findings/values require verification'}"
+                </p>
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#be123c', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                <span><strong>Rejected By:</strong> {correctionReport.rejectedBy || 'Pathologist'}</span>
+                {correctionReport.rejectedAt && (
+                  <span><strong>Rejected On:</strong> {new Date(correctionReport.rejectedAt).toLocaleString()}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Patient & Order Meta Header */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px',
+                padding: '12px',
+                background: 'var(--slate-50, #f8fafc)',
+                borderRadius: '6px',
+                border: '1px solid var(--slate-200, #e2e8f0)',
+                fontSize: '0.8125rem',
+              }}
+            >
+              <div>
+                <span style={{ color: 'var(--slate-500)', display: 'block', fontSize: '0.75rem' }}>Patient Name</span>
+                <strong>{correctionReport.patientName || '—'}</strong>
+                <span style={{ color: 'var(--slate-500)', fontSize: '0.75rem', marginLeft: '6px' }}>({correctionReport.patientMrn})</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--slate-500)', display: 'block', fontSize: '0.75rem' }}>Order / Lab No</span>
+                <strong style={{ fontFamily: 'monospace' }}>{correctionReport.orderNumber || '—'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--slate-500)', display: 'block', fontSize: '0.75rem' }}>Test / Panel</span>
+                <strong>{correctionReport.testName || '—'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--slate-500)', display: 'block', fontSize: '0.75rem' }}>Current Status</span>
+                <Badge variant="danger" icon={AlertTriangle}>Rejected (Needs Revision)</Badge>
+              </div>
+            </div>
+
+            {/* Error Message if Resubmission Fails */}
+            {correctionError && (
+              <div style={{ padding: '10px 14px', background: '#fee2e2', border: '1px solid #f87171', borderRadius: '6px', color: '#b91c1c', fontSize: '0.8125rem' }}>
+                <strong>Error:</strong> {correctionError}
+              </div>
+            )}
+
+            {/* Editable Analyte / Parameter Results List */}
+            <div>
+              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem', marginBottom: '8px', color: 'var(--slate-800)' }}>
+                Correct Analyte Results & Values:
+              </label>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {correctionItems.map((item, itemIdx) => (
+                  <div
+                    key={itemIdx}
+                    style={{
+                      border: '1px solid var(--slate-200, #e2e8f0)',
+                      borderRadius: '6px',
+                      overflow: 'hidden',
+                      background: '#ffffff',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        background: 'var(--slate-100, #f1f5f9)',
+                        fontWeight: 600,
+                        fontSize: '0.8125rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>{item.testName} {item.testCode ? `(${item.testCode})` : ''}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{item.department || 'Clinical Pathology'}</span>
+                    </div>
+
+                    {Array.isArray(item.parameterResults) && item.parameterResults.length > 0 ? (
+                      <table className="lms-table" style={{ margin: 0, fontSize: '0.8125rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ width: '35%' }}>Parameter</th>
+                            <th style={{ width: '25%' }}>Corrected Value</th>
+                            <th style={{ width: '15%' }}>Unit</th>
+                            <th style={{ width: '25%' }}>Ref. Interval</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.parameterResults.map((pr, pIdx) => (
+                            <tr key={pIdx}>
+                              <td style={{ fontWeight: 500 }}>
+                                <div>{pr.name || pr.parameterName || pr.parameterCode}</div>
+                                {pr.method && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Method: {pr.method}</span>}
+                              </td>
+                              <td>
+                                <input
+                                  type="text"
+                                  className="form-control form-control-sm"
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 600,
+                                    border: '1.5px solid #94a3b8',
+                                    borderRadius: '4px',
+                                    width: '100%',
+                                  }}
+                                  value={pr.value ?? ''}
+                                  onChange={(e) => handleCorrectionValueChange(itemIdx, pIdx, 'value', e.target.value)}
+                                  placeholder="Enter value..."
+                                />
+                              </td>
+                              <td style={{ color: 'var(--slate-600)' }}>{pr.unit || '—'}</td>
+                              <td style={{ color: 'var(--slate-600)', fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                                {resolveParamInterval(pr)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Test Result:</span>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          style={{
+                            maxWidth: '300px',
+                            padding: '4px 8px',
+                            fontSize: '0.8125rem',
+                            fontWeight: 600,
+                            border: '1.5px solid #94a3b8',
+                            borderRadius: '4px',
+                          }}
+                          value={item.resultValue ?? ''}
+                          onChange={(e) => handleCorrectionValueChange(itemIdx, null, 'resultValue', e.target.value)}
+                          placeholder="Enter result..."
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Clinical Findings / Notes */}
+            <div>
+              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem', marginBottom: '4px', color: 'var(--slate-800)' }}>
+                Updated Findings / Revision Explanation for Pathologist:
+              </label>
+              <textarea
+                className="form-control"
+                rows={3}
+                style={{ width: '100%', padding: '8px 10px', fontSize: '0.8125rem', borderRadius: '4px', border: '1.5px solid #94a3b8' }}
+                value={correctionFindings}
+                onChange={(e) => setCorrectionFindings(e.target.value)}
+                placeholder="Explain the changes made (e.g. repeated test, calibrated analyte, corrected typo)..."
+              />
             </div>
           </div>
         )}

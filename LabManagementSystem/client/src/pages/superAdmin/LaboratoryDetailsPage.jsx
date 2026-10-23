@@ -84,6 +84,11 @@ export function LaboratoryDetailsPage() {
 
   const handleCreateStaff = async (e) => {
     e.preventDefault();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!staffFormData.email || !staffFormData.email.trim() || !emailRegex.test(staffFormData.email.trim())) {
+      notify.error('Staff email must be a valid email ending with .com (e.g. staff@laboratory.com).');
+      return;
+    }
     const cleanPhone = (staffFormData.phone || '').replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
       notify.error('Phone number is required and must be exactly 10 numeric digits.');
@@ -183,6 +188,11 @@ export function LaboratoryDetailsPage() {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!editFormData.contactEmail || !editFormData.contactEmail.trim() || !emailRegex.test(editFormData.contactEmail.trim())) {
+      notify.error('Contact email must be a valid email ending with .com (e.g. contact@laboratory.com).');
+      return;
+    }
     setActionLoading(true);
     setActionFeedback(null);
     try {

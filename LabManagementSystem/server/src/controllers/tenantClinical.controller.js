@@ -387,6 +387,19 @@ export class TenantClinicalController {
     }
   }
 
+  static async updateReport(req, res, next) {
+    try {
+      const { tenantId, reportId } = req.params;
+      const report = await tenantClinicalService.updateReport(tenantId, reportId, req.body, req.user);
+      return ApiResponse.success(res, report, 'Report updated and re-submitted to Pathologist review queue');
+    } catch (err) {
+      if (err instanceof ClinicalServiceError) {
+        return ApiResponse.error(res, err.message, err.statusCode, err.code);
+      }
+      next(err);
+    }
+  }
+
   static async releaseReport(req, res, next) {
     try {
       const { tenantId, reportId } = req.params;

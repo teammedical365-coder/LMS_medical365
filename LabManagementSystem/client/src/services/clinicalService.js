@@ -102,6 +102,9 @@ export const clinicalService = {
   rejectReport: (tenantId, reportId, data = {}) =>
     api.post(`/tenants/${tenantId}/reports/${reportId}/reject`, data).then((res) => res.data),
 
+  updateReport: (tenantId, reportId, data = {}) =>
+    api.patch(`/tenants/${tenantId}/reports/${reportId}`, data).then((res) => res.data),
+
   releaseReport: (tenantId, reportId) =>
     api.post(`/tenants/${tenantId}/reports/${reportId}/release`).then((res) => res.data),
 

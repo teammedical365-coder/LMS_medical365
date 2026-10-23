@@ -511,6 +511,46 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
         gap: '1.15rem',
         fontFamily: "var(--font-sans, 'Inter', system-ui, -apple-system, sans-serif)",
       }}>
+        {/* Pathologist Clinical Rejection Feedback Banner */}
+        {sample.rejectionReason && (
+          <div style={{
+            background: '#fef2f2',
+            border: '1.5px solid #fecaca',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px',
+            boxShadow: '0 2px 6px rgba(220, 38, 38, 0.08)',
+          }}>
+            <div style={{
+              background: '#fee2e2',
+              color: '#dc2626',
+              borderRadius: '8px',
+              padding: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <AlertTriangle size={18} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.875rem' }}>
+                Pathologist Clinical Rejection — Revision Required
+              </div>
+              <div style={{ fontSize: '0.825rem', color: '#7f1d1d', marginTop: '3px', lineHeight: 1.45 }}>
+                <strong>Rejection Reason:</strong> "{sample.rejectionReason}"
+              </div>
+              {sample.rejectedBy && (
+                <div style={{ fontSize: '0.725rem', color: '#b91c1c', marginTop: '4px' }}>
+                  Returned by {sample.rejectedBy} on {sample.rejectedAt ? new Date(sample.rejectedAt).toLocaleString() : 'Recent'}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Specimen Header & Chain-of-Custody Banner */}
         <div style={{
           background: '#f8fafc',
@@ -840,7 +880,13 @@ export default function ResultEntryModal({ isOpen, onClose, sample, tenantId, on
             ) : (
               <>
                 <Send size={15} />
-                <span>{sample.processingStatus === 'results_entered' ? 'Update & Push to Pathologist' : 'Save & Push to Pathologist Queue'}</span>
+                <span>
+                  {sample.rejectionReason
+                    ? 'Save Revision & Re-submit to Pathologist'
+                    : sample.processingStatus === 'results_entered'
+                    ? 'Update & Push to Pathologist'
+                    : 'Save & Push to Pathologist Queue'}
+                </span>
               </>
             )}
           </button>

@@ -762,9 +762,9 @@ export function PatientsPage() {
       return;
     }
 
-    // 5. Email Address optional (format check only if entered)
-    if (formData.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
-      notify.error('Please enter a valid Email Address (e.g. patient@example.com)');
+    // 5. Email Address optional (format check only if entered - must end with .com)
+    if (formData.email?.trim() && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i.test(formData.email.trim())) {
+      notify.error('Please enter a valid Email Address ending with .com (e.g. patient@example.com)');
       return;
     }
 

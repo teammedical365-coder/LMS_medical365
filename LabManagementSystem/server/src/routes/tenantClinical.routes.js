@@ -76,6 +76,8 @@ tenantClinicalRouter.post('/reports/batch-release', requirePermission('reports:r
 tenantClinicalRouter.post('/reports/batch-download', requirePermission('reports:view'), tenantClinicalController.batchDownloadReports);
 tenantClinicalRouter.post('/reports/:reportId/approve', requirePermission('reports:verify'), tenantClinicalController.approveReport);
 tenantClinicalRouter.post('/reports/:reportId/reject', requirePermission('reports:verify'), tenantClinicalController.rejectReport);
+tenantClinicalRouter.patch('/reports/:reportId', requirePermission(['reports:create', 'samples:process', 'reports:verify']), tenantClinicalController.updateReport);
+tenantClinicalRouter.put('/reports/:reportId', requirePermission(['reports:create', 'samples:process', 'reports:verify']), tenantClinicalController.updateReport);
 tenantClinicalRouter.post('/reports/:reportId/release', requirePermission('reports:release'), tenantClinicalController.releaseReport);
 tenantClinicalRouter.get('/reports/:reportId/download', requirePermission('reports:view'), tenantClinicalController.downloadReport);
 

@@ -405,6 +405,12 @@ class TenantClinicalService {
     if (!dob || !gender) {
       throw new ClinicalServiceError('Date of birth (or age) and gender are required', 'VALIDATION_ERROR', 400);
     }
+    if (email && typeof email === 'string' && email.trim()) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+      if (!emailRegex.test(email.trim())) {
+        throw new ClinicalServiceError('Patient email must be a valid email ending with .com (e.g. name@domain.com)', 'VALIDATION_ERROR', 400);
+      }
+    }
 
     const PatientModel = tenantConnectionService.getTenantPatientModel(tenantId);
     const patientId = this.generateId('pat');
@@ -1689,6 +1695,9 @@ class TenantClinicalService {
     sample.processingStatus = 'results_entered';
     sample.parameterResults = validatedParameterResults;
     sample.findings = findings || notes || '';
+    sample.rejectionReason = null;
+    sample.rejectedAt = null;
+    sample.rejectedBy = null;
     if (sample.save) await sample.save();
 
     let report = null;
@@ -3165,6 +3174,21 @@ class TenantClinicalService {
       report.reviewedBy = actor.email || 'Pathologist';
       await report.save();
 
+      // Update associated sample(s) so lab technician is alerted on specimen bench
+      const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+      if (SampleModel && report.orderId) {
+        await SampleModel.updateMany(
+          { tenantId, orderId: report.orderId },
+          {
+            $set: {
+              rejectionReason: reason.trim(),
+              rejectedAt: new Date(),
+              rejectedBy: actor.email || 'Pathologist',
+            },
+          }
+        );
+      }
+
       await auditLogService.recordEvent({
         action: 'REPORT_REJECTED',
         targetTenantId: tenantId,
@@ -3200,7 +3224,121 @@ class TenantClinicalService {
     report.status = 'rejected';
     report.rejectionReason = reason.trim();
     report.reviewedBy = actor.email;
+
+    const sMap = this.memorySamples.get(tenantId);
+    if (sMap && report.orderId) {
+      for (const s of sMap.values()) {
+        if (s.orderId === report.orderId) {
+          s.rejectionReason = reason.trim();
+          s.rejectedAt = new Date();
+          s.rejectedBy = actor.email || 'Pathologist';
+        }
+      }
+    }
     return report;
+  }
+
+  async updateReport(tenantId, reportId, data = {}, actor = {}) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+
+    const { items, parameterResults, findings, notes } = data;
+
+    let report = null;
+    if (ReportModel) {
+      report = await ReportModel.findOne({ tenantId, reportId });
+    } else {
+      const repMap = this.memoryReports.get(tenantId);
+      report = repMap?.get(reportId);
+    }
+
+    if (!report) {
+      throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
+    }
+
+    if (report.status === 'released') {
+      throw new ClinicalServiceError('Cannot modify an already released report', 'REPORT_ALREADY_RELEASED', 403);
+    }
+    if (report.status === 'approved') {
+      throw new ClinicalServiceError('Cannot modify an already approved report', 'REPORT_ALREADY_APPROVED', 403);
+    }
+
+    // Update items if supplied
+    if (Array.isArray(items) && items.length > 0) {
+      report.items = items;
+    } else if (Array.isArray(parameterResults) && parameterResults.length > 0 && Array.isArray(report.items) && report.items.length > 0) {
+      for (const it of report.items) {
+        it.parameterResults = parameterResults;
+        it.isAbnormal = parameterResults.some((p) => p.isAbnormal);
+      }
+    }
+
+    if (findings !== undefined) {
+      report.findings = String(findings).trim();
+    }
+    if (notes !== undefined) {
+      report.verificationNotes = String(notes).trim();
+    }
+
+    const previousStatus = report.status;
+    // Transition status to pending_review so pathologist can re-verify
+    report.status = 'pending_review';
+    report.draftedBy = actor.fullName || actor.email || report.draftedBy || 'Lab Technician';
+
+    if (ReportModel) {
+      await report.save();
+
+      // Clear sample rejection flags on corresponding sample(s)
+      if (SampleModel && report.orderId) {
+        await SampleModel.updateMany(
+          { tenantId, orderId: report.orderId },
+          {
+            $set: {
+              rejectionReason: null,
+              rejectedAt: null,
+              rejectedBy: null,
+              processingStatus: 'results_entered',
+            },
+          }
+        );
+      }
+
+      // Update Order items if available
+      if (OrderModel && report.orderId && Array.isArray(report.items)) {
+        const order = await OrderModel.findOne({ tenantId, orderId: report.orderId });
+        if (order) {
+          order.items = report.items;
+          order.orderStatus = 'in_analysis';
+          await order.save();
+        }
+      }
+
+      await auditLogService.recordEvent({
+        action: previousStatus === 'rejected' ? 'REPORT_RESUBMITTED' : 'REPORT_UPDATED',
+        targetTenantId: tenantId,
+        actorType: actor.accountType || 'TENANT_USER',
+        actorEmail: actor.email,
+        details: { reportId, previousStatus, status: 'pending_review' },
+      });
+
+      return report.toSafeJSON();
+    }
+
+    // Memory store fallback
+    const sMap = this.memorySamples.get(tenantId);
+    if (sMap && report.orderId) {
+      for (const s of sMap.values()) {
+        if (s.orderId === report.orderId) {
+          s.rejectionReason = null;
+          s.rejectedAt = null;
+          s.rejectedBy = null;
+          s.processingStatus = 'results_entered';
+        }
+      }
+    }
+    return typeof report.toSafeJSON === 'function' ? report.toSafeJSON() : report;
   }
 
   async releaseReport(tenantId, reportId, actor = {}) {

@@ -91,6 +91,19 @@ export function RegisterLaboratoryPage() {
     setError(null);
     setSuccess(null);
 
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!formData.contactEmail?.trim() || !emailRegex.test(formData.contactEmail.trim())) {
+      setError('Laboratory contact email must be a valid email ending with .com (e.g. contact@labdomain.com)');
+      setLoading(false);
+      return;
+    }
+
+    if (formData.adminEmail?.trim() && !emailRegex.test(formData.adminEmail.trim())) {
+      setError('Initial administrator email must be a valid email ending with .com (e.g. admin@labdomain.com)');
+      setLoading(false);
+      return;
+    }
+
     // Prepare payload
     const payload = {
       name: formData.name.trim(),

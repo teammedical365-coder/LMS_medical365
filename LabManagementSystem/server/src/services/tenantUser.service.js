@@ -96,6 +96,10 @@ class TenantUserService {
     }
 
     const cleanEmail = passwordService.normalizeEmail(email);
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+    if (!emailRegex.test(cleanEmail)) {
+      throw new TenantUserError('Email must be a valid address ending with .com (e.g. user@domain.com)', 'VALIDATION_ERROR', 400);
+    }
 
     // Security Guard: Prevent assigning Super Admin or Platform Support to a tenant user!
     let cleanRoleInput = String(role || '').trim().toLowerCase();
@@ -413,6 +417,10 @@ class TenantUserService {
           throw new TenantUserError('User email is required', 'VALIDATION_ERROR', 400);
         }
         const cleanEmail = passwordService.normalizeEmail(email);
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/i;
+        if (!emailRegex.test(cleanEmail)) {
+          throw new TenantUserError('Email must be a valid address ending with .com (e.g. user@domain.com)', 'VALIDATION_ERROR', 400);
+        }
         if (cleanEmail !== user.email) {
           const existing = await UserModel.findOne({ tenantId, email: cleanEmail, userId: { $ne: user.userId } });
           if (existing) {
