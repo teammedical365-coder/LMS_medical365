@@ -376,8 +376,12 @@ export class TenantClinicalController {
   static async rejectReport(req, res, next) {
     try {
       const { tenantId, reportId } = req.params;
-      const { reason } = req.body || {};
-      const report = await tenantClinicalService.rejectReport(tenantId, reportId, reason, req.user);
+      const { reason, rejectionType, requiresRecollection, notes } = req.body || {};
+      const report = await tenantClinicalService.rejectReport(tenantId, reportId, reason, req.user, {
+        rejectionType,
+        requiresRecollection,
+        notes,
+      });
       return ApiResponse.success(res, report, 'Report rejected and returned for revision');
     } catch (err) {
       if (err instanceof ClinicalServiceError) {

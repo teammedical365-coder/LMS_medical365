@@ -1724,11 +1724,6 @@ class TenantClinicalService {
         }
       }
 
-      if (anyItemUpdated) {
-        order.orderStatus = 'in_analysis';
-        if (order.save) await order.save();
-      }
-
       // Check completeness across all order items before advancing report to pending_review
       const isItemComplete = (it) => {
         if (Array.isArray(it.parameterResults) && it.parameterResults.length > 0) {
@@ -1743,6 +1738,11 @@ class TenantClinicalService {
       const missingItems = order.items.filter((it) => !isItemComplete(it));
       const allItemsComplete = order.items.length > 0 && missingItems.length === 0;
 
+      if (anyItemUpdated) {
+        order.orderStatus = allItemsComplete ? 'results_entered' : 'in_analysis';
+        if (order.save) await order.save();
+      }
+
       const targetReportStatus = allItemsComplete ? 'pending_review' : 'draft';
       const defaultFindings = allItemsComplete
         ? (hasAbnormal ? 'Parameters flagged outside normal clinical thresholds.' : 'Parameters verified within normal clinical reference ranges.')
@@ -1751,13 +1751,16 @@ class TenantClinicalService {
         ? `${findings ? findings + ' — ' : ''}Partial results recorded (${completedItems.length}/${order.items.length} tests complete). Awaiting remaining specimen runs: ${missingItems.map((m) => m.testCode || m.testName).join(', ')}.`
         : (findings || defaultFindings);
 
+      const actorName = actor.fullName || actor.name || actor.email || 'Lab Technician';
+
       if (ReportModel) {
-        report = await ReportModel.findOne({ tenantId, orderId: order.orderId });
+        report = await ReportModel.findOne({ tenantId, $or: [{ orderId: order.orderId }, { orderNumber: order.orderNumber }] });
         if (report && (report.status === 'draft' || report.status === 'pending_review' || report.status === 'rejected')) {
           report.items = order.items;
           report.findings = combinedFindings;
           report.status = targetReportStatus;
-          report.draftedBy = actor.email || 'Lab Technician';
+          report.rejectionReason = null;
+          report.draftedBy = actorName;
           await report.save();
         } else if (!report) {
           const reportId = this.generateId('rep');
@@ -1774,17 +1777,19 @@ class TenantClinicalService {
             items: order.items,
             findings: combinedFindings,
             status: targetReportStatus,
-            draftedBy: actor.email || 'Lab Technician',
+            draftedBy: actorName,
           });
           await report.save();
         }
       } else {
         if (!this.memoryReports.has(tenantId)) this.memoryReports.set(tenantId, new Map());
-        const existingRep = Array.from(this.memoryReports.get(tenantId).values()).find((r) => r.orderId === order.orderId);
+        const existingRep = Array.from(this.memoryReports.get(tenantId).values()).find((r) => r.orderId === order.orderId || r.orderNumber === order.orderNumber);
         if (existingRep && (existingRep.status === 'draft' || existingRep.status === 'pending_review' || existingRep.status === 'rejected')) {
           existingRep.items = order.items;
           existingRep.findings = combinedFindings;
           existingRep.status = targetReportStatus;
+          existingRep.rejectionReason = null;
+          existingRep.draftedBy = actorName;
           report = existingRep;
         } else if (!existingRep) {
           const reportId = this.generateId('rep');
@@ -1801,7 +1806,7 @@ class TenantClinicalService {
             items: order.items,
             findings: combinedFindings,
             status: targetReportStatus,
-            draftedBy: actor.email || 'Lab Technician',
+            draftedBy: actorName,
             createdAt: new Date(),
             toSafeJSON() { return { ...this }; },
           };
@@ -1855,6 +1860,7 @@ class TenantClinicalService {
     await tenantUserService.assertTenantReady(tenantId);
     const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
     const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
 
     let task = null;
     if (RecollectionModel) {
@@ -1874,9 +1880,31 @@ class TenantClinicalService {
       };
     }
 
-    // Generate new replacement tube with suffix -R1
+    // Generate new replacement tube with intelligent suffix (-R1, -R2, etc.)
+    const baseBarcode = (task.rejectedBarcode || 'SMP').replace(/-R\d+$/i, '');
+    const rMatch = (task.rejectedBarcode || '').match(/-R(\d+)$/i);
+    const nextNum = rMatch ? parseInt(rMatch[1], 10) + 1 : 1;
     const newSampleId = this.generateId('smp');
-    const newBarcode = `${task.rejectedBarcode}-R1`;
+    const newBarcode = `${baseBarcode}-R${nextNum}`;
+
+    let rejectedSample = null;
+    if (SampleModel && task.rejectedSampleId) {
+      rejectedSample = await SampleModel.findOne({ tenantId, sampleId: task.rejectedSampleId });
+    } else if (this.memorySamples.has(tenantId)) {
+      rejectedSample = this.memorySamples.get(tenantId)?.get(task.rejectedSampleId);
+    }
+
+    let resolvedItemIds = rejectedSample?.itemIds || [];
+    if (resolvedItemIds.length === 0 && OrderModel && task.orderId) {
+      const ord = await OrderModel.findOne({ tenantId, orderId: task.orderId });
+      if (ord && Array.isArray(ord.items)) {
+        resolvedItemIds = ord.items
+          .filter((it) => it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode))
+          .map((it) => it.itemId);
+      }
+    }
+
+    const actorName = actor.fullName || actor.name || actor.email || 'Phlebotomist';
 
     const newSampleData = {
       sampleId: newSampleId,
@@ -1889,14 +1917,15 @@ class TenantClinicalService {
       patientName: task.patientName,
       sampleType: task.sampleType,
       container: task.container,
+      itemIds: resolvedItemIds,
       testCodes: task.testCodes || [],
       testNames: task.testNames || [],
-      tubeIndex: 1,
-      totalTubes: 1,
+      tubeIndex: rejectedSample?.tubeIndex || 1,
+      totalTubes: rejectedSample?.totalTubes || 1,
       collectionStatus: 'collected',
       processingStatus: 'pending',
       collectedAt: new Date(),
-      collectedBy: actor.email || 'Phlebotomist',
+      collectedBy: actorName,
     };
 
     let newSample = null;
@@ -1914,37 +1943,47 @@ class TenantClinicalService {
     task.recollectedSampleId = newSampleId;
     task.recollectedBarcode = newBarcode;
     task.recollectedAt = new Date();
-    task.resolvedBy = actor.email || 'Phlebotomist';
+    task.resolvedBy = actorName;
+    if (data.phlebotomistNotes || data.notes) {
+      task.notes = [task.notes, data.phlebotomistNotes || data.notes].filter(Boolean).join(' | ');
+    }
     if (task.save) await task.save();
 
-    // Re-link replacement specimen to order items
+    // Re-link replacement specimen to order items and update order status
     if (task.orderId) {
-      const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
       if (OrderModel) {
         const ord = await OrderModel.findOne({ tenantId, orderId: task.orderId });
         if (ord && Array.isArray(ord.items)) {
           let ordUpdated = false;
           for (const it of ord.items) {
-            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode)) {
+            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode) || resolvedItemIds.includes(it.itemId)) {
               it.sampleId = newSampleId;
               it.barcode = newBarcode;
               it.status = 'sample_collected';
               ordUpdated = true;
             }
           }
-          if (ordUpdated) await ord.save();
+          if (Array.isArray(ord.sampleIds) && !ord.sampleIds.includes(newSampleId)) {
+            ord.sampleIds.push(newSampleId);
+          }
+          ord.orderStatus = 'in_progress';
+          await ord.save();
         }
       } else {
         const oMap = this.memoryOrders.get(tenantId);
         const ord = oMap?.get(task.orderId);
         if (ord && Array.isArray(ord.items)) {
           for (const it of ord.items) {
-            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode)) {
+            if (it.sampleId === task.rejectedSampleId || it.barcode === task.rejectedBarcode || task.testCodes?.includes(it.testCode) || resolvedItemIds.includes(it.itemId)) {
               it.sampleId = newSampleId;
               it.barcode = newBarcode;
               it.status = 'sample_collected';
             }
           }
+          if (Array.isArray(ord.sampleIds) && !ord.sampleIds.includes(newSampleId)) {
+            ord.sampleIds.push(newSampleId);
+          }
+          ord.orderStatus = 'in_progress';
         }
       }
     }
@@ -1952,9 +1991,14 @@ class TenantClinicalService {
     return {
       task: task.toSafeJSON ? task.toSafeJSON() : task,
       newSample,
+      recollectedBarcode: newBarcode,
       replacementBarcode: newBarcode,
       replacementSample: newSample,
     };
+  }
+
+  async recordResults(tenantId, sampleId, resultData = {}, actor = {}) {
+    return this.recordSampleResults(tenantId, sampleId, resultData, actor);
   }
 
   // -------------------------------------------------------------------------
@@ -2826,12 +2870,14 @@ class TenantClinicalService {
     const combinedFindings = defaultFindings;
 
     let report = null;
+    const actorName = actor.fullName || actor.name || actor.email || 'Lab Technician';
     if (ReportModel) {
       if (existingReport && (existingReport.status === 'draft' || existingReport.status === 'pending_review' || existingReport.status === 'rejected')) {
         existingReport.items = order.items;
         existingReport.findings = combinedFindings;
         existingReport.status = targetReportStatus;
-        existingReport.draftedBy = actor.email || 'Lab Technician';
+        existingReport.rejectionReason = null;
+        existingReport.draftedBy = actorName;
         await existingReport.save();
         report = existingReport;
       } else if (!existingReport) {
@@ -2849,7 +2895,7 @@ class TenantClinicalService {
           items: order.items,
           findings: combinedFindings,
           status: targetReportStatus,
-          draftedBy: actor.email || 'Lab Technician',
+          draftedBy: actorName,
         });
         await report.save();
       }
@@ -2859,6 +2905,8 @@ class TenantClinicalService {
         existingReport.items = order.items;
         existingReport.findings = combinedFindings;
         existingReport.status = targetReportStatus;
+        existingReport.rejectionReason = null;
+        existingReport.draftedBy = actorName;
         report = existingReport;
       } else if (!existingReport) {
         const reportId = this.generateId('rep');
@@ -2875,7 +2923,7 @@ class TenantClinicalService {
           items: order.items,
           findings: combinedFindings,
           status: targetReportStatus,
-          draftedBy: actor.email || 'Lab Technician',
+          draftedBy: actorName,
           createdAt: new Date(),
           toSafeJSON() { return { ...this }; },
         };
@@ -2924,12 +2972,13 @@ class TenantClinicalService {
       } else if (targetMrn) {
         filter.patientMrn = targetMrn;
       }
-      const list = await ReportModel.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit, 10));
+      const list = await ReportModel.find(filter).sort({ updatedAt: -1, createdAt: -1 }).limit(parseInt(limit, 10));
       return list.map((r) => r.toSafeJSON());
     }
 
     const tenantMap = this.memoryReports.get(tenantId) || new Map();
     let list = Array.from(tenantMap.values());
+    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
     if (status) list = list.filter((r) => r.status === status);
     if (patientId || targetMrn) {
       list = list.filter(
@@ -2939,6 +2988,20 @@ class TenantClinicalService {
       );
     }
     return list;
+  }
+
+  async getReportById(tenantId, reportId) {
+    await tenantUserService.assertTenantReady(tenantId);
+    const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    if (ReportModel) {
+      const doc = await ReportModel.findOne({ tenantId, reportId });
+      if (!doc) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
+      return doc.toSafeJSON();
+    }
+    const tenantMap = this.memoryReports.get(tenantId);
+    const report = tenantMap?.get(reportId);
+    if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
+    return report.toSafeJSON ? report.toSafeJSON() : report;
   }
 
   async createReport(tenantId, data, actor = {}) {
@@ -3019,8 +3082,25 @@ class TenantClinicalService {
     return mock;
   }
 
-  async approveReport(tenantId, reportId, actor = {}, data = {}) {
+  async approveReport(tenantId, reportId, actorOrData = {}, maybeData = {}) {
     await tenantUserService.assertTenantReady(tenantId);
+    let actor = {};
+    let data = {};
+    if (actorOrData && (actorOrData.findings || actorOrData.verificationNotes || actorOrData.notes || actorOrData.verifiedBy)) {
+      if (maybeData && Object.keys(maybeData).length > 0) {
+        actor = actorOrData;
+        data = maybeData;
+      } else {
+        data = actorOrData;
+        actor = {
+          fullName: actorOrData.verifiedBy || actorOrData.fullName,
+          email: actorOrData.email || actorOrData.verifiedBy,
+        };
+      }
+    } else {
+      actor = actorOrData || {};
+      data = maybeData || {};
+    }
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
 
     let report = null;
@@ -3078,6 +3158,7 @@ class TenantClinicalService {
     const resolvedPathologist = actor.fullName || actor.name || (actor.email ? formatDoctorName(actor.email) : 'Dr. Pathologist');
     report.status = 'approved';
     report.reviewedBy = resolvedPathologist;
+    report.verifiedBy = resolvedPathologist;
     report.verifiedAt = new Date();
     if (data?.verificationNotes) {
       report.verificationNotes = String(data.verificationNotes).trim();
@@ -3141,12 +3222,41 @@ class TenantClinicalService {
     return report.toSafeJSON ? report.toSafeJSON() : report;
   }
 
-  async rejectReport(tenantId, reportId, reason, actor = {}) {
+  async rejectReport(tenantId, reportId, reasonOrOptions, actor = {}, maybeOptions = {}) {
     await tenantUserService.assertTenantReady(tenantId);
-    if (!reason || !reason.trim()) {
+    let reason = '';
+    let options = {};
+    if (typeof reasonOrOptions === 'object' && reasonOrOptions !== null) {
+      reason = reasonOrOptions.reason || reasonOrOptions.rejectionReason || '';
+      options = { ...reasonOrOptions, ...maybeOptions };
+      if (!actor || Object.keys(actor).length === 0) {
+        actor = {
+          userId: reasonOrOptions.rejectedBy || reasonOrOptions.userId,
+          fullName: reasonOrOptions.rejectedBy || reasonOrOptions.fullName,
+        };
+      }
+    } else {
+      reason = reasonOrOptions;
+      options = maybeOptions || {};
+    }
+
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
       throw new ClinicalServiceError('Rejection justification is required', 'VALIDATION_ERROR', 400);
     }
     const ReportModel = tenantConnectionService.getTenantReportModel(tenantId);
+    const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
+    const OrderModel = tenantConnectionService.getTenantOrderModel(tenantId);
+    const RecollectionModel = tenantConnectionService.getTenantRecollectionTaskModel(tenantId);
+
+    // Determine if specimen recollection is required:
+    // Defaults to true unless explicitly flagged as correction
+    const rawType = (options.rejectionType || (options.requiresRecollection === false ? 'correction' : 'recollection')).toLowerCase();
+    const isRecollectionRequired = options.requiresRecollection !== undefined
+      ? Boolean(options.requiresRecollection)
+      : rawType !== 'correction' && rawType !== 'technical_correction';
+    const finalRejectionType = isRecollectionRequired ? 'recollection' : 'correction';
+
+    const actorName = actor.fullName || actor.name || actor.email || 'Pathologist';
 
     if (ReportModel) {
       const report = await ReportModel.findOne({ tenantId, reportId });
@@ -3161,7 +3271,8 @@ class TenantClinicalService {
 
       const historyEntry = {
         reason: reason.trim(),
-        rejectedBy: actor.email || 'Pathologist',
+        rejectionType: finalRejectionType,
+        rejectedBy: actorName,
         rejectedAt: new Date(),
       };
       if (!Array.isArray(report.rejectionHistory)) {
@@ -3171,22 +3282,144 @@ class TenantClinicalService {
 
       report.status = 'rejected';
       report.rejectionReason = reason.trim();
-      report.reviewedBy = actor.email || 'Pathologist';
+      report.reviewedBy = actorName;
       await report.save();
 
-      // Update associated sample(s) so lab technician is alerted on specimen bench
-      const SampleModel = tenantConnectionService.getTenantSampleModel(tenantId);
-      if (SampleModel && report.orderId) {
-        await SampleModel.updateMany(
-          { tenantId, orderId: report.orderId },
-          {
-            $set: {
-              rejectionReason: reason.trim(),
-              rejectedAt: new Date(),
-              rejectedBy: actor.email || 'Pathologist',
-            },
+      // Update associated specimen(s) and route into Recollection Workflow
+      if (report.orderId) {
+        if (isRecollectionRequired) {
+          let samples = [];
+          if (SampleModel) {
+            let activeSampleIds = [];
+            if (OrderModel) {
+              const ord = await OrderModel.findOne({ tenantId, orderId: report.orderId });
+              if (ord && Array.isArray(ord.items)) {
+                activeSampleIds = ord.items.map((it) => it.sampleId).filter(Boolean);
+              }
+            }
+            if (activeSampleIds.length > 0) {
+              samples = await SampleModel.find({ tenantId, sampleId: { $in: activeSampleIds } });
+            } else {
+              const resolvedSampleIds = RecollectionModel
+                ? await RecollectionModel.find({ tenantId, orderId: report.orderId, status: 'resolved' }).distinct('rejectedSampleId')
+                : [];
+              samples = await SampleModel.find({
+                tenantId,
+                orderId: report.orderId,
+                sampleId: { $nin: resolvedSampleIds },
+              });
+            }
           }
-        );
+
+          for (const sample of samples) {
+            sample.collectionStatus = 'rejected';
+            sample.processingStatus = 'recollection_requested';
+            sample.rejectionReason = reason.trim();
+            sample.rejectionRemarks = reason.trim();
+            sample.rejectionNotes = (options.notes || reason).trim();
+            sample.rejectedAt = new Date();
+            sample.rejectedBy = actorName;
+
+            if (RecollectionModel) {
+              let existingTask = await RecollectionModel.findOne({
+                tenantId,
+                rejectedSampleId: sample.sampleId,
+                status: 'pending',
+              });
+              if (!existingTask) {
+                const taskId = this.generateId('rec');
+                const taskDoc = new RecollectionModel({
+                  taskId,
+                  tenantId,
+                  orderId: sample.orderId,
+                  orderNumber: sample.orderNumber,
+                  rejectedSampleId: sample.sampleId,
+                  rejectedBarcode: sample.barcode,
+                  patientId: sample.patientId || report.patientId || '',
+                  patientName: sample.patientName || report.patientName,
+                  patientMrn: sample.patientMrn || report.patientMrn || '',
+                  sampleType: sample.sampleType || 'Specimen',
+                  container: sample.container || 'Standard Tube',
+                  testCodes: sample.testCodes || [],
+                  testNames: sample.testNames || (report.testName ? [report.testName] : []),
+                  reason: reason.trim(),
+                  notes: `Pathologist rejection: ${reason.trim()}`,
+                  status: 'pending',
+                  requestedBy: actorName,
+                });
+                await taskDoc.save();
+                sample.recollectionTaskId = taskId;
+              } else {
+                sample.recollectionTaskId = existingTask.taskId;
+                existingTask.reason = reason.trim();
+                await existingTask.save();
+              }
+            }
+            await sample.save();
+          }
+
+          // If no specific sample document was present in tenant collection, create recollection task from report details
+          if (samples.length === 0 && RecollectionModel) {
+            const taskId = this.generateId('rec');
+            const taskDoc = new RecollectionModel({
+              taskId,
+              tenantId,
+              orderId: report.orderId,
+              orderNumber: report.orderNumber,
+              rejectedSampleId: `smp-${report.orderId}`,
+              rejectedBarcode: `BAR-${report.orderNumber}`,
+              patientId: report.patientId || '',
+              patientName: report.patientName,
+              patientMrn: report.patientMrn || '',
+              sampleType: 'Specimen',
+              container: 'Standard Tube',
+              testCodes: [],
+              testNames: report.testName ? [report.testName] : [],
+              reason: reason.trim(),
+              notes: `Pathologist rejection: ${reason.trim()}`,
+              status: 'pending',
+              requestedBy: actorName,
+            });
+            await taskDoc.save();
+          }
+
+          // Transition order status to in_progress and reset uncollected item statuses
+          if (OrderModel) {
+            const order = await OrderModel.findOne({ tenantId, orderId: report.orderId });
+            if (order) {
+              order.orderStatus = 'in_progress';
+              if (Array.isArray(order.items)) {
+                for (const it of order.items) {
+                  if (it.status !== 'cancelled') {
+                    it.status = 'ordered';
+                  }
+                }
+              }
+              await order.save();
+            }
+          }
+        } else {
+          // Technical correction / Bench rerun only - alert technician on bench without redraw
+          if (SampleModel) {
+            await SampleModel.updateMany(
+              { tenantId, orderId: report.orderId },
+              {
+                $set: {
+                  rejectionReason: reason.trim(),
+                  rejectedAt: new Date(),
+                  rejectedBy: actorName,
+                  processingStatus: 'results_entered',
+                },
+              }
+            );
+          }
+          if (OrderModel) {
+            await OrderModel.updateOne(
+              { tenantId, orderId: report.orderId },
+              { $set: { orderStatus: 'in_analysis' } }
+            );
+          }
+        }
       }
 
       await auditLogService.recordEvent({
@@ -3194,12 +3427,13 @@ class TenantClinicalService {
         targetTenantId: tenantId,
         actorType: actor.accountType || 'TENANT_USER',
         actorEmail: actor.email,
-        details: { reportId, reason },
+        details: { reportId, reason, rejectionType: finalRejectionType, isRecollectionRequired },
       });
 
       return report.toSafeJSON();
     }
 
+    // Memory store fallback
     const tenantMap = this.memoryReports.get(tenantId);
     const report = tenantMap?.get(reportId);
     if (!report) throw new ClinicalServiceError('Report not found', 'REPORT_NOT_FOUND', 404);
@@ -3213,7 +3447,8 @@ class TenantClinicalService {
 
     const historyEntry = {
       reason: reason.trim(),
-      rejectedBy: actor.email || 'Pathologist',
+      rejectionType: finalRejectionType,
+      rejectedBy: actorName,
       rejectedAt: new Date(),
     };
     if (!Array.isArray(report.rejectionHistory)) {
@@ -3223,15 +3458,127 @@ class TenantClinicalService {
 
     report.status = 'rejected';
     report.rejectionReason = reason.trim();
-    report.reviewedBy = actor.email;
+    report.reviewedBy = actorName;
 
-    const sMap = this.memorySamples.get(tenantId);
-    if (sMap && report.orderId) {
-      for (const s of sMap.values()) {
-        if (s.orderId === report.orderId) {
-          s.rejectionReason = reason.trim();
-          s.rejectedAt = new Date();
-          s.rejectedBy = actor.email || 'Pathologist';
+    if (report.orderId) {
+      if (isRecollectionRequired) {
+        if (!this.memoryRecollections.has(tenantId)) {
+          this.memoryRecollections.set(tenantId, new Map());
+        }
+        let activeSampleIds = [];
+        const oMap = this.memoryOrders.get(tenantId);
+        const ord = oMap?.get(report.orderId);
+        if (ord && Array.isArray(ord.items)) {
+          activeSampleIds = ord.items.map((it) => it.sampleId).filter(Boolean);
+        }
+
+        const sMap = this.memorySamples.get(tenantId);
+        let foundAny = false;
+        if (sMap) {
+          const recMap = this.memoryRecollections.get(tenantId);
+          const resolvedSampleIds = new Set(
+            Array.from(recMap.values())
+              .filter((t) => t.status === 'resolved' && t.orderId === report.orderId)
+              .map((t) => t.rejectedSampleId)
+          );
+
+          for (const s of sMap.values()) {
+            if (s.orderId === report.orderId) {
+              if (activeSampleIds.length > 0 && !activeSampleIds.includes(s.sampleId)) {
+                continue;
+              }
+              if (resolvedSampleIds.has(s.sampleId)) {
+                continue;
+              }
+              foundAny = true;
+              s.collectionStatus = 'rejected';
+              s.processingStatus = 'recollection_requested';
+              s.rejectionReason = reason.trim();
+              s.rejectionRemarks = reason.trim();
+              s.rejectionNotes = (options.notes || reason).trim();
+              s.rejectedAt = new Date();
+              s.rejectedBy = actorName;
+
+              const existingTask = Array.from(recMap.values()).find(
+                (t) => t.rejectedSampleId === s.sampleId && t.status === 'pending'
+              );
+              if (!existingTask) {
+                const taskId = this.generateId('rec');
+                const mockTask = {
+                  taskId,
+                  tenantId,
+                  orderId: s.orderId,
+                  orderNumber: s.orderNumber,
+                  rejectedSampleId: s.sampleId,
+                  rejectedBarcode: s.barcode,
+                  sampleBarcode: s.barcode,
+                  patientId: s.patientId || report.patientId || '',
+                  patientName: s.patientName || report.patientName,
+                  patientMrn: s.patientMrn || report.patientMrn || '',
+                  sampleType: s.sampleType || 'Specimen',
+                  container: s.container || 'Standard Tube',
+                  testCodes: s.testCodes || [],
+                  testNames: s.testNames || (report.testName ? [report.testName] : []),
+                  reason: reason.trim(),
+                  notes: `Pathologist rejection: ${reason.trim()}`,
+                  status: 'pending',
+                  requestedBy: actorName,
+                  createdAt: new Date(),
+                  toSafeJSON() { return { ...this }; },
+                };
+                recMap.set(taskId, mockTask);
+                s.recollectionTaskId = taskId;
+              } else {
+                s.recollectionTaskId = existingTask.taskId;
+                existingTask.reason = reason.trim();
+              }
+            }
+          }
+        }
+        if (!foundAny) {
+          const taskId = this.generateId('rec');
+          const mockTask = {
+            taskId,
+            tenantId,
+            orderId: report.orderId,
+            orderNumber: report.orderNumber,
+            rejectedSampleId: `smp-${report.orderId}`,
+            rejectedBarcode: `BAR-${report.orderNumber}`,
+            patientId: report.patientId || '',
+            patientName: report.patientName,
+            patientMrn: report.patientMrn || '',
+            sampleType: 'Specimen',
+            container: 'Standard Tube',
+            testCodes: [],
+            testNames: report.testName ? [report.testName] : [],
+            reason: reason.trim(),
+            notes: `Pathologist rejection: ${reason.trim()}`,
+            status: 'pending',
+            requestedBy: actorName,
+            createdAt: new Date(),
+            toSafeJSON() { return { ...this }; },
+          };
+          this.memoryRecollections.get(tenantId).set(taskId, mockTask);
+        }
+        if (ord) {
+          ord.orderStatus = 'in_progress';
+          if (Array.isArray(ord.items)) {
+            for (const it of ord.items) {
+              if (it.status !== 'cancelled') it.status = 'ordered';
+            }
+          }
+        }
+      } else {
+        const sMap = this.memorySamples.get(tenantId);
+        if (sMap) {
+          for (const s of sMap.values()) {
+            if (s.orderId === report.orderId) {
+              s.rejectionReason = reason.trim();
+              s.rejectedAt = new Date();
+              s.rejectedBy = actorName;
+              s.processingStatus = 'results_entered';
+            }
+          }
         }
       }
     }
@@ -3285,7 +3632,8 @@ class TenantClinicalService {
     const previousStatus = report.status;
     // Transition status to pending_review so pathologist can re-verify
     report.status = 'pending_review';
-    report.draftedBy = actor.fullName || actor.email || report.draftedBy || 'Lab Technician';
+    report.rejectionReason = null;
+    report.draftedBy = actor.fullName || actor.name || actor.email || report.draftedBy || 'Lab Technician';
 
     if (ReportModel) {
       await report.save();
@@ -3310,7 +3658,7 @@ class TenantClinicalService {
         const order = await OrderModel.findOne({ tenantId, orderId: report.orderId });
         if (order) {
           order.items = report.items;
-          order.orderStatus = 'in_analysis';
+          order.orderStatus = 'results_entered';
           await order.save();
         }
       }
@@ -3337,6 +3685,12 @@ class TenantClinicalService {
           s.processingStatus = 'results_entered';
         }
       }
+    }
+    const oMap = this.memoryOrders.get(tenantId);
+    const ord = oMap?.get(report.orderId);
+    if (ord) {
+      if (Array.isArray(report.items)) ord.items = report.items;
+      ord.orderStatus = 'results_entered';
     }
     return typeof report.toSafeJSON === 'function' ? report.toSafeJSON() : report;
   }
