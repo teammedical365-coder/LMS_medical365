@@ -88,9 +88,28 @@ export function SamplesPage() {
     isLabAdmin ||
     userRole === 'pathologist' ||
     userRole === 'consultant_pathologist' ||
+    userRole === 'pathalogist' ||
     userPermissions.includes('reports:verify');
 
+  // Strict role & permission guards for Verification Queue & Sign-Off actions
+  const canAccessVerificationQueue =
+    !isSampleCollector &&
+    (isPathologist ||
+      userPermissions.includes('reports:verify') ||
+      userPermissions.includes('reports:view') ||
+      isLabTechnician ||
+      isLabAdmin);
+
+  const canSignOffReports =
+    !isSampleCollector &&
+    (isPathologist ||
+      userPermissions.includes('reports:verify') ||
+      isLabAdmin);
+
   const [activeTab, setActiveTab] = useState('bench'); // 'bench' | 'recollections' | 'verification'
+
+  // If user cannot access verification queue, guarantee active view falls back to bench
+  const effectiveTab = (!canAccessVerificationQueue && activeTab === 'verification') ? 'bench' : activeTab;
   const [samples, setSamples] = useState([]);
   const [recollections, setRecollections] = useState([]);
   const [reports, setReports] = useState([]);
@@ -108,6 +127,7 @@ export function SamplesPage() {
   const [signOffReport, setSignOffReport] = useState(null);
   const [signOffStep, setSignOffStep] = useState('review'); // 'review' | 'confirm_reject'
   const [signOffRejectionReason, setSignOffRejectionReason] = useState('');
+  const [signOffRejectionType, setSignOffRejectionType] = useState('recollection'); // 'recollection' | 'correction'
   const [signOffFindings, setSignOffFindings] = useState('');
   const [signOffNotes, setSignOffNotes] = useState('');
   const [signOffAgreed, setSignOffAgreed] = useState(false);
@@ -142,16 +162,23 @@ export function SamplesPage() {
     if (!tenantId) return;
     try {
       const res = await clinicalService.getRecollectionTasks(tenantId);
-      if (res.success && Array.isArray(res.data)) {
-        setRecollections(res.data);
+      if (res?.success) {
+        const taskList = Array.isArray(res.data)
+          ? res.data
+          : Array.isArray(res.data?.tasks)
+          ? res.data.tasks
+          : Array.isArray(res.data?.recollections)
+          ? res.data.recollections
+          : [];
+        setRecollections(taskList);
       }
-    } catch {
-      // Non-blocking for recollections
+    } catch (err) {
+      console.warn('[SamplesPage] Could not load recollection tasks:', err?.response?.data || err?.message || err);
     }
   }, [tenantId]);
 
   const fetchReports = useCallback(async () => {
-    if (!tenantId) return;
+    if (!tenantId || !canAccessVerificationQueue) return;
     try {
       const res = await clinicalService.getReports(tenantId);
       if (res.success && Array.isArray(res.data)) {
@@ -160,13 +187,15 @@ export function SamplesPage() {
     } catch {
       // Non-blocking for reports
     }
-  }, [tenantId]);
+  }, [tenantId, canAccessVerificationQueue]);
 
   useEffect(() => {
     fetchSamples();
     fetchRecollections();
-    fetchReports();
-  }, [fetchSamples, fetchRecollections, fetchReports]);
+    if (canAccessVerificationQueue) {
+      fetchReports();
+    }
+  }, [fetchSamples, fetchRecollections, fetchReports, canAccessVerificationQueue]);
 
   const handleUpdateStatus = async (sampleId, updates) => {
     try {
@@ -449,11 +478,12 @@ export function SamplesPage() {
         phlebotomistNotes: notes,
       });
       if (res.success) {
-        const msg = `Recollection resolved. New replacement tube ${res.data.replacementBarcode} generated.`;
+        const msg = `Recollection resolved. New replacement tube ${res.data.replacementBarcode || res.data.recollectedBarcode} generated.`;
         setSuccessMsg(msg);
         notify.success(msg);
         await fetchSamples();
         await fetchRecollections();
+        await fetchReports();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
@@ -471,6 +501,7 @@ export function SamplesPage() {
     setResultEntrySample(null);
     await fetchSamples();
     await fetchReports();
+    await fetchRecollections();
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
@@ -513,6 +544,7 @@ export function SamplesPage() {
     setSignOffReport(report);
     setSignOffStep('review');
     setSignOffRejectionReason('');
+    setSignOffRejectionType('recollection');
     setSignOffFindings(report.findings || 'All analyte test parameters correlated and within expected clinical limits.');
     setSignOffNotes(report.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
     setSignOffAgreed(false);
@@ -549,6 +581,7 @@ export function SamplesPage() {
         setSignOffReport(null);
         await fetchReports();
         await fetchSamples();
+        await fetchRecollections();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
@@ -572,12 +605,22 @@ export function SamplesPage() {
     try {
       setIsSigningOff(true);
       setSignOffError(null);
-      const res = await clinicalService.rejectReport(tenantId, signOffReport.reportId, { reason });
+      const isRecollection = signOffRejectionType === 'recollection';
+      const res = await clinicalService.rejectReport(tenantId, signOffReport.reportId, {
+        reason,
+        rejectionType: signOffRejectionType,
+        requiresRecollection: isRecollection,
+      });
       if (res.success) {
-        setSuccessMsg(`Diagnostic Report ${res.data?.reportNumber || signOffReport.reportNumber} rejected and returned for technician revision.`);
+        const msg = isRecollection
+          ? `Diagnostic Report ${res.data?.reportNumber || signOffReport.reportNumber} rejected. Actionable Recollection Task generated in Phlebotomy queue.`
+          : `Diagnostic Report ${res.data?.reportNumber || signOffReport.reportNumber} rejected and returned for technician bench revision.`;
+        setSuccessMsg(msg);
+        notify.success(msg);
         setSignOffReport(null);
         await fetchReports();
         await fetchSamples();
+        await fetchRecollections();
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err) {
@@ -634,7 +677,9 @@ export function SamplesPage() {
     return true;
   });
 
-  const pendingRecollectionsCount = recollections.filter((r) => r.status === 'pending').length;
+  const pendingRecollections = recollections.filter((r) => r.status === 'pending');
+  const resolvedRecollections = recollections.filter((r) => r.status === 'resolved');
+  const pendingRecollectionsCount = pendingRecollections.length;
 
   // Filter reports pending pathologist review
   const pendingVerificationReports = reports.filter(
@@ -691,7 +736,7 @@ export function SamplesPage() {
       {/* Tabs Navigation */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
         <button
-          className={`btn ${activeTab === 'bench' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          className={`btn ${effectiveTab === 'bench' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('bench')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
@@ -699,29 +744,31 @@ export function SamplesPage() {
           Active Specimen Bench ({samples.length})
         </button>
 
-        <button
-          className={`btn ${activeTab === 'verification' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-          onClick={() => setActiveTab('verification')}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-        >
-          <FileCheck size={14} />
-          Pathologist Verification Queue
-          {pendingVerificationReports.length > 0 && (
-            <span style={{ 
-              background: 'var(--purple-600, #9333ea)', 
-              color: '#fff', 
-              fontSize: '0.7rem', 
-              fontWeight: 700, 
-              padding: '1px 6px', 
-              borderRadius: '999px' 
-            }}>
-              {pendingVerificationReports.length}
-            </span>
-          )}
-        </button>
+        {canAccessVerificationQueue && (
+          <button
+            className={`btn ${effectiveTab === 'verification' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+            onClick={() => setActiveTab('verification')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FileCheck size={14} />
+            Pathologist Verification Queue
+            {pendingVerificationReports.length > 0 && (
+              <span style={{ 
+                background: 'var(--purple-600, #9333ea)', 
+                color: '#fff', 
+                fontSize: '0.7rem', 
+                fontWeight: 700, 
+                padding: '1px 6px', 
+                borderRadius: '999px' 
+              }}>
+                {pendingVerificationReports.length}
+              </span>
+            )}
+          </button>
+        )}
 
         <button
-          className={`btn ${activeTab === 'recollections' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          className={`btn ${effectiveTab === 'recollections' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('recollections')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
@@ -742,7 +789,7 @@ export function SamplesPage() {
         </button>
       </div>
 
-      {activeTab === 'bench' ? (
+      {effectiveTab === 'bench' ? (
         <>
           {/* Search & Filter Toolbar */}
           <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '1rem' }}>
@@ -1107,7 +1154,7 @@ export function SamplesPage() {
             )}
           </div>
         </>
-      ) : activeTab === 'verification' ? (
+      ) : effectiveTab === 'verification' && canAccessVerificationQueue ? (
         /* =========================================================================
            TAB 2: Consultant Pathologist Verification & Sign-Off Queue
            ========================================================================= */
@@ -1146,7 +1193,7 @@ export function SamplesPage() {
                     <th>Reported Parameters</th>
                     <th>Drafted By & Timestamp</th>
                     <th>Clinical Status</th>
-                    <th style={{ textAlign: 'right' }}>Authorization</th>
+                    <th style={{ textAlign: 'right' }}>{canSignOffReports ? 'Authorization' : 'Status'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1217,14 +1264,20 @@ export function SamplesPage() {
                         </td>
 
                         <td style={{ textAlign: 'right' }}>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => handleOpenSignOff(rep)}
-                          >
-                            <ShieldCheck size={13} />
-                            Review & Sign-Off
-                          </button>
+                          {canSignOffReports ? (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => handleOpenSignOff(rep)}
+                            >
+                              <ShieldCheck size={13} />
+                              Review & Sign-Off
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontWeight: 600 }}>
+                              Awaiting Pathologist Authorization
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1236,91 +1289,89 @@ export function SamplesPage() {
         </div>
       ) : (
         /* =========================================================================
-           TAB 3: Actionable Recollection Queue
+           TAB 3: Actionable Recollection Queue & Completed History
            ========================================================================= */
-        <div className="card">
-          <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-900)' }}>
-                Actionable Recollection Queue
-              </h3>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
-                Specimens rejected during accessioning or analytical testing requiring re-bleeding / re-sampling.
-              </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Actionable Recollection Queue Card */}
+          <div className="card">
+            <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--slate-900)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <RotateCcw size={16} style={{ color: 'var(--danger-600, #dc2626)' }} />
+                  Actionable Recollection Queue
+                </h3>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
+                  Active rejected specimens requiring phlebotomy recollection or redraw.
+                </p>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={fetchRecollections}>
+                Refresh Queue
+              </button>
             </div>
-            <button className="btn btn-secondary btn-sm" onClick={fetchRecollections}>
-              Refresh Queue
-            </button>
-          </div>
 
-          {recollections.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--slate-500)' }}>
-              <CheckCircle size={36} style={{ margin: '0 auto 0.5rem', color: 'var(--teal-500)', opacity: 0.8 }} />
-              <p style={{ fontWeight: 600, color: 'var(--slate-700)' }}>Zero Pending Recollections</p>
-              <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                All specimens are viable or recollections have been completed.
-              </p>
-            </div>
-          ) : (
-            <div className="table-container">
-              <table className="lms-table">
-                <thead>
-                  <tr>
-                    <th>Task ID</th>
-                    <th>Patient & Order</th>
-                    <th>Rejected Barcode</th>
-                    <th>Clinical Rejection Reason</th>
-                    <th>Specimen & Container</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Resolution</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recollections.map((task) => (
-                    <tr key={task.taskId || task._id}>
-                      <td>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{task.taskId}</span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontWeight: 600 }}>{task.patientName}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
-                            {task.patientMrn ? `MRN: ${task.patientMrn} • ` : ''}{task.orderNumber}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ fontFamily: 'monospace', color: 'var(--danger-600, #dc2626)', fontWeight: 600 }}>
-                          {task.rejectedBarcode}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--danger-700, #b91c1c)' }}>
-                            {task.reason}
-                          </span>
-                          {task.notes && (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
-                              Notes: {task.notes}
+            {pendingRecollections.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--slate-500)' }}>
+                <CheckCircle size={36} style={{ margin: '0 auto 0.5rem', color: 'var(--teal-500)', opacity: 0.8 }} />
+                <p style={{ fontWeight: 600, color: 'var(--slate-700)' }}>Zero Pending Recollections</p>
+                <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                  All specimens are viable or recollections have been completed.
+                </p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="lms-table">
+                  <thead>
+                    <tr>
+                      <th>Task ID</th>
+                      <th>Patient & Order</th>
+                      <th>Rejected Barcode</th>
+                      <th>Clinical Rejection Reason</th>
+                      <th>Specimen & Container</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Resolution</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRecollections.map((task) => (
+                      <tr key={task.taskId || task._id}>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{task.taskId}</span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600 }}>{task.patientName}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+                              {task.patientMrn ? `MRN: ${task.patientMrn} • ` : ''}{task.orderNumber}
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{task.container}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{task.sampleType}</span>
-                        </div>
-                      </td>
-                      <td>
-                        {task.status === 'resolved' ? (
-                          <Badge variant="success">Resolved</Badge>
-                        ) : (
+                          </div>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--danger-600, #dc2626)', fontWeight: 600 }}>
+                            {task.rejectedBarcode}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--danger-700, #b91c1c)' }}>
+                              {task.reason}
+                            </span>
+                            {task.notes && (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                                Notes: {task.notes}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{task.container}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>{task.sampleType}</span>
+                          </div>
+                        </td>
+                        <td>
                           <Badge variant="danger">Action Required</Badge>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {task.status === 'pending' ? (
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
                           <button
                             className="btn btn-primary btn-sm"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
@@ -1330,16 +1381,86 @@ export function SamplesPage() {
                             <RotateCcw size={12} />
                             Recollect Specimen
                           </button>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
-                            Replacement: {task.replacementBarcode || 'Created'}
-                          </span>
-                        )}
-                      </td>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Dedicated Completed Recollection History Card */}
+          {resolvedRecollections.length > 0 && (
+            <div className="card">
+              <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--slate-800)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CheckCircle size={15} style={{ color: 'var(--teal-600)' }} />
+                    Completed Recollection History ({resolvedRecollections.length})
+                  </h4>
+                  <p style={{ fontSize: '0.8125rem', color: 'var(--slate-500)' }}>
+                    Audit record of specimens previously recollected and fulfilled with replacement tubes.
+                  </p>
+                </div>
+              </div>
+              <div className="table-container">
+                <table className="lms-table">
+                  <thead>
+                    <tr>
+                      <th>Task ID</th>
+                      <th>Patient & Order</th>
+                      <th>Original Specimen</th>
+                      <th>Replacement Tube</th>
+                      <th>Resolution Clinical Notes</th>
+                      <th>Timestamp</th>
+                      <th>Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {resolvedRecollections.map((task) => (
+                      <tr key={task.taskId || task._id}>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--slate-600)' }}>
+                            {task.taskId}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600 }}>{task.patientName}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontFamily: 'monospace' }}>
+                              {task.orderNumber}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', textDecoration: 'line-through', color: 'var(--slate-500)' }}>
+                            {task.rejectedBarcode}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--teal-700)', fontWeight: 700 }}>
+                            {task.replacementBarcode || task.recollectedBarcode || 'Assigned'}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--slate-600)' }}>
+                            {task.notes || task.reason || 'Recollection fulfilled'}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                            {task.recollectedAt ? new Date(task.recollectedAt).toLocaleString() : task.updatedAt ? new Date(task.updatedAt).toLocaleString() : 'Completed'}
+                          </span>
+                        </td>
+                        <td>
+                          <Badge variant="success">Resolved</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -1637,6 +1758,69 @@ export function SamplesPage() {
                     <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#7f1d1d' }}>
                       Rejecting this report will return it to the laboratory bench queue for technician rerun or result correction.
                       This rejection justification will be permanently saved to the report's audit trail.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem', marginBottom: 0 }}>
+                      Rejection Routing & Action Required *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: signOffRejectionType === 'recollection' ? '2px solid #dc2626' : '1px solid var(--border-color)',
+                        background: signOffRejectionType === 'recollection' ? '#fef2f2' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="signOffRejectionType"
+                          value="recollection"
+                          checked={signOffRejectionType === 'recollection'}
+                          onChange={() => setSignOffRejectionType('recollection')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: signOffRejectionType === 'recollection' ? '#991b1b' : 'inherit' }}>
+                            Specimen Recollection
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Marks specimen rejected & creates task in Phlebotomy Recollection Queue.
+                          </div>
+                        </div>
+                      </label>
+
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: signOffRejectionType === 'correction' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                        background: signOffRejectionType === 'correction' ? '#fffbeb' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="signOffRejectionType"
+                          value="correction"
+                          checked={signOffRejectionType === 'correction'}
+                          onChange={() => setSignOffRejectionType('correction')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: signOffRejectionType === 'correction' ? '#92400e' : 'inherit' }}>
+                            Technician Bench Revision
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Re-opens results for bench re-entry/correction without redraw.
+                          </div>
+                        </div>
+                      </label>
                     </div>
                   </div>
 

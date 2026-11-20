@@ -392,6 +392,7 @@ RecollectionTaskSchema.methods.toSafeJSON = function () {
     orderNumber: obj.orderNumber,
     rejectedSampleId: obj.rejectedSampleId,
     rejectedBarcode: obj.rejectedBarcode,
+    sampleBarcode: obj.rejectedBarcode || '',
     patientId: obj.patientId,
     patientName: obj.patientName,
     patientMrn: obj.patientMrn,
@@ -405,6 +406,7 @@ RecollectionTaskSchema.methods.toSafeJSON = function () {
     requestedBy: obj.requestedBy,
     recollectedSampleId: obj.recollectedSampleId,
     recollectedBarcode: obj.recollectedBarcode,
+    replacementBarcode: obj.recollectedBarcode || null,
     recollectedAt: obj.recollectedAt,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
@@ -501,6 +503,7 @@ export const DiagnosticReportSchema = new mongoose.Schema(
 
 DiagnosticReportSchema.index({ tenantId: 1, reportNumber: 1 }, { unique: true });
 DiagnosticReportSchema.index({ tenantId: 1, createdAt: -1 });
+DiagnosticReportSchema.index({ tenantId: 1, updatedAt: -1, createdAt: -1 });
 DiagnosticReportSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 DiagnosticReportSchema.index({ tenantId: 1, patientMrn: 1, createdAt: -1 });
 DiagnosticReportSchema.index({ tenantId: 1, patientId: 1, createdAt: -1 });
@@ -524,6 +527,7 @@ DiagnosticReportSchema.methods.toSafeJSON = function () {
     status: obj.status,
     draftedBy: obj.draftedBy,
     reviewedBy: obj.reviewedBy,
+    verifiedBy: obj.verifiedBy || obj.reviewedBy || null,
     releasedBy: obj.releasedBy,
     rejectionReason: obj.rejectionReason,
     rejectionHistory: obj.rejectionHistory || [],

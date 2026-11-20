@@ -77,6 +77,7 @@ export function DashboardPage() {
   const [pathologistReviewStep, setPathologistReviewStep] = useState('review'); // 'review' | 'confirm_approve' | 'confirm_reject'
   const [pathologistFindings, setPathologistFindings] = useState('');
   const [pathologistRejectionReason, setPathologistRejectionReason] = useState('');
+  const [pathologistRejectionType, setPathologistRejectionType] = useState('recollection');
   const [pathologistModalError, setPathologistModalError] = useState(null);
   const [verificationNotes, setVerificationNotes] = useState('');
   const [isDoctorConfirmed, setIsDoctorConfirmed] = useState(false);
@@ -338,6 +339,7 @@ export function DashboardPage() {
     setPathologistFindings(report.findings || 'All analyte test parameters correlated and within expected clinical limits.');
     setVerificationNotes(report.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
     setPathologistRejectionReason('');
+    setPathologistRejectionType('recollection');
     setIsDoctorConfirmed(false);
     setPathologistModalError(null);
     setPathologistSignModalOpen(true);
@@ -398,10 +400,17 @@ export function DashboardPage() {
     setIsVerifyingReport(true);
     setPathologistModalError(null);
     try {
+      const isRecollection = pathologistRejectionType === 'recollection';
       await clinicalService.rejectReport(tenantId, selectedReviewReport.reportId || selectedReviewReport.id, {
         reason,
+        rejectionType: pathologistRejectionType,
+        requiresRecollection: isRecollection,
       });
-      setSuccessBanner(`Report for order ${selectedReviewReport.orderNumber || selectedReviewReport.orderId} rejected and returned to technician queue for revision.`);
+      setSuccessBanner(
+        isRecollection
+          ? `Report for order ${selectedReviewReport.orderNumber || selectedReviewReport.orderId} rejected. Actionable Recollection Task generated in Phlebotomy queue.`
+          : `Report for order ${selectedReviewReport.orderNumber || selectedReviewReport.orderId} rejected and returned to technician queue for revision.`
+      );
       setPathologistSignModalOpen(false);
       await fetchDashboard();
     } catch (err) {
@@ -2382,6 +2391,69 @@ export function DashboardPage() {
                     <div style={{ marginTop: '8px', fontSize: '0.8125rem', lineHeight: 1.5, color: '#7f1d1d' }}>
                       Rejecting this report will return it to the laboratory bench queue for technician rerun or result correction.
                       This rejection justification will be permanently saved to the report's audit trail and displayed on the technician bench.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem', marginBottom: 0 }}>
+                      Rejection Routing & Action Required *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: pathologistRejectionType === 'recollection' ? '2px solid #dc2626' : '1px solid var(--border-color)',
+                        background: pathologistRejectionType === 'recollection' ? '#fef2f2' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="dashRejectionType"
+                          value="recollection"
+                          checked={pathologistRejectionType === 'recollection'}
+                          onChange={() => setPathologistRejectionType('recollection')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: pathologistRejectionType === 'recollection' ? '#991b1b' : 'inherit' }}>
+                            Specimen Recollection
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Marks specimen rejected & creates task in Phlebotomy Recollection Queue.
+                          </div>
+                        </div>
+                      </label>
+
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: pathologistRejectionType === 'correction' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                        background: pathologistRejectionType === 'correction' ? '#fffbeb' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="dashRejectionType"
+                          value="correction"
+                          checked={pathologistRejectionType === 'correction'}
+                          onChange={() => setPathologistRejectionType('correction')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: pathologistRejectionType === 'correction' ? '#92400e' : 'inherit' }}>
+                            Technician Bench Revision
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Re-opens results for bench re-entry/correction without redraw.
+                          </div>
+                        </div>
+                      </label>
                     </div>
                   </div>
 

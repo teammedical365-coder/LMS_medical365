@@ -39,15 +39,22 @@ tenantClinicalRouter.get('/orders/:orderId/labels', requirePermission('samples:v
 // ---------------------------------------------------------------------------
 // SPECIMEN & SAMPLE TRACKING & RECOLLECTION
 // ---------------------------------------------------------------------------
+// Specific literal sub-routes MUST be declared before parameterized wildcard (/samples/:sampleId)
+tenantClinicalRouter.get('/samples/recollections', requirePermission(['samples:view', 'orders:view', 'reports:view', 'reports:verify']), tenantClinicalController.listRecollectionTasks);
+tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process', 'reports:verify']), tenantClinicalController.resolveRecollectionTask);
+
+// Direct /recollections aliases for API consumers
+tenantClinicalRouter.get('/recollections', requirePermission(['samples:view', 'orders:view', 'reports:view', 'reports:verify']), tenantClinicalController.listRecollectionTasks);
+tenantClinicalRouter.post('/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process', 'reports:verify']), tenantClinicalController.resolveRecollectionTask);
+
 tenantClinicalRouter.get('/samples', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.listSamples);
+tenantClinicalRouter.patch('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+tenantClinicalRouter.put('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
+
 tenantClinicalRouter.get('/samples/:sampleId', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.getSample);
-tenantClinicalRouter.get('/samples/recollections', requirePermission(['samples:view', 'orders:view']), tenantClinicalController.listRecollectionTasks);
-tenantClinicalRouter.post('/samples/recollections/:taskId/recollect', requirePermission(['samples:collect', 'samples:process']), tenantClinicalController.resolveRecollectionTask);
 tenantClinicalRouter.get('/samples/:sampleId/label', requirePermission('samples:view'), tenantClinicalController.getSampleBarcodeLabel);
 tenantClinicalRouter.patch('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
 tenantClinicalRouter.put('/samples/:sampleId/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.patch('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
-tenantClinicalRouter.put('/samples/status', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
 tenantClinicalRouter.patch('/samples/:sampleId', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
 tenantClinicalRouter.put('/samples/:sampleId', requirePermission(['samples:collect', 'samples:receive', 'samples:process']), tenantClinicalController.updateSampleStatus);
 tenantClinicalRouter.post('/samples/:sampleId/results', requirePermission('samples:process'), tenantClinicalController.recordSampleResults);
@@ -70,7 +77,7 @@ tenantClinicalRouter.delete('/test-categories/:categoryId', requirePermission('t
 // ---------------------------------------------------------------------------
 // DIAGNOSTIC REPORTS & VERIFICATION WORKFLOW
 // ---------------------------------------------------------------------------
-tenantClinicalRouter.get('/reports', requirePermission(['reports:view', 'orders:view']), tenantClinicalController.listReports);
+tenantClinicalRouter.get('/reports', requirePermission(['reports:view', 'reports:verify']), tenantClinicalController.listReports);
 tenantClinicalRouter.post('/reports', requirePermission('reports:create'), tenantClinicalController.createReport);
 tenantClinicalRouter.post('/reports/batch-release', requirePermission('reports:release'), tenantClinicalController.batchReleaseReports);
 tenantClinicalRouter.post('/reports/batch-download', requirePermission('reports:view'), tenantClinicalController.batchDownloadReports);

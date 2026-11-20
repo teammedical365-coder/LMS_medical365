@@ -202,6 +202,7 @@ export function ReportsPage() {
   // Rejection Modal State
   const [rejectModalReport, setRejectModalReport] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionType, setRejectionType] = useState('recollection');
   const [rejectError, setRejectError] = useState(null);
 
   // Report Revision & Correction State (Pathologist Rejection -> Technician Revision Workflow)
@@ -633,6 +634,7 @@ export function ReportsPage() {
     setVerificationFindings(r.findings || '');
     setVerificationNotes(r.verificationNotes || 'Diagnostic findings correlate clinically. Verified under laboratory quality protocol.');
     setRejectionReason('');
+    setRejectionType('recollection');
     setIsDoctorConfirmed(false);
     setVerifyError(null);
   };
@@ -679,6 +681,7 @@ export function ReportsPage() {
   const openRejectModal = (r) => {
     setRejectModalReport(r);
     setRejectionReason('');
+    setRejectionType('recollection');
     setRejectError(null);
   };
 
@@ -698,9 +701,17 @@ export function ReportsPage() {
       setActionLoading(true);
       setRejectError(null);
       setVerifyError(null);
-      const res = await clinicalService.rejectReport(tenantId, target.reportId, { reason: trimmed });
+      const isRecollection = rejectionType === 'recollection';
+      const res = await clinicalService.rejectReport(tenantId, target.reportId, {
+        reason: trimmed,
+        rejectionType,
+        requiresRecollection: isRecollection,
+      });
       if (res.success) {
-        setSuccessMsg(`Report ${res.data?.reportNumber || target.reportNumber} rejected and returned for technician correction`);
+        const msg = isRecollection
+          ? `Report ${res.data?.reportNumber || target.reportNumber} rejected. Actionable Recollection Task generated in Phlebotomy queue.`
+          : `Report ${res.data?.reportNumber || target.reportNumber} rejected and returned for technician bench revision`;
+        setSuccessMsg(msg);
         setRejectModalReport(null);
         setVerifyReport(null);
         await fetchReports();
@@ -2124,6 +2135,69 @@ export function ReportsPage() {
                     </div>
                   </div>
 
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem', marginBottom: 0 }}>
+                      Rejection Routing & Action Required *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: rejectionType === 'recollection' ? '2px solid #dc2626' : '1px solid var(--border-color)',
+                        background: rejectionType === 'recollection' ? '#fef2f2' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="verifyRejectionType"
+                          value="recollection"
+                          checked={rejectionType === 'recollection'}
+                          onChange={() => setRejectionType('recollection')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: rejectionType === 'recollection' ? '#991b1b' : 'inherit' }}>
+                            Specimen Recollection
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Marks specimen rejected & creates task in Phlebotomy Recollection Queue.
+                          </div>
+                        </div>
+                      </label>
+
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: rejectionType === 'correction' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                        background: rejectionType === 'correction' ? '#fffbeb' : 'var(--bg-surface)',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="radio"
+                          name="verifyRejectionType"
+                          value="correction"
+                          checked={rejectionType === 'correction'}
+                          onChange={() => setRejectionType('correction')}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: rejectionType === 'correction' ? '#92400e' : 'inherit' }}>
+                            Technician Bench Revision
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                            Re-opens results for bench re-entry/correction without redraw.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem' }}>
                       Clinical Rejection Justification * (minimum 5 characters)
@@ -2223,6 +2297,69 @@ export function ReportsPage() {
               <div>Requisition: <strong>{rejectModalReport.orderNumber}</strong></div>
               <div>Test Panel: <strong>{rejectModalReport.testName}</strong></div>
               <div>Drafted By: <strong>{rejectModalReport.draftedBy}</strong></div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8125rem', marginBottom: 0 }}>
+                Rejection Routing & Action Required *
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: rejectionType === 'recollection' ? '2px solid #dc2626' : '1px solid var(--border-color)',
+                  background: rejectionType === 'recollection' ? '#fef2f2' : 'var(--bg-surface)',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="radio"
+                    name="modalRejectionType"
+                    value="recollection"
+                    checked={rejectionType === 'recollection'}
+                    onChange={() => setRejectionType('recollection')}
+                    style={{ marginTop: '2px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: rejectionType === 'recollection' ? '#991b1b' : 'inherit' }}>
+                      Specimen Recollection
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                      Marks specimen rejected & creates task in Phlebotomy Recollection Queue.
+                    </div>
+                  </div>
+                </label>
+
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: rejectionType === 'correction' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                  background: rejectionType === 'correction' ? '#fffbeb' : 'var(--bg-surface)',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="radio"
+                    name="modalRejectionType"
+                    value="correction"
+                    checked={rejectionType === 'correction'}
+                    onChange={() => setRejectionType('correction')}
+                    style={{ marginTop: '2px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: rejectionType === 'correction' ? '#92400e' : 'inherit' }}>
+                      Technician Bench Revision
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                      Re-opens results for bench re-entry/correction without redraw.
+                    </div>
+                  </div>
+                </label>
+              </div>
             </div>
 
             <div className="form-group" style={{ margin: 0 }}>
