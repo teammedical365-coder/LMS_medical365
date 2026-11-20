@@ -14,7 +14,9 @@
 import TenantModel, { normalizeDomain } from '../models/tenant.model.js';
 import { LAB_STATUS, PROVISIONING_STATUS } from '../config/constants.js';
 import dbConnection from '../config/db.js';
+import config from '../config/env.js';
 import laboratoryManagementService from './laboratoryManagement.service.js';
+import { isPrivateLanHost } from '../utils/networkUtils.js';
 import logger from '../utils/logger.js';
 
 class TenantResolutionService {
@@ -72,6 +74,23 @@ class TenantResolutionService {
       }
 
       if (!tenant) {
+        // In Local Edition, if domain was not explicitly found in domains array but host is a verified private LAN IP / loopback,
+        // resolve to the active local laboratory tenant
+        if (config.isLocalEdition && isPrivateLanHost(cleanDomain)) {
+          if (dbConnection.getStatus().connected) {
+            tenant = await TenantModel.findOne({ status: LAB_STATUS.ACTIVE });
+          } else {
+            for (const t of laboratoryManagementService.memoryTenants.values()) {
+              if (t.status === LAB_STATUS.ACTIVE) {
+                tenant = t;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (!tenant) {
         return {
           isResolved: false,
           reason: 'TENANT_NOT_FOUND',
@@ -79,9 +98,10 @@ class TenantResolutionService {
         };
       }
 
-      // Check if domain is verified
-      const domainEntry = tenant.domains.find((d) => d.domain === cleanDomain);
-      if (!domainEntry || !domainEntry.isVerified) {
+      // Check if domain is verified (Private LAN IP/loopback in Local Edition is intrinsically trusted)
+      const isLanVerified = config.isLocalEdition && isPrivateLanHost(cleanDomain);
+      const domainEntry = tenant.domains?.find((d) => d.domain === cleanDomain);
+      if (!isLanVerified && (!domainEntry || !domainEntry.isVerified)) {
         logger.warn(`[TENANT RESOLUTION] Domain ${cleanDomain} found on tenant ${tenant.code} but is not marked verified.`);
         return {
           isResolved: false,

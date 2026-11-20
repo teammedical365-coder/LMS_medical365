@@ -78,7 +78,19 @@ export class MemoryTenantProvisioningAdapter {
       throw new Error(`Simulated database initialization failure for ${databaseName}`);
     }
 
-    const collections = ['users', 'patients', 'lab_orders', 'samples', 'audit_logs'];
+    const collections = [
+      'users',
+      'roles',
+      'patients',
+      'lab_orders',
+      'samples',
+      'audit_logs',
+      'diagnostic_reports',
+      'invoices',
+      'test_catalog',
+      'test_categories',
+      'recollection_tasks',
+    ];
     this.provisionedDatabases.add(databaseName);
 
     return {
@@ -136,7 +148,19 @@ export class MongoTenantProvisioningAdapter {
       }
 
       // Core tenant collections & schema index initialization
-      const collections = ['users', 'roles', 'patients', 'lab_orders', 'samples', 'audit_logs'];
+      const collections = [
+        'users',
+        'roles',
+        'patients',
+        'lab_orders',
+        'samples',
+        'audit_logs',
+        'diagnostic_reports',
+        'invoices',
+        'test_catalog',
+        'test_categories',
+        'recollection_tasks',
+      ];
 
       // Initialize collections & indexes in parallel for sub-second provisioning
       await Promise.all([
@@ -151,18 +175,58 @@ export class MongoTenantProvisioningAdapter {
         (async () => {
           const patientsColl = await db.createCollection('patients').catch((err) => (err.code === 48 ? db.collection('patients') : Promise.reject(err)));
           await patientsColl.createIndex({ tenantId: 1, mrn: 1 }, { unique: true });
+          await patientsColl.createIndex({ tenantId: 1, createdAt: -1 });
+          await patientsColl.createIndex({ tenantId: 1, patientId: 1 });
         })(),
         (async () => {
           const ordersColl = await db.createCollection('lab_orders').catch((err) => (err.code === 48 ? db.collection('lab_orders') : Promise.reject(err)));
           await ordersColl.createIndex({ tenantId: 1, orderNumber: 1 }, { unique: true });
+          await ordersColl.createIndex({ tenantId: 1, createdAt: -1 });
+          await ordersColl.createIndex({ tenantId: 1, patientId: 1, createdAt: -1 });
+          await ordersColl.createIndex({ tenantId: 1, orderStatus: 1, createdAt: -1 });
         })(),
         (async () => {
           const samplesColl = await db.createCollection('samples').catch((err) => (err.code === 48 ? db.collection('samples') : Promise.reject(err)));
           await samplesColl.createIndex({ tenantId: 1, barcode: 1 }, { unique: true });
+          await samplesColl.createIndex({ tenantId: 1, orderId: 1 });
+          await samplesColl.createIndex({ tenantId: 1, createdAt: -1 });
+          await samplesColl.createIndex({ tenantId: 1, patientId: 1, createdAt: -1 });
+          await samplesColl.createIndex({ tenantId: 1, collectionStatus: 1, processingStatus: 1 });
         })(),
         (async () => {
           const auditColl = await db.createCollection('audit_logs').catch((err) => (err.code === 48 ? db.collection('audit_logs') : Promise.reject(err)));
           await auditColl.createIndex({ timestamp: -1 });
+          await auditColl.createIndex({ targetTenantId: 1, timestamp: -1 });
+        })(),
+        (async () => {
+          const reportsColl = await db.createCollection('diagnostic_reports').catch((err) => (err.code === 48 ? db.collection('diagnostic_reports') : Promise.reject(err)));
+          await reportsColl.createIndex({ tenantId: 1, reportNumber: 1 }, { unique: true });
+          await reportsColl.createIndex({ tenantId: 1, createdAt: -1 });
+          await reportsColl.createIndex({ tenantId: 1, status: 1, createdAt: -1 });
+          await reportsColl.createIndex({ tenantId: 1, patientId: 1, createdAt: -1 });
+          await reportsColl.createIndex({ tenantId: 1, patientMrn: 1, createdAt: -1 });
+        })(),
+        (async () => {
+          const invoicesColl = await db.createCollection('invoices').catch((err) => (err.code === 48 ? db.collection('invoices') : Promise.reject(err)));
+          await invoicesColl.createIndex({ tenantId: 1, invoiceNumber: 1 }, { unique: true });
+          await invoicesColl.createIndex({ tenantId: 1, createdAt: -1 });
+          await invoicesColl.createIndex({ tenantId: 1, status: 1, createdAt: -1 });
+          await invoicesColl.createIndex({ tenantId: 1, patientId: 1, createdAt: -1 });
+        })(),
+        (async () => {
+          const catalogColl = await db.createCollection('test_catalog').catch((err) => (err.code === 48 ? db.collection('test_catalog') : Promise.reject(err)));
+          await catalogColl.createIndex({ tenantId: 1, code: 1 }, { unique: true });
+          await catalogColl.createIndex({ tenantId: 1, categoryId: 1 });
+          await catalogColl.createIndex({ tenantId: 1, department: 1 });
+        })(),
+        (async () => {
+          const categoriesColl = await db.createCollection('test_categories').catch((err) => (err.code === 48 ? db.collection('test_categories') : Promise.reject(err)));
+          await categoriesColl.createIndex({ tenantId: 1, name: 1 }, { unique: true });
+        })(),
+        (async () => {
+          const tasksColl = await db.createCollection('recollection_tasks').catch((err) => (err.code === 48 ? db.collection('recollection_tasks') : Promise.reject(err)));
+          await tasksColl.createIndex({ tenantId: 1, taskId: 1 }, { unique: true });
+          await tasksColl.createIndex({ tenantId: 1, status: 1 });
         })(),
       ]);
 

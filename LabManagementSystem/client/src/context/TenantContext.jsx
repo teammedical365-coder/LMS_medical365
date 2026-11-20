@@ -119,11 +119,17 @@ export function TenantProvider({ children }) {
         }
         const labCode = pathLab || urlParams.get('lab') || urlParams.get('tenant') || urlParams.get('org');
 
-        // On localhost or root platform domains without a specific lab parameter, use default branding immediately
+        // On localhost, private LAN IPs, or root platform domains without a specific lab parameter, use default branding immediately
+        const isPrivateLanIp =
+          /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+          /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+          /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname);
+
         const isPlatformHost = !hostname ||
           hostname === 'localhost' ||
           hostname === '127.0.0.1' ||
           hostname === '::1' ||
+          isPrivateLanIp ||
           hostname === 'lms-medical365.vercel.app' ||
           hostname.endsWith('.vercel.app') ||
           hostname.endsWith('.onrender.com');

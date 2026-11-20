@@ -147,10 +147,13 @@ class TokenService {
    * Cookie configuration for secure HTTP-only browser storage
    */
   getCookieOptions() {
+    // In Local Edition running on plain HTTP over LAN, secure must be false so browsers accept cookies over http://<lan-ip>.
+    // Cloud Edition strictly retains secure: true and sameSite: 'strict' for HTTPS.
+    const isSecure = config.isLocalEdition ? false : config.isProduction;
     return {
       httpOnly: true,
-      secure: config.isProduction, // In production, cookies require HTTPS
-      sameSite: config.isProduction ? 'strict' : 'lax',
+      secure: isSecure,
+      sameSite: isSecure ? 'strict' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days aligned with token expiry
       path: '/',
     };

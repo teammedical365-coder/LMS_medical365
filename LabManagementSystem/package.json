@@ -8,6 +8,7 @@
     "dev:client": "npm --prefix client run dev",
     "start:server": "npm --prefix server start",
     "build:client": "npm --prefix client run build",
+    "bootstrap:local": "npm --prefix server run bootstrap:local",
     "backup": "npm --prefix server run backup"
   }
 }

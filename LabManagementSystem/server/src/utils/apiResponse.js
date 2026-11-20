@@ -21,6 +21,22 @@ export class ApiResponse {
     return this.success(res, data, message, HTTP_STATUS.CREATED, meta);
   }
 
+  static badRequest(res, message = 'Bad Request', errors = null) {
+    return this.error(res, message, HTTP_STATUS.BAD_REQUEST, errors);
+  }
+
+  static unauthorized(res, message = 'Unauthorized', errors = null) {
+    return this.error(res, message, HTTP_STATUS.UNAUTHORIZED, errors);
+  }
+
+  static forbidden(res, message = 'Forbidden', errors = null) {
+    return this.error(res, message, HTTP_STATUS.FORBIDDEN, errors);
+  }
+
+  static notFound(res, message = 'Not Found', errors = null) {
+    return this.error(res, message, HTTP_STATUS.NOT_FOUND, errors);
+  }
+
   static error(res, message = 'Internal Server Error', statusCode = HTTP_STATUS.INTERNAL_ERROR, errors = null) {
     const payload = {
       success: false,

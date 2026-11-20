@@ -55,3 +55,26 @@ tmp/
 *.orig
 .cache/
 .eslintcache
+
+# Offline Image Archives & Installer Distributables (kept locally, not in Git)
+LabManagementSystem/installer_dist/*.exe
+LabManagementSystem/installer_dist/*.tar
+LabManagementSystem/installer_dist/*.zip
+!LabManagementSystem/installer_dist/offline-images-manifest.json
+!LabManagementSystem/installer_dist/offline-images.sha256
+
+# Database Backup Archives & Dry-Run Artifacts
+*.bson
+*.dump
+*.archive
+.test_dryrun_backup/
+LabManagementSystem/.test_dryrun_backup/
+lms_local_mongo_backup.tar.gz
+LabManagementSystem/lms_local_mongo_backup.tar.gz
+
+# Local License Key Tokens (kept locally, not in Git)
+LabManagementSystem/docker/license.key
+LabManagementSystem/server/license.key
+
+# Standalone Git Bundles
+*.bundle

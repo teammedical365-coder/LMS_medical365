@@ -8,6 +8,7 @@ import http from 'http';
 import app from './app.js';
 import config, { validateConfig } from './config/env.js';
 import dbConnection from './config/db.js';
+import localDatabaseBootstrapService from './services/localDatabaseBootstrap.service.js';
 import logger from './utils/logger.js';
 
 import net from 'net';
@@ -91,14 +92,21 @@ async function bootstrap() {
   try {
     const connResult = await dbConnection.connect();
     if (connResult.status === 'connected') {
-      logger.info(`[LMS DB] Connected to MongoDB Atlas master database: ${connResult.dbName} (${connResult.host})`);
+      const dbType = config.isLocalEdition ? 'Local MongoDB Community' : 'MongoDB Atlas';
+      logger.info(`[LMS DB] Connected to ${dbType} master database: ${connResult.dbName} (${connResult.host})`);
+
+      // In Local Edition, auto-initialize local master database and default lab if configured
+      if (config.isLocalEdition) {
+        await localDatabaseBootstrapService.bootstrapIfConfigured();
+      }
     }
   } catch (err) {
-    logger.error('CRITICAL: Failed to connect to MongoDB Atlas database.', {
+    const dbType = config.isLocalEdition ? 'Local MongoDB' : 'MongoDB Atlas';
+    logger.error(`CRITICAL: Failed to connect to ${dbType} database.`, {
       error: err.message,
     });
     if (config.database.autoConnect) {
-      logger.error('DB_AUTO_CONNECT=true is set: Live operations will fail safely with 503 DATABASE_UNAVAILABLE until Atlas credentials or network access are configured.');
+      logger.error(`DB_AUTO_CONNECT=true is set: Live operations will fail safely with 503 DATABASE_UNAVAILABLE until ${dbType} is started.`);
     }
   }
 
