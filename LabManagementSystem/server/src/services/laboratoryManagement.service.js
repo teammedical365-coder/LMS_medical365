@@ -17,6 +17,7 @@ import tenantUserService from './tenantUser.service.js';
 import roleService from './role.service.js';
 import { USER_ROLES } from '../config/constants.js';
 import dbConnection from '../config/db.js';
+import { isPrivateLanHost } from '../utils/networkUtils.js';
 import logger from '../utils/logger.js';
 
 export class LaboratoryManagementError extends Error {
@@ -988,6 +989,23 @@ class LaboratoryManagementService {
         if (t.code === clean || t.tenantId === clean || t.domains?.some((d) => d.domain === clean)) {
           lab = t;
           break;
+        }
+      }
+    }
+
+    if (!lab) {
+      // In Local Edition, if domain wasn't explicitly registered in domains array but host is a verified private LAN IP / loopback,
+      // resolve to the active local laboratory branding
+      if (config.isLocalEdition && isPrivateLanHost(clean)) {
+        if (this.isMongoActive()) {
+          lab = await TenantModel.findOne({ status: LAB_STATUS.ACTIVE });
+        } else {
+          for (const t of this.memoryTenants.values()) {
+            if (t.status === LAB_STATUS.ACTIVE) {
+              lab = t;
+              break;
+            }
+          }
         }
       }
     }

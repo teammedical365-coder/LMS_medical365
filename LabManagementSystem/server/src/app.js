@@ -39,7 +39,12 @@ export const normalizeOrigin = (origin) => {
  * - In development/test: origin must match config.corsOrigins OR loopback localhost/127.0.0.1.
  * - All other origins return false.
  */
-export const isOriginAllowed = (origin, customOrigins = config.corsOrigins, isProd = config.isProduction) => {
+export const isOriginAllowed = (
+  origin,
+  customOrigins = config.corsOrigins,
+  isProd = config.isProduction,
+  isLocal = config.isLocalEdition
+) => {
   if (!origin) return true;
 
   const normalized = normalizeOrigin(origin);
@@ -52,6 +57,13 @@ export const isOriginAllowed = (origin, customOrigins = config.corsOrigins, isPr
   // In non-production environments, allow local development loopback origins
   if (!isProd) {
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) {
+      return true;
+    }
+  }
+
+  // In Local Edition, allow private LAN IP subnets (192.168.x.x, 10.x.x.x, 172.16-31.x.x) and loopback
+  if (isLocal) {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(normalized)) {
       return true;
     }
   }

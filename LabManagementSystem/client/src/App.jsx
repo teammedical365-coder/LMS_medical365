@@ -9,6 +9,7 @@ import { TenantProvider } from './context/TenantContext';
 import AppRoutes from './routes/AppRoutes';
 
 // Global Styles
+import './styles/fonts.css';
 import './styles/variables.css';
 import './styles/global.css';
 import './styles/layout.css';

@@ -1,0 +1,153 @@
+# ==============================================================================
+# Lab Management System (LMS) - Local On-Premise Edition Docker Compose
+# ==============================================================================
+# Target: Central Windows Server PC + Multiple LAN Workstation Terminals
+#
+# Architecture & Network Isolation:
+#   1. frontend (Nginx 1.27 + React SPA):
+#      - ONLY service with published ports on the LAN (${FRONTEND_PORT:-80}:80).
+#      - Serves pre-built React SPA static assets.
+#      - Reverse-proxies /api/ requests to the private backend container.
+#   2. backend (Node.js 20 + Express API):
+#      - Runs on port 5000 inside private Docker bridge network.
+#      - ZERO published ports to host or LAN (cannot be accessed directly).
+#      - Mounts persistent volumes for backups, storage, and logs.
+#   3. mongo (MongoDB Community Edition 7.0):
+#      - Runs on port 27017 inside private Docker bridge network.
+#      - ZERO published ports to host or LAN (cannot be accessed directly).
+#      - Runs with authentication and dedicated database user (lms_app_user).
+#      - Mounts persistent volume for database data files.
+# ==============================================================================
+
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. FRONTEND REVERSE PROXY & SPA WEB SERVER (Nginx)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api/v1
+        VITE_APP_TITLE: "Medical365 Laboratory Management System (Local Edition)"
+    image: lms-medical365-frontend:local
+    container_name: lms_local_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - lms_private_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:80/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # 2. BACKEND REST API SERVER (Node.js / Express)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: lms-medical365-backend:local
+    container_name: lms_local_backend
+    restart: unless-stopped
+    expose:
+      - "5000"
+    # Port 5000 is intentionally NOT published to host or LAN for security.
+    # All inbound traffic from workstations routes exclusively through Nginx on Port 80.
+    ports: []
+    networks:
+      - lms_private_network
+    environment:
+      - PORT=5000
+      - LMS_EDITION=local
+      - NODE_ENV=production
+      - API_PREFIX=/api/v1
+      - DB_AUTO_CONNECT=true
+      - MONGODB_URI=mongodb://${MONGO_APP_USER:-lms_app_user}:${MONGO_APP_PASSWORD:-lms_local_secure_pass}@mongo:27017/lms_master?authSource=admin
+      - MONGODB_MASTER_DB_NAME=lms_master
+      - TENANT_DB_STRATEGY=isolated_db
+      - TENANT_DB_NAME_PREFIX=lms_lab_
+      - TENANT_PROVISIONING_MODE=auto
+      - SUPER_ADMIN_API_KEY=${SUPER_ADMIN_API_KEY:-dev-super-admin-key-change-in-production-local}
+      - JWT_SECRET=1C2i3SLuHcaIG0qmVhfzZ1J-HfS_MrQK8LwGw64CMITR83MeCzZL8W2BNinVBiJD
+      - JWT_EXPIRES_IN=7d
+      - JWT_ISSUER=lms-local-auth
+      - JWT_AUDIENCE=lms-local-api
+      - COOKIE_SECRET=gdBNZ3CdcC6g2eiPT7iGJ-3_MS9VOjZJrHlHIJy39w7iIr2EjTqpPMAsgVcbScsk
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-pawanharish22@gmail.com}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD must be set}
+      - BOOTSTRAP_ADMIN_NAME=${BOOTSTRAP_ADMIN_NAME:-Local System Administrator}
+    volumes:
+      - lms_backup_data:/app/backups
+      - lms_storage_data:/app/storage
+      - lms_log_data:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # 3. DATABASE SERVER (MongoDB Community Edition 7.0)
+  # ---------------------------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    container_name: lms_local_mongo
+    restart: unless-stopped
+    expose:
+      - "27017"
+    # Port 27017 is intentionally NOT published to host or LAN for security.
+    ports: []
+    networks:
+      - lms_private_network
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-lms_root_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-lms_root_secure_pass}
+      - MONGO_INITDB_DATABASE=lms_master
+      - MONGO_APP_USER=${MONGO_APP_USER:-lms_app_user}
+      - MONGO_APP_PASSWORD=${MONGO_APP_PASSWORD:-lms_local_secure_pass}
+    volumes:
+      - lms_mongo_data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet -u \"$$MONGO_APP_USER\" -p \"$$MONGO_APP_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping')\" || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+# -----------------------------------------------------------------------------
+# PERSISTENT STORAGE VOLUMES
+# -----------------------------------------------------------------------------
+volumes:
+  lms_mongo_data:
+    name: lms_local_mongo_data
+  lms_backup_data:
+    name: lms_local_backup_data
+  lms_storage_data:
+    name: lms_local_storage_data
+  lms_log_data:
+    name: lms_local_log_data
+
+# -----------------------------------------------------------------------------
+# PRIVATE DOCKER BRIDGE NETWORK
+# -----------------------------------------------------------------------------
+networks:
+  lms_private_network:
+    name: lms_local_private_network
+    driver: bridge

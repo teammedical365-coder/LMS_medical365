@@ -106,8 +106,84 @@ export function validateSecret(keyName, secretValue, minLength = 32) {
   return { isValid: true };
 }
 
+/**
+ * Enforces fail-closed database isolation for Local Edition.
+ * Guarantees that Local Edition CANNOT connect to MongoDB Atlas, cloud DNS, or external WAN hosts.
+ */
+export function validateDatabaseIsolation(rawUri, isLocal = false) {
+  if (!isLocal) {
+    // Mode A: Existing Cloud Edition - No local-isolation constraints applied
+    return { isValid: true };
+  }
+
+  if (!rawUri || typeof rawUri !== 'string' || rawUri.trim().length === 0) {
+    return {
+      isValid: false,
+      error: '[SEC-LOCAL-01] Local Edition Database Isolation: MONGODB_URI is required and must point to a local database.',
+    };
+  }
+
+  const trimmed = rawUri.trim();
+
+  // 1. Strictly forbid mongodb+srv:// scheme in Local Edition (Atlas / Cloud DNS only)
+  if (/^mongodb\+srv:\/\//i.test(trimmed)) {
+    return {
+      isValid: false,
+      error: '[SEC-LOCAL-01] Local Edition Database Isolation Violation: mongodb+srv:// connection scheme is strictly forbidden in Local Edition. Local Edition must use direct mongodb:// connection to the local database.',
+    };
+  }
+
+  // 2. Strictly forbid mongodb.net or Atlas cluster naming
+  if (/mongodb\.net/i.test(trimmed) || /cluster\d+/i.test(trimmed)) {
+    return {
+      isValid: false,
+      error: '[SEC-LOCAL-01] Local Edition Database Isolation Violation: MONGODB_URI points to a MongoDB Atlas cluster (*.mongodb.net). Local Edition must connect exclusively to local MongoDB.',
+    };
+  }
+
+  // 3. Extract hostname from mongodb://[user:pass@]host[:port]/database
+  try {
+    const withoutScheme = trimmed.replace(/^mongodb:\/\//i, '');
+    const withoutCreds = withoutScheme.includes('@') ? withoutScheme.split('@')[1] : withoutScheme;
+    const hostPart = withoutCreds.split('/')[0].split('?')[0];
+    const hostname = hostPart.split(':')[0].toLowerCase();
+
+    // Allowed hosts for Local Edition:
+    // - Docker service name 'mongo'
+    // - Loopback addresses: 'localhost', '127.0.0.1', '::1'
+    // - RFC 1918 private LAN IP subnets: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+    const isApprovedHost =
+      hostname === 'mongo' ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname);
+
+    if (!isApprovedHost) {
+      return {
+        isValid: false,
+        error: `[SEC-LOCAL-01] Local Edition Database Isolation Violation: Unapproved database host '${hostname}'. Local Edition must connect exclusively to local MongoDB ('mongo', 'localhost', or private LAN IP).`,
+      };
+    }
+  } catch {
+    if (!trimmed.includes('mongo') && !trimmed.includes('127.0.0.1') && !trimmed.includes('localhost')) {
+      return {
+        isValid: false,
+        error: '[SEC-LOCAL-01] Local Edition Database Isolation Violation: Could not verify that MONGODB_URI connects to an isolated local database host.',
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
 const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
 const appEnv = (process.env.APP_ENV || '').trim().toLowerCase();
+const lmsEdition = (process.env.LMS_EDITION || process.env.APP_EDITION || 'cloud').trim().toLowerCase();
+const isLocalEdition = lmsEdition === 'local' || lmsEdition === 'on-premise' || lmsEdition === 'onpremise';
+const isCloudEdition = !isLocalEdition;
 const isProduction = nodeEnv === 'production' || nodeEnv === 'prod' || appEnv === 'production';
 const isTest = nodeEnv === 'test';
 const isDevelopment = !isProduction && !isTest;
@@ -116,6 +192,9 @@ const initialCorsOrigins = parseCorsOrigins(process.env.CORS_ORIGINS, process.en
 
 const config = {
   env: process.env.NODE_ENV || 'development',
+  edition: lmsEdition,
+  isLocalEdition,
+  isCloudEdition,
   port: parseInt(process.env.PORT, 10) || 5000,
   apiPrefix: process.env.API_PREFIX || '/api/v1',
   corsOrigins: initialCorsOrigins,
@@ -139,6 +218,15 @@ const config = {
   },
   cookie: {
     secret: process.env.COOKIE_SECRET || (isProduction ? '' : 'dev-lms-cookie-signing-secret-change-in-production'),
+  },
+  localBootstrap: {
+    enabled: process.env.LOCAL_BOOTSTRAP_ENABLED !== 'false',
+    labName: process.env.LOCAL_LAB_NAME || 'Main Clinical Laboratory',
+    labCode: process.env.LOCAL_LAB_CODE || 'main-lab',
+    labEmail: process.env.LOCAL_LAB_EMAIL || 'contact@locallab.com',
+    adminFullName: process.env.LOCAL_LAB_ADMIN_NAME || 'Laboratory Administrator',
+    adminEmail: process.env.LOCAL_LAB_ADMIN_EMAIL || 'admin@locallab.com',
+    adminPassword: process.env.LOCAL_LAB_ADMIN_PASSWORD || '',
   },
   isProduction,
   isDevelopment,
@@ -174,6 +262,14 @@ export function validateConfig(targetConfig = config) {
     // 4. Validate CORS origins in production (fail-safe warning)
     if (!targetConfig.corsOrigins || targetConfig.corsOrigins.length === 0) {
       warnings.push('CORS_ORIGINS is not configured in production environment. Cross-origin browser requests will be blocked by default (fail-safe).');
+    }
+  }
+
+  // 5. Fail-closed database isolation check for Local Edition (SEC-LOCAL-01)
+  if (targetConfig.isLocalEdition) {
+    const dbIsoCheck = validateDatabaseIsolation(targetConfig.database?.uri, true);
+    if (!dbIsoCheck.isValid) {
+      errors.push(dbIsoCheck.error);
     }
   }
 

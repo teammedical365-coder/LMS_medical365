@@ -13,6 +13,9 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+docker/local.env
+docker/*.env
+!docker/*.env.example
 
 # Logs
 npm-debug.log*
@@ -35,3 +38,24 @@ Thumbs.db
 # Database Backups
 backups/
 server/backups/
+
+# Offline Image Archives & Installer Distributables (kept locally, not in Git)
+installer_dist/*.exe
+installer_dist/*.tar
+installer_dist/*.zip
+!installer_dist/offline-images-manifest.json
+!installer_dist/offline-images.sha256
+
+# Database Backup Archives & Dry-Run Artifacts
+*.bson
+*.dump
+*.archive
+.test_dryrun_backup/
+lms_local_mongo_backup.tar.gz
+
+# Local License Key Tokens (kept locally, not in Git)
+docker/license.key
+server/license.key
+
+# Standalone Git Bundles
+*.bundle

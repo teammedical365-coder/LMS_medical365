@@ -9,6 +9,8 @@ import authRoutes from './auth.routes.js';
 import tenantUserRoutes from './tenantUser.routes.js';
 import roleRoutes from './role.routes.js';
 import tenantClinicalRoutes from './tenantClinical.routes.js';
+import systemRoutes from './system.routes.js';
+import { enforceLicenseWriteAccess } from '../services/license.service.js';
 import tenantClinicalController from '../controllers/tenantClinical.controller.js';
 import ApiResponse from '../utils/apiResponse.js';
 
@@ -16,6 +18,9 @@ const apiV1Router = Router();
 
 // Health check endpoint under /api/v1/health
 apiV1Router.use('/health', healthRoutes);
+
+// System & Licensing endpoints under /api/v1/system
+apiV1Router.use('/system', systemRoutes);
 
 // Authentication endpoints under /api/v1/auth
 apiV1Router.use('/auth', authRoutes);
@@ -37,8 +42,8 @@ apiV1Router.use('/tenants/:tenantId/users', tenantUserRoutes);
 // Tenant Role & Permission Management under /api/v1/tenants/:tenantId/roles
 apiV1Router.use('/tenants/:tenantId/roles', roleRoutes);
 
-// Tenant Clinical & Operational Management under /api/v1/tenants/:tenantId
-apiV1Router.use('/tenants/:tenantId', tenantClinicalRoutes);
+// Tenant Clinical & Operational Management under /api/v1/tenants/:tenantId (Protected by offline license write check)
+apiV1Router.use('/tenants/:tenantId', enforceLicenseWriteAccess, tenantClinicalRoutes);
 
 // Root v1 info route
 apiV1Router.get('/', (req, res) => {
