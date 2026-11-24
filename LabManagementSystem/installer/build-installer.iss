@@ -54,6 +54,8 @@ Source: "..\docker\local.env.example"; DestDir: "{app}\docker"; Flags: ignorever
 ; CRITICAL SAFETY: Never overwrite or delete local.env or license.key if they exist
 Source: "..\docker\local.env"; DestDir: "{app}\docker"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "..\docker\license.key"; DestDir: "{app}\docker"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\docker\machine.id"; DestDir: "{app}\docker"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\storage\*"; DestDir: "{app}\storage"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs uninsneveruninstall
 
 ; Operational scripts
 Source: "..\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -79,6 +81,9 @@ Name: "{autodesktop}\LMS Medical365 Management"; Filename: "{app}\manage-lms.bat
 [Run]
 ; Configure Windows Firewall for Port 80 LAN access
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""LMS Medical365 LAN Access (Port 80)"" dir=in action=allow protocol=TCP localport=80 profile=private,domain"; Tasks: firewallrule; Flags: runhidden
+
+; Initialize and persist deterministic hardware machine fingerprint
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\get-machine-fingerprint.ps1"""; StatusMsg: "Configuring hardware machine fingerprint identifier..."; Flags: runhidden
 
 ; Load offline Docker images before service launch
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\load-offline-images.ps1"" -ArchivePath ""{code:GetOfflineImageArchivePath}"""; StatusMsg: "Loading offline Docker container images into Docker engine (Please wait 1-2 minutes)..."; Tasks: loadimages; Flags: runhidden; Check: ShouldLoadOfflineImages

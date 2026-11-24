@@ -7,6 +7,7 @@ import { Outlet } from 'react-router-dom';
 import Header from '../components/common/Header';
 import Sidebar from '../components/common/Sidebar';
 import Breadcrumbs from '../components/common/Breadcrumbs';
+import LicenseBanner from '../components/common/LicenseBanner';
 
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -21,6 +22,7 @@ export function MainLayout() {
       <div className="app-main">
         <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
         <main className="app-content">
+          <LicenseBanner />
           <Outlet />
         </main>
       </div>

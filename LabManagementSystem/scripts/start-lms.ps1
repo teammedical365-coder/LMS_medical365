@@ -84,6 +84,14 @@ if (!(Test-Path $EnvFile)) {
     }
 }
 
+# Ensure deterministic host machine fingerprint is generated and persisted
+$fpScript = Join-Path $RootDir "scripts\get-machine-fingerprint.ps1"
+if (Test-Path $fpScript) {
+    try {
+        & powershell -ExecutionPolicy Bypass -File $fpScript -Quiet
+    } catch {}
+}
+
 Write-Info "Starting LMS Medical365 containers..."
 & $docker compose -f $ComposeFile --env-file $EnvFile up -d
 
@@ -119,6 +127,19 @@ if ($allHealthy) {
     Write-Host " Central Server Localhost: http://localhost" -ForegroundColor White
     Write-Host " Network LAN Access URL:   http://$lanIp" -ForegroundColor Yellow
     Write-Host " Health Probe Endpoint:    http://$lanIp/api/health" -ForegroundColor White
+
+    try {
+        $licRes = Invoke-RestMethod -Uri "http://127.0.0.1/api/v1/system/license" -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($licRes -and $licRes.data) {
+            $lic = $licRes.data
+            Write-Host " License Status:           $($lic.status)" -ForegroundColor $(if ($lic.isValid) { "Green" } else { "Yellow" })
+            Write-Host " Machine Fingerprint:      $($lic.machineFingerprint)" -ForegroundColor Cyan
+            if ($lic.isReadOnly) {
+                Write-Host " [NOTICE] LMS is in Read-Only Mode. Activate write access via web portal or Manage Console Option [8]" -ForegroundColor Yellow
+            }
+        }
+    } catch {}
+
     Write-Host "----------------------------------------------------------------" -ForegroundColor Green
     Write-Info "Staff on Computer 2 and Computer 3 can now open: http://$lanIp`n"
 } else {

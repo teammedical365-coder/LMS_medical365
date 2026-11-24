@@ -1,11 +1,11 @@
-﻿{
+{
     "manifestVersion":  "1.0.0",
-    "generatedAt":  "2026-11-20T08:47:51.4897296Z",
+    "generatedAt":  "2026-11-24T08:46:03.8460960Z",
     "lmsEdition":  "local",
     "archiveFilename":  "LMS_Medical365_Offline_Images_v1.0.0.tar",
-    "sha256":  "577434B95210402C699AA66BA9545ED022ED0979E630F56EA9F1EA9D5F1D8C13",
-    "archiveSizeBytes":  387337728,
-    "archiveSizeMB":  369.39,
+    "sha256":  "9EAEAA15292B47778E26B6274F96B9210B45351B423EBAAFD231A8A3A301D39C",
+    "archiveSizeBytes":  387447296,
+    "archiveSizeMB":  369.5,
     "archiveSizeGB":  0.361,
     "imagesCount":  3,
     "images":  [
@@ -22,22 +22,22 @@
                    {
                        "service":  "backend",
                        "repoTag":  "lms-medical365-backend:local",
-                       "imageId":  "sha256:436906376465162bc709e4e30ceb146fc5fd82ba750593eb36abaaef51da4b49",
+                       "imageId":  "sha256:c002151da07e6ccbda831edf55bd6b456eaf4765c75e2c25ec9dbef4e36888e8",
                        "architecture":  "amd64",
                        "os":  "linux",
-                       "sizeBytes":  260420792,
-                       "sizeMB":  248.36,
-                       "created":  "2026-11-19T08:57:27.800929699Z"
+                       "sizeBytes":  261018819,
+                       "sizeMB":  248.93,
+                       "created":  "2026-11-24T08:32:14.541632274Z"
                    },
                    {
                        "service":  "frontend",
                        "repoTag":  "lms-medical365-frontend:local",
-                       "imageId":  "sha256:bdd7ef631e261c8893ed24d4a2ae53a1a48a98770440248294efb3abe5f6b8e9",
+                       "imageId":  "sha256:4b50dd387dc1ec0988c605895ec81acc2f83084890a45ffe1b97c8ccca11d236",
                        "architecture":  "amd64",
                        "os":  "linux",
-                       "sizeBytes":  75402296,
+                       "sizeBytes":  75405401,
                        "sizeMB":  71.91,
-                       "created":  "2026-11-19T09:00:03.29596792Z"
+                       "created":  "2026-11-24T08:39:23.694371943Z"
                    }
                ],
     "integrityNotes":  "Archive contains only standard OCI/Docker image layers. Zero patient data, database records, credentials, or volumes are contained."

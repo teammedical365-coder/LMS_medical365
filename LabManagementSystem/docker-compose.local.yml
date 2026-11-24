@@ -88,6 +88,8 @@ services:
       - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-pawanharish22@gmail.com}
       - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD must be set}
       - BOOTSTRAP_ADMIN_NAME=${BOOTSTRAP_ADMIN_NAME:-Local System Administrator}
+      - LMS_LICENSE_KEY=${LMS_LICENSE_KEY:-}
+      - LMS_MACHINE_FINGERPRINT=${LMS_MACHINE_FINGERPRINT:-}
     volumes:
       - lms_backup_data:/app/backups
       - lms_storage_data:/app/storage

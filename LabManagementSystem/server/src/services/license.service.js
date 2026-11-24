@@ -1,10 +1,11 @@
 /**
  * Lab Management System (LMS) - Offline Asymmetric Licensing Service
  * 
- * Implements Phase 5E Asymmetric Licensing:
+ * Implements Phase 5E Asymmetric Licensing & Machine Fingerprint Binding:
  * - RSA-2048 / SHA-256 digital signature verification
  * - Embedded public key verification only (private key strictly external)
- * - Hardware fingerprint binding with wildcard fallback
+ * - Deterministic host machine fingerprinting for Windows 10, Windows 11 & Linux WSL2
+ * - Persistent storage in Docker volume (/app/storage) & host files
  * - Expiration & 14-day grace period management
  * - Healthcare Safety: Expired licenses degrade to READ-ONLY mode.
  *   Patient and diagnostic records are NEVER locked, encrypted, wiped, or destroyed.
@@ -15,6 +16,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import config from '../config/env.js';
 
@@ -22,6 +24,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const DEFAULT_PUBLIC_KEY_PATH = path.resolve(__dirname, '../config/licensePublicKey.pem');
+
+// In-memory overrides for testing and instant activation caching
+let _overrideMachineFingerprint = null;
+let _cachedLicenseObj = null;
 
 /**
  * Deterministically serialize payload object for signature verification
@@ -41,28 +47,158 @@ export function canonicalizePayload(obj) {
 }
 
 /**
- * Calculate deterministic hardware fingerprint of the host machine
+ * Calculate deterministic hardware identifier from host-level Windows or Linux identifiers
  */
-export function getMachineFingerprint() {
-  const interfaces = os.networkInterfaces();
-  const macAddresses = [];
+function computeHostFingerprintInternal() {
+  const platform = os.platform();
+  const seedParts = ['LMS-MED365'];
 
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-        macAddresses.push(iface.mac.toLowerCase());
+  if (platform === 'win32') {
+    // 1. Windows MachineGuid (Registry)
+    let machineGuid = '';
+    try {
+      const regOut = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        encoding: 'utf8',
+      });
+      const match = regOut.match(/MachineGuid\s+REG_SZ\s+(\S+)/);
+      if (match && match[1]) {
+        machineGuid = match[1].trim();
+      }
+    } catch (_) {}
+
+    // 2. Windows Motherboard / System UUID (CIM / WMIC)
+    let systemUuid = '';
+    try {
+      const wmicOut = execSync('wmic csproduct get uuid', {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        encoding: 'utf8',
+      });
+      const lines = wmicOut.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && l !== 'UUID');
+      if (lines.length > 0) {
+        systemUuid = lines[0];
+      }
+    } catch (_) {}
+
+    if (machineGuid) seedParts.push(`GUID:${machineGuid}`);
+    if (systemUuid) seedParts.push(`UUID:${systemUuid}`);
+  } else if (platform === 'linux') {
+    // Linux host or container machine-id
+    const machineIdPaths = ['/etc/machine-id', '/var/lib/dbus/machine-id'];
+    for (const p of machineIdPaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const id = fs.readFileSync(p, 'utf8').trim();
+          if (id) {
+            seedParts.push(`LINUX_ID:${id}`);
+            break;
+          }
+        } catch (_) {}
       }
     }
   }
 
-  const identityString = [
-    os.platform(),
-    os.arch(),
-    os.hostname(),
-    macAddresses.sort().join(','),
-  ].join('|');
+  // Fallback if hardware GUID and system UUID are unavailable
+  if (seedParts.length <= 1) {
+    const interfaces = os.networkInterfaces();
+    const macs = [];
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name] || []) {
+        if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+          macs.push(iface.mac.toLowerCase());
+        }
+      }
+    }
+    if (macs.length > 0) {
+      seedParts.push(`MACS:${macs.sort().join(',')}`);
+    } else {
+      seedParts.push(`HOST:${os.hostname()}|${os.arch()}`);
+    }
+  }
 
+  const identityString = seedParts.join('|').toLowerCase();
   return crypto.createHash('sha256').update(identityString).digest('hex').substring(0, 32);
+}
+
+/**
+ * Persist computed fingerprint to persistent storage directories
+ */
+function persistFingerprintInternal(fp) {
+  if (!fp || typeof fp !== 'string' || fp.length < 16) return;
+  const targetPaths = [
+    '/app/storage/machine.id',
+    path.resolve('storage/machine.id'),
+    path.resolve('docker/machine.id'),
+  ];
+
+  for (const tPath of targetPaths) {
+    try {
+      const dir = path.dirname(tPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(tPath, fp.trim(), 'utf8');
+    } catch (_) {}
+  }
+}
+
+/**
+ * Calculate deterministic hardware fingerprint of the host machine.
+ * Guaranteed stable across Windows restarts, WSL2/Docker restarts, and container recreations.
+ */
+export function getMachineFingerprint() {
+  // 1. In-memory override (unit tests / mock environments)
+  if (_overrideMachineFingerprint) {
+    return _overrideMachineFingerprint;
+  }
+
+  // 2. Environment variable (passed from docker compose or local.env)
+  if (process.env.LMS_MACHINE_FINGERPRINT && process.env.LMS_MACHINE_FINGERPRINT.trim().length >= 16) {
+    return process.env.LMS_MACHINE_FINGERPRINT.trim();
+  }
+
+  // 3. Persisted storage files
+  const candidateFiles = [
+    '/app/storage/machine.id',
+    path.resolve('storage/machine.id'),
+    '/app/machine.id',
+    path.resolve('machine.id'),
+    path.resolve('docker/machine.id'),
+    path.resolve('../docker/machine.id'),
+  ];
+
+  for (const filePath of candidateFiles) {
+    if (fs.existsSync(filePath)) {
+      try {
+        const val = fs.readFileSync(filePath, 'utf8').trim();
+        if (val && val.length >= 16) {
+          return val;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 4. Compute from stable host identifiers
+  const computed = computeHostFingerprintInternal();
+
+  // 5. Auto-persist so subsequent calls and restarts remain 100% deterministic
+  persistFingerprintInternal(computed);
+
+  return computed;
+}
+
+/**
+ * Set in-memory machine fingerprint override (useful for testing)
+ */
+export function setOverrideMachineFingerprint(fp) {
+  _overrideMachineFingerprint = fp;
+}
+
+/**
+ * Reset in-memory machine fingerprint override
+ */
+export function resetOverrideMachineFingerprint() {
+  _overrideMachineFingerprint = null;
 }
 
 /**
@@ -242,15 +378,24 @@ export function evaluateLicenseStatus(licenseObj, options = {}) {
  * Locate and read license key file from standard paths or environment
  */
 export function resolveCurrentLicense() {
-  // 1. Environment variable
+  // 1. Cached in-memory active license
+  if (_cachedLicenseObj) {
+    return _cachedLicenseObj;
+  }
+
+  // 2. Environment variable
   if (process.env.LMS_LICENSE_KEY) {
     const parsed = parseLicenseKeyString(process.env.LMS_LICENSE_KEY);
     if (parsed) return parsed;
   }
 
-  // 2. Candidate file paths
+  // 3. Candidate file paths (checked in priority order)
   const candidates = [
+    '/app/storage/license.key',
+    path.resolve('storage/license.key'),
+    '/app/license.key',
     path.resolve('docker/license.key'),
+    path.resolve('../docker/license.key'),
     path.resolve('server/config/license.key'),
     path.resolve('server/license.key'),
     path.resolve('license.key'),
@@ -270,6 +415,70 @@ export function resolveCurrentLicense() {
 }
 
 /**
+ * Save and activate license key string into persistent storage and runtime cache
+ */
+export function saveAndActivateLicense(rawLicenseKey, options = {}) {
+  const parsed = parseLicenseKeyString(rawLicenseKey);
+  if (!parsed) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_FORMAT',
+        message: 'Invalid license format. Must be JSON or base64 encoded license object.',
+      },
+      status: evaluateLicenseStatus(null, options),
+    };
+  }
+
+  const evalStatus = evaluateLicenseStatus(parsed, options);
+  if (!evalStatus.isValid && evalStatus.state !== 'GRACE_PERIOD') {
+    return {
+      success: false,
+      error: {
+        code: evalStatus.state,
+        message: evalStatus.reason,
+        machineFingerprint: options.hardwareId || getMachineFingerprint(),
+      },
+      status: evalStatus,
+    };
+  }
+
+  // Save to persistent storage locations
+  const targetPaths = [
+    '/app/storage/license.key',
+    path.resolve('storage/license.key'),
+    path.resolve('docker/license.key'),
+  ];
+
+  let savedSuccessfully = false;
+  for (const targetPath of targetPaths) {
+    try {
+      const dir = path.dirname(targetPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf8');
+      savedSuccessfully = true;
+    } catch (_) {}
+  }
+
+  _cachedLicenseObj = parsed;
+
+  return {
+    success: true,
+    savedToDisk: savedSuccessfully,
+    status: evalStatus,
+  };
+}
+
+/**
+ * Reset runtime license cache (for testing)
+ */
+export function resetLicenseCache() {
+  _cachedLicenseObj = null;
+}
+
+/**
  * Get current system license evaluation
  */
 export function getCurrentLicenseStatus(options = {}) {
@@ -278,8 +487,8 @@ export function getCurrentLicenseStatus(options = {}) {
 }
 
 /**
- * Express Middleware: Enforces Read-Only protection when license is expired
- * Healthcare Clinical Safety Rule: GET / HEAD requests are NEVER blocked.
+ * Express Middleware: Enforces Read-Only protection when license is expired or missing.
+ * Healthcare Clinical Safety Rule: GET / HEAD / OPTIONS requests are NEVER blocked.
  * Patient records and diagnostic results are always viewable and printable.
  */
 export function enforceLicenseWriteAccess(req, res, next) {
@@ -293,7 +502,7 @@ export function enforceLicenseWriteAccess(req, res, next) {
     return next();
   }
 
-  // Allow license activation / renewal endpoint itself
+  // Allow license activation / renewal endpoints
   if (req.originalUrl && req.originalUrl.includes('/system/license')) {
     return next();
   }
@@ -303,10 +512,11 @@ export function enforceLicenseWriteAccess(req, res, next) {
     return res.status(403).json({
       success: false,
       error: {
-        code: 'LICENSE_EXPIRED_READ_ONLY',
-        message: status.reason || 'System is operating in Read-Only Mode. Patient records remain accessible for viewing and printing. Please renew your license.',
+        code: status.state === 'UNLICENSED' ? 'LICENSE_EXPIRED_READ_ONLY' : (status.state || 'LICENSE_EXPIRED_READ_ONLY'),
+        message: status.reason || 'System is operating in Read-Only Mode. Patient records remain accessible for viewing and printing. Please activate or renew your license.',
         state: status.state,
         daysRemaining: status.daysRemaining,
+        machineFingerprint: getMachineFingerprint(),
       },
     });
   }
@@ -319,9 +529,14 @@ export default {
   evaluateLicenseStatus,
   canonicalizePayload,
   getMachineFingerprint,
+  setOverrideMachineFingerprint,
+  resetOverrideMachineFingerprint,
   resolveCurrentLicense,
+  saveAndActivateLicense,
+  resetLicenseCache,
   getCurrentLicenseStatus,
   enforceLicenseWriteAccess,
   loadPublicKey,
   parseLicenseKeyString,
+  DEFAULT_PUBLIC_KEY_PATH,
 };

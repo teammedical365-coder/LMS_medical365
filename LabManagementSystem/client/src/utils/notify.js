@@ -11,9 +11,17 @@ import toast from 'react-hot-toast';
 export const getErrorMessage = (err, fallback = 'Unable to save changes. Please try again.') => {
   if (!err) return fallback;
   if (typeof err === 'string') return err;
-  if (err.response?.data?.message) return err.response.data.message;
-  if (err.response?.data?.error) return err.response.data.error;
-  if (err.message) return err.message;
+  if (err.response?.data?.message && typeof err.response.data.message === 'string') {
+    return err.response.data.message;
+  }
+  if (err.response?.data?.error) {
+    const errorVal = err.response.data.error;
+    if (typeof errorVal === 'string') return errorVal;
+    if (errorVal.message && typeof errorVal.message === 'string') return errorVal.message;
+    if (errorVal.reason && typeof errorVal.reason === 'string') return errorVal.reason;
+    if (errorVal.code && typeof errorVal.code === 'string') return `Operation blocked: ${errorVal.code}`;
+  }
+  if (err.message && typeof err.message === 'string') return err.message;
   return fallback;
 };
 

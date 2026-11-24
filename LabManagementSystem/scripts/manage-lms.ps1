@@ -92,7 +92,8 @@ while ($running) {
             Write-Host "`nQuerying License Status..." -ForegroundColor Cyan
             try {
                 $lic = (Invoke-RestMethod -Uri "http://127.0.0.1/api/v1/system/license" -TimeoutSec 5).data
-                Write-Host "Status:            " -NoNewline; Write-Host $lic.status -ForegroundColor Green
+                $statusColor = if ($lic.isValid) { "Green" } elseif ($lic.status -eq 'GRACE_PERIOD') { "Yellow" } else { "Red" }
+                Write-Host "Status:            " -NoNewline; Write-Host $lic.status -ForegroundColor $statusColor
                 Write-Host "Customer:          $($lic.customer.name)" -ForegroundColor White
                 Write-Host "Lab Code:          $($lic.customer.labCode)" -ForegroundColor White
                 Write-Host "Edition:           $($lic.edition)" -ForegroundColor White
@@ -100,9 +101,46 @@ while ($running) {
                 Write-Host "Expires At:        $($lic.expiresAt)" -ForegroundColor Gray
                 Write-Host "Read-Only Mode:    $($lic.isReadOnly)" -ForegroundColor $(if ($lic.isReadOnly) { "Red" } else { "Green" })
                 Write-Host "Enabled Features:  $($lic.features -join ', ')" -ForegroundColor Cyan
-                Write-Host "Hardware ID:       $($lic.machineFingerprint)" -ForegroundColor Gray
+                Write-Host "Machine Fingerprint ID: $($lic.machineFingerprint)" -ForegroundColor Green
+
+                Write-Host ""
+                $actChoice = Read-Host "Would you like to activate or update your license now? [Y/N]"
+                if ($actChoice -match "^[Yy]") {
+                    Write-Host "`nPaste your license key string or provide full path to license file:" -ForegroundColor Cyan
+                    $rawInput = Read-Host "License Key / File Path"
+                    if ($rawInput) {
+                        $keyToSend = $rawInput.Trim()
+                        if (Test-Path $keyToSend) {
+                            $keyToSend = [System.IO.File]::ReadAllText($keyToSend, [System.Text.Encoding]::UTF8).Trim()
+                        }
+                        
+                        Write-Host "Applying license key..." -ForegroundColor Cyan
+                        try {
+                            $bodyJson = @{ licenseKey = $keyToSend } | ConvertTo-Json
+                            $res = Invoke-RestMethod -Uri "http://127.0.0.1/api/v1/system/license/activate" -Method Post -Body $bodyJson -ContentType "application/json" -TimeoutSec 10
+                            if ($res.success) {
+                                Write-Host "[SUCCESS] License activated successfully! Write access is now enabled." -ForegroundColor Green
+                            } else {
+                                Write-Host "[ERROR] Activation failed: $($res.message)" -ForegroundColor Red
+                            }
+                        } catch {
+                            $errMsg = $_.Exception.Message
+                            if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+                                try {
+                                    $errJson = $_.ErrorDetails.Message | ConvertFrom-Json
+                                    if ($errJson.error -and $errJson.error.message) {
+                                        $errMsg = $errJson.error.message
+                                    } elseif ($errJson.message) {
+                                        $errMsg = $errJson.message
+                                    }
+                                } catch {}
+                            }
+                            Write-Host "[ERROR] License activation rejected: $errMsg" -ForegroundColor Red
+                        }
+                    }
+                }
             } catch {
-                Write-Host "Failed to query license endpoint. Ensure services are running." -ForegroundColor Red
+                Write-Host "Failed to query license endpoint. Ensure LMS services are running." -ForegroundColor Red
             }
             Pause-Console
         }
